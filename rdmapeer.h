@@ -85,7 +85,6 @@ protected:
     rdma_cm_id *id;
     ibv_qp *qp;
     ibv_qp_ex *qpx;
-    uint64_t qpx_wr_id;
     ibv_context *dev_ctx;
     ibv_pd *pd;
     ibv_cq_ex *cqx;
@@ -93,16 +92,8 @@ protected:
 
     bool connected;
 
-    ibv_mr *recv_mr;
-    ibv_mr *send_mr;
     ibv_mr *rdma_buffer_mr;
-
     ibv_mr peer_mr;
-
-    // for client to receive info about rdma buffer
-    std::unique_ptr<Message> recv_msg;
-    // for server to send info about rdma buffer
-    std::unique_ptr<Message> send_msg;
 
     // physically resides in server but needs to be created and mapped
     // in client too
@@ -120,7 +111,7 @@ protected:
     }
 
 public:
-    RDMAPeer() : qpx_wr_id(0), connected(false) { }
+    RDMAPeer() : connected(false) { }
     virtual ~RDMAPeer() { }
 
     const ibv_mr &get_remote_mr() const
@@ -137,7 +128,7 @@ public:
     void post_simple_send(ibv_sge *sge) const;
     void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
-    /* data path, be very judicious with code */
+    /* data path, be judicious with code */
     template<typename T>
     void blocking_poll_one(T&& func) const
     {

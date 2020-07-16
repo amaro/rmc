@@ -2,6 +2,10 @@
 
 class RDMAClient: public RDMAPeer {
 
+    // for client to receive info about rdma buffer
+    std::unique_ptr<Message> recv_msg;
+    ibv_mr *recv_mr;
+
     void recv_buff_info();
 
 public:

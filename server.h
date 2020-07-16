@@ -2,6 +2,10 @@
 
 class RDMAServer: public RDMAPeer {
 
+    // for server to send info about rdma buffer
+    std::unique_ptr<Message> send_msg;
+    ibv_mr *send_mr;
+
     void send_buff_info();
 
 public:
