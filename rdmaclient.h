@@ -13,10 +13,13 @@ protected:
     void recv_buff_info();
     virtual ~RDMAClient() { }
     void handle_addr_resolved(rdma_cm_id *cm_id);
-    void register_client_buffers();
+    void register_client_mrs();
 
 public:
-    RDMAClient() : RDMAPeer() {}
+    RDMAClient() : RDMAPeer() {
+        recv_msg = std::make_unique<RDMAMessage>();
+        rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
+    }
 
     /* client multi step connection establishment,
        assumes caller is client. Blocks until connection established */

@@ -65,7 +65,7 @@ void RDMAServer::disconnect_events()
 		case RDMA_CM_EVENT_DISCONNECTED:
 		    rdma_ack_cm_event(event);
 			disconnect();
-            break;
+            return;
 		default:
             die("unknown or unexpected event at disconnect_events().");
         }
@@ -80,19 +80,14 @@ void RDMAServer::handle_conn_request(rdma_cm_id *cm_id)
     create_context(cm_id->verbs);
     this->id = cm_id;
     create_qps();
-    register_server_buffers();
+    register_server_mrs();
 
     connect_or_accept(false); // accept
 }
 
-void RDMAServer::register_server_buffers()
+void RDMAServer::register_server_mrs()
 {
-    send_msg = std::make_unique<RDMAMessage>();
-
-    rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
-
-    TEST_Z(send_mr = ibv_reg_mr(pd, send_msg.get(), sizeof(RDMAMessage), 0));
-    TEST_Z(rdma_buffer_mr = ibv_reg_mr(pd, rdma_buffer.get(),
-        RDMA_BUFF_SIZE,
-        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ));
+    send_mr = register_mr(send_msg.get(), sizeof(RDMAMessage), 0);
+    rdma_buffer_mr = register_mr(rdma_buffer.get(), RDMA_BUFF_SIZE,
+         IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
 }

@@ -109,6 +109,14 @@ protected:
         connected = true;
     }
 
+    ibv_mr *register_mr(void *addr, size_t len, int permissions)
+    {
+        ibv_mr *mr = ibv_reg_mr(pd, addr, len, permissions);
+        if (!mr)
+            die("could not register mr");
+        return mr;
+    }
+
 public:
     RDMAPeer() : connected(false) { }
     virtual ~RDMAPeer() { }

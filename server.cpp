@@ -6,5 +6,7 @@ int main(int argc, char* argv[])
         die("usage: server <port>");
 
     RMCServer server;
-    server.start(atoi(argv[1]));
+    server.connect_events(atoi(argv[1]));
+
+    server.disconnect_events();
 }

@@ -12,7 +12,11 @@ class RDMAServer: public RDMAPeer {
     void send_buff_info();
 
 public:
-    RDMAServer() : RDMAPeer() {}
+    RDMAServer() : RDMAPeer()
+    {
+        send_msg = std::make_unique<RDMAMessage>();
+        rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
+    }
 
     /* server multi step connection establishment
        assumes caller is server. Blocks until connection
@@ -20,7 +24,7 @@ public:
     void connect_events(int port);
     void disconnect_events();
     void handle_conn_request(rdma_cm_id *cm_id);
-    void register_server_buffers();
+    void register_server_mrs();
 
     void disconnect()
     {

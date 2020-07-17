@@ -53,7 +53,7 @@ void RDMAClient::handle_addr_resolved(rdma_cm_id *cm_id)
     create_context(id->verbs);
     this->id = cm_id;
     create_qps();
-    register_client_buffers();
+    register_client_mrs();
 
     struct ibv_sge sge = {
         .addr = (uintptr_t) recv_msg.get(),
@@ -66,16 +66,10 @@ void RDMAClient::handle_addr_resolved(rdma_cm_id *cm_id)
     TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));
 }
 
-void RDMAClient::register_client_buffers()
+void RDMAClient::register_client_mrs()
 {
-    recv_msg = std::make_unique<RDMAMessage>();
-
-    rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
-
-    TEST_Z(recv_mr = ibv_reg_mr(pd, recv_msg.get(), sizeof(RDMAMessage),
-                                                    IBV_ACCESS_LOCAL_WRITE));
-    TEST_Z(rdma_buffer_mr = ibv_reg_mr(pd, rdma_buffer.get(),
-        RDMA_BUFF_SIZE,
-        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ));
+    recv_mr = register_mr(recv_msg.get(), sizeof(RDMAMessage), IBV_ACCESS_LOCAL_WRITE);
+    rdma_buffer_mr = register_mr(rdma_buffer.get(), RDMA_BUFF_SIZE,
+            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
 }
 

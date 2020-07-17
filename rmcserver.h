@@ -9,7 +9,11 @@ class RMCServer: public RDMAServer {
 public:
     RMCServer() : RDMAServer() {}
 
-    void start(int port);
+    /* 1. post recv for id
+       2. send rmc to server; wait for 1.
+       3. return id */
+    RMCId get_id(const RMC &rmc);
+    int call(const RMCId &id);
 };
 
 #endif
