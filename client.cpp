@@ -1,81 +1,36 @@
-#include "client.h"
+#include "cxxopts.h"
+#include "rmcclient.h"
+#include "rmc.h"
 
-void RDMAClient::recv_buff_info()
+int main(int argc, char* argv[])
 {
-    blocking_poll_one([this]() -> void {
-        std::cout << "recv successful\n";
-        assert(recv_msg->type == Message::MSG_MR);
-        memcpy(&peer_mr, &recv_msg->data.mr, sizeof(ibv_mr));
-        std::cout << "ready for rdma ops\n";
-    });
-}
+    cxxopts::Options opts("client", "Client for RDMA benchmarks");
 
-void RDMAClient::connect_to_server(const std::string &ip, const std::string &port)
-{
-    addrinfo *addr = nullptr;
-    rdma_cm_event *event = nullptr;
-    event_channel = nullptr;
+    opts.add_options()
+        ("s,server", "Server address", cxxopts::value<std::string>())
+        ("p,port", "Server port", cxxopts::value<std::string>()->default_value("30000"))
+        ("h,help", "Print usage")
+    ;
 
-    TEST_NZ(getaddrinfo(ip.c_str(), port.c_str(), nullptr, &addr));
-    TEST_Z(event_channel = rdma_create_event_channel());
-    TEST_NZ(rdma_create_id(event_channel, &this->id, nullptr, RDMA_PS_TCP));
-    TEST_NZ(rdma_resolve_addr(this->id, nullptr, addr->ai_addr, TIMEOUT_MS));
+    try {
+        RMCClient client;
+        auto result = opts.parse(argc, argv);
 
-    freeaddrinfo(addr);
+        if (result.count("help"))
+            die(opts.help());
 
-    while (rdma_get_cm_event(event_channel, &event) == 0) {
-        rdma_cm_event event_copy;
+        std::string server = result["server"].as<std::string>();
+        std::string port = result["port"].as<std::string>();
 
-        memcpy(&event_copy, event, sizeof(*event));
-        rdma_ack_cm_event(event);
-        event = &event_copy;
+        client.connect_to_server(server, port);
 
-        if (event->event == RDMA_CM_EVENT_ADDR_RESOLVED) {
-            handle_addr_resolved(event->id);
-        } else if (event->event == RDMA_CM_EVENT_ROUTE_RESOLVED) {
-            std::cout << "route resolved\n";
-            connect_or_accept(true); // connect
-        } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
-            handle_conn_established(event->id);
-            recv_buff_info();
-            return;
-        } else {
-            die("unknown or unexpected event.");
-        }
+        RMC rmc = "hello world\n";
+        RMCId id = client.get_id(rmc);
+        client.call(id);
+
+        client.disconnect();
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << "\n";
+        die(opts.help());
     }
 }
-
-void RDMAClient::handle_addr_resolved(rdma_cm_id *cm_id)
-{
-    assert(!connected);
-    std::cout << "address resolved\n";
-
-    create_context(id->verbs);
-    this->id = cm_id;
-    create_qps();
-    register_client_buffers();
-
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) recv_msg.get(),
-        .length = sizeof(*(recv_msg.get())),
-        .lkey = recv_mr->lkey
-    };
-
-    post_simple_recv(&sge);
-
-    TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));
-}
-
-void RDMAClient::register_client_buffers()
-{
-    recv_msg = std::make_unique<Message>();
-
-    rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
-
-    TEST_Z(recv_mr = ibv_reg_mr(pd, recv_msg.get(), sizeof(Message),
-                                                    IBV_ACCESS_LOCAL_WRITE));
-    TEST_Z(rdma_buffer_mr = ibv_reg_mr(pd, rdma_buffer.get(),
-        RDMA_BUFF_SIZE,
-        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ));
-}
-

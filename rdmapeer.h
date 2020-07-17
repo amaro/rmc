@@ -20,10 +20,9 @@ inline void die(const std::string& msg)
 #define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
-struct Message {
+struct RDMAMessage {
     enum {
-        MSG_MR,
-        MSG_DONE
+        MSG_MR
     } type;
 
     union {

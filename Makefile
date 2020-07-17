@@ -1,14 +1,14 @@
 CXXFLAGS  := -Wall -Werror -g -std=c++17 -O2
 LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
 
-APPS    := rmcclient rmcserver
+APPS    := client server
 
 all: $(APPS)
 
-rmcclient: rmcclient.o rdmapeer.o client.o
+client: client.o rmcclient.o rdmaclient.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
-rmcserver: rmcserver.o rdmapeer.o server.o
+server: server.o rmcserver.o rdmaserver.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
 .PHONY: clean

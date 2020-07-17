@@ -1,10 +1,7 @@
-#include "server.h"
+#include "rmcserver.h"
 
-int main(int argc, char* argv[])
-{
-    if (argc != 2)
-        die("usage: server <port>");
+void RMCServer::start(int port) {
+    connect_events(port);
 
-    RDMAServer server;
-    server.connect_from_client(atoi(argv[1]));
+	disconnect_events();
 }

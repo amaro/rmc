@@ -1,12 +1,19 @@
+#ifndef RDMA_CLIENT_H
+#define RDMA_CLIENT_H
+
 #include "rdmapeer.h"
 
 class RDMAClient: public RDMAPeer {
 
+protected:
     // for client to receive info about rdma buffer
-    std::unique_ptr<Message> recv_msg;
+    std::unique_ptr<RDMAMessage> recv_msg;
     ibv_mr *recv_mr;
 
     void recv_buff_info();
+    virtual ~RDMAClient() { }
+    void handle_addr_resolved(rdma_cm_id *cm_id);
+    void register_client_buffers();
 
 public:
     RDMAClient() : RDMAPeer() {}
@@ -14,8 +21,6 @@ public:
     /* client multi step connection establishment,
        assumes caller is client. Blocks until connection established */
     void connect_to_server(const std::string &ip, const std::string &port);
-    void register_client_buffers();
-    void handle_addr_resolved(rdma_cm_id *cm_id);
 
     void disconnect()
     {
@@ -24,3 +29,5 @@ public:
         RDMAPeer::disconnect();
     }
 };
+
+#endif

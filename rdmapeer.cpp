@@ -113,6 +113,7 @@ void RDMAPeer::disconnect()
     assert(connected);
     connected = false;
 
+    rdma_disconnect(id);
     rdma_destroy_qp(id);
 
     ibv_destroy_cq(ibv_cq_ex_to_cq(cqx));
