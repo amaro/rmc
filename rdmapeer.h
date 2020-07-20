@@ -109,54 +109,66 @@ protected:
         connected = true;
     }
 
-    ibv_mr *register_mr(void *addr, size_t len, int permissions)
-    {
-        ibv_mr *mr = ibv_reg_mr(pd, addr, len, permissions);
-        if (!mr)
-            die("could not register mr");
-        return mr;
-    }
-
 public:
     RDMAPeer() : connected(false) { }
     virtual ~RDMAPeer() { }
 
-    const ibv_mr &get_remote_mr() const
-    {
-        return this->peer_mr;
-    }
+    const ibv_mr &get_remote_mr() const;
+    const ibv_mr &get_local_mr() const;
 
-    const ibv_mr &get_local_mr() const
-    {
-        return *this->rdma_buffer_mr;
-    }
+    ibv_mr *register_mr(void *addr, size_t len, int permissions);
+    void dereg_mr(ibv_mr *mr);
 
     void post_simple_recv(ibv_sge *sge) const;
     void post_simple_send(ibv_sge *sge) const;
     void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
-    /* data path, be judicious with code */
-    template<typename T>
-    void blocking_poll_one(T&& func) const
-    {
-        int ret;
-        struct ibv_poll_cq_attr cq_attr = {};
-
-        while ((ret = ibv_start_poll(cqx, &cq_attr)) != 0) {
-            if (ret == ENOENT)
-                continue;
-            else
-                die("error in ibv_start_poll()\n");
-        }
-
-        if (cqx->status != IBV_WC_SUCCESS)
-            die("cqe status is not success\n");
-
-        func();
-        ibv_end_poll(cqx);
-    }
+    template<typename T> void blocking_poll_one(T&& func) const;
 
     virtual void disconnect();
 };
 
+inline const ibv_mr &RDMAPeer::get_remote_mr() const
+{
+    return this->peer_mr;
+}
+
+inline const ibv_mr &RDMAPeer::get_local_mr() const
+{
+    return *this->rdma_buffer_mr;
+}
+
+inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
+{
+    ibv_mr *mr = ibv_reg_mr(pd, addr, len, permissions);
+    if (!mr)
+        die("could not register mr");
+    return mr;
+}
+
+inline void RDMAPeer::dereg_mr(ibv_mr *mr)
+{
+    ibv_dereg_mr(mr);
+}
+
+/* data path */
+template<typename T>
+inline void RDMAPeer::blocking_poll_one(T&& func) const
+{
+    int ret;
+    struct ibv_poll_cq_attr cq_attr = {};
+
+    while ((ret = ibv_start_poll(cqx, &cq_attr)) != 0) {
+        if (ret == ENOENT)
+            continue;
+        else
+            die("error in ibv_start_poll()\n");
+    }
+
+    if (cqx->status != IBV_WC_SUCCESS)
+        die("cqe status is not success\n");
+
+    func();
+    ibv_end_poll(cqx);
+}
 #endif

@@ -25,13 +25,14 @@ public:
     void disconnect_events();
     void handle_conn_request(rdma_cm_id *cm_id);
     void register_server_mrs();
-
-    void disconnect()
-    {
-        ibv_dereg_mr(send_mr);
-        ibv_dereg_mr(rdma_buffer_mr);
-        RDMAPeer::disconnect();
-    }
+    void disconnect();
 };
+
+inline void RDMAServer::disconnect()
+{
+    dereg_mr(send_mr);
+    dereg_mr(rdma_buffer_mr);
+    RDMAPeer::disconnect();
+}
 
 #endif

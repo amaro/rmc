@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
         std::string server = result["server"].as<std::string>();
         std::string port = result["port"].as<std::string>();
 
-        client.connect_to_server(server, port);
+        client.connect(server, port);
 
         RMC rmc = "hello world\n";
         RMCId id = client.get_id(rmc);
