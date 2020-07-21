@@ -24,11 +24,12 @@ int main(int argc, char* argv[])
 
         client.connect(server, port);
 
-        RMC rmc = "hello world\n";
-        RMCId id = client.get_id(rmc);
-        client.call(id);
+        RMC rmc = "hello world; this is supposed to be an RMC";
+        RMCId id = client.get_rmc_id(rmc);
+        std::cout << "got id=" << id << "\n";
+        client.call_rmc(id);
+        client.last_cmd();
 
-        client.disconnect();
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";
         die(opts.help());

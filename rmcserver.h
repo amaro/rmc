@@ -1,10 +1,14 @@
 #ifndef RMC_SERVER_H
 #define RMC_SERVER_H
 
+#include <functional>
+#include <unordered_map>
 #include "rdmaserver.h"
 #include "rmc.h"
 
 class RMCServer {
+
+    std::unordered_map<RMCId, RMC> id_rmc_map;
 
     RDMAServer rserver;
     /* rmc server ready */
@@ -14,29 +18,24 @@ class RMCServer {
     ibv_mr *req_buf_mr;
     ibv_mr *reply_buf_mr;
 
+    /* post an ibv recv for an incoming RMCRequest */
+    void post_recv_req();
+    /* send a reply back to client */
+    void post_send_reply();
+
+    /* RMC entry points */
+    void get_rmc_id();
+    void call_rmc();
+
 public:
     RMCServer() : rmcsready(false) {
         req_buf = std::make_unique<RMCRequest>();
         reply_buf = std::make_unique<RMCReply>();
     }
 
-    void listen(int port);
-
-    /* 1. post recv for id
-       2. send rmc to server; wait for 1.
-       3. return id */
-    RMCId get_id(const RMC &rmc);
-    int call(const RMCId &id);
+    void connect(int port);
+    void handle_requests();
     void disconnect();
 };
-
-inline void RMCServer::disconnect()
-{
-    assert(rmcsready);
-    rserver.dereg_mr(req_buf_mr);
-    rserver.dereg_mr(reply_buf_mr);
-    rserver.disconnect();
-    rmcsready = false;
-}
 
 #endif

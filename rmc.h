@@ -4,40 +4,49 @@
 #define MAX_RMC_LEN 4096
 
 typedef std::string RMC;
-typedef unsigned long long int RMCId;
+typedef size_t RMCId;
 
-struct RMCRequest {
-    enum {
-        RMC_GET_ID,
-        RMC_CALL
-    } type;
+/* Reqs and Replies */
+struct GetIdReq {
+    char rmc[MAX_RMC_LEN];
+};
+struct GetIdReply {
+    RMCId id;
+};
+struct CallReq {
+    RMCId id; // TODO: figure out args
+};
+struct CallReply {
+    int status;
+};
+struct LastReq {};
+/* No LastReply */
 
-    union {
-        struct GetIdReq {
-            char rmc[MAX_RMC_LEN];
-        };
-
-        struct CallReq {
-            char rmc[MAX_RMC_LEN];
-        };
-    } data;
+enum RMCType {
+    RMC_GET_ID = 1,
+    RMC_CALL,
+    RMC_LAST
 };
 
-struct RMCReply {
-    enum {
-        RMC_GET_ID,
-        RMC_CALL
-    } type;
+/* Request struct */
+struct RMCRequest {
+    RMCType type;
 
     union {
-        struct GetIdReply {
-            RMCId id;
-        };
+        GetIdReq getid;
+        CallReq call;
+        LastReq last;
+    } request;
+};
 
-        struct CallReply {
-            int status;
-        };
-    } data;
+/* Reply struct */
+struct RMCReply {
+    RMCType type;
+
+    union {
+        GetIdReply getid;
+        CallReply call;
+    } reply;
 };
 
 #endif

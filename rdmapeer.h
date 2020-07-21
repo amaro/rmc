@@ -124,6 +124,7 @@ public:
     void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
     template<typename T> void blocking_poll_one(T&& func) const;
+    void blocking_poll_nofunc(unsigned int times) const;
 
     virtual void disconnect();
 };
@@ -151,6 +152,27 @@ inline void RDMAPeer::dereg_mr(ibv_mr *mr)
     ibv_dereg_mr(mr);
 }
 
+inline void RDMAPeer::post_simple_recv(ibv_sge *sge) const
+{
+    ibv_recv_wr wr = {};
+    ibv_recv_wr *bad_wr = nullptr;
+
+    wr.next = nullptr;
+    wr.sg_list = sge;
+    wr.num_sge = 1;
+
+    TEST_NZ(ibv_post_recv(this->qp, &wr, &bad_wr));
+}
+
+inline void RDMAPeer::post_simple_send(ibv_sge *sge) const
+{
+    ibv_wr_start(qpx);
+    qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_send(qpx);
+    ibv_wr_set_sge(qpx, sge->lkey, sge->addr, sge->length);
+    TEST_NZ(ibv_wr_complete(qpx));
+}
+
 /* data path */
 template<typename T>
 inline void RDMAPeer::blocking_poll_one(T&& func) const
@@ -170,5 +192,12 @@ inline void RDMAPeer::blocking_poll_one(T&& func) const
 
     func();
     ibv_end_poll(cqx);
+}
+
+inline void RDMAPeer::blocking_poll_nofunc(unsigned int times) const
+{
+    auto nofunc = []() -> void {};
+    for (unsigned int i = 0; i < times; ++i)
+        blocking_poll_one(nofunc);
 }
 #endif

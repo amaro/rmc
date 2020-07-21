@@ -1,6 +1,7 @@
 #ifndef RMC_CLIENT_H
 #define RMC_CLIENT_H
 
+#include <algorithm>
 #include "rdmaclient.h"
 #include "rmc.h"
 
@@ -14,6 +15,11 @@ class RMCClient {
     ibv_mr *req_buf_mr;
     ibv_mr *reply_buf_mr;
 
+    void post_recv_reply();
+    void post_send_req();
+
+    void disconnect();
+
 public:
     RMCClient() : rmccready(false) {
         req_buf = std::make_unique<RMCRequest>();
@@ -22,25 +28,17 @@ public:
 
     void connect(const std::string &ip, const std::string &port);
 
-    /* gets the id of an RMC.
-       if it exists, simply returns the id;
-       if it doesn't exist, creates it and returns the id */
-    RMCId get_id(const RMC &rmc);
+    /* 1. post recv for id
+       2. send rmc to server; wait for 1.
+       3. return id */
+    RMCId get_rmc_id(const RMC &rmc);
 
     /* calls an RMC by its id.
        TODO: figure out params, returns, etc. */
-    int call(const RMCId &id);
+    int call_rmc(const RMCId &id);
 
-    void disconnect();
+    /* cmd to initiate disconnect */
+    void last_cmd();
 };
-
-inline void RMCClient::disconnect()
-{
-    assert(rmccready);
-    rclient.dereg_mr(reply_buf_mr);
-    rclient.dereg_mr(req_buf_mr);
-    rclient.disconnect();
-    rmccready = false;
-}
 
 #endif
