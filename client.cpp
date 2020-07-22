@@ -24,7 +24,9 @@ int main(int argc, char* argv[])
 
         client.connect(server, port);
 
-        RMC rmc = "hello world; this is supposed to be an RMC";
+        const char *prog = R"(void hello() { printf("hello world\n"); })";
+
+        RMC rmc(prog);
         RMCId id = client.get_rmc_id(rmc);
         std::cout << "got id=" << id << "\n";
         client.call_rmc(id);
