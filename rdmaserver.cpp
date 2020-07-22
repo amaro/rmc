@@ -23,16 +23,15 @@ void RDMAServer::connect_events(int port)
 {
     sockaddr_in addr = {};
     rdma_cm_event *event = nullptr;
-    rdma_cm_id *listener = nullptr;
     event_channel = nullptr;
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
 
     TEST_Z(event_channel = rdma_create_event_channel());
-    TEST_NZ(rdma_create_id(event_channel, &listener, nullptr, RDMA_PS_TCP));
-    TEST_NZ(rdma_bind_addr(listener, (sockaddr *) &addr));
-    TEST_NZ(rdma_listen(listener, 1));
+    TEST_NZ(rdma_create_id(event_channel, &listen_id, nullptr, RDMA_PS_TCP));
+    TEST_NZ(rdma_bind_addr(listen_id, (sockaddr *) &addr));
+    TEST_NZ(rdma_listen(listen_id, 1));
 
     std::cout << "listening on port: " << port << "\n";
 

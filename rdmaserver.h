@@ -5,6 +5,7 @@
 
 class RDMAServer: public RDMAPeer {
 
+    rdma_cm_id *listen_id;
     // for server to send info about rdma buffer
     std::unique_ptr<RDMAMessage> send_msg;
     ibv_mr *send_mr;
@@ -32,7 +33,11 @@ inline void RDMAServer::disconnect()
 {
     dereg_mr(send_mr);
     dereg_mr(rdma_buffer_mr);
+
     RDMAPeer::disconnect();
+
+    rdma_destroy_id(listen_id);
+    rdma_destroy_event_channel(event_channel);
 }
 
 #endif

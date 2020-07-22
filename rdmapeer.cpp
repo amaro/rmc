@@ -97,7 +97,6 @@ void RDMAPeer::disconnect()
     ibv_dealloc_pd(pd);
 
     rdma_destroy_id(id);
-    rdma_destroy_event_channel(event_channel);
 }
 
 uint64_t RDMABatchOps::build_seq_accesses(uint64_t start_offset)

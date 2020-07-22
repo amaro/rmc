@@ -31,6 +31,7 @@ inline void RDMAClient::disconnect()
     dereg_mr(recv_mr);
     dereg_mr(rdma_buffer_mr);
     RDMAPeer::disconnect();
+    rdma_destroy_event_channel(event_channel);
 }
 
 #endif
