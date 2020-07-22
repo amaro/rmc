@@ -20,7 +20,7 @@ void RMCServer::post_send_reply()
 
     struct ibv_sge sge = {
         .addr = (uintptr_t) reply_buf.get(),
-        .length = sizeof(RMCReply),
+        .length = sizeof(CmdReply),
         .lkey = reply_buf_mr->lkey
     };
 
@@ -32,7 +32,7 @@ void RMCServer::post_send_reply()
 void RMCServer::get_rmc_id()
 {
     assert(rmcsready);
-    assert(req_buf->type == RMCType::RMC_GET_ID);
+    assert(req_buf->type == CmdType::GET_RMCID);
 
     RMC rmc(req_buf->request.getid.rmc);
     RMCId id = std::hash<RMC>{}(rmc);
@@ -43,7 +43,7 @@ void RMCServer::get_rmc_id()
     }
 
     /* get_id reply */
-    reply_buf->type = RMCType::RMC_GET_ID;
+    reply_buf->type = CmdType::GET_RMCID;
     reply_buf->reply.getid.id = id;
     post_send_reply();
     rserver.blocking_poll_nofunc(1);
@@ -52,7 +52,7 @@ void RMCServer::get_rmc_id()
 void RMCServer::call_rmc()
 {
     assert(rmcsready);
-    assert(req_buf->type == RMCType::RMC_CALL);
+    assert(req_buf->type == CmdType::CALL_RMC);
 
     RMCId id = req_buf->request.call.id;
     int status = 0;
@@ -64,7 +64,7 @@ void RMCServer::call_rmc()
         std::cout << "Called RMC: " << search->second << "\n";
     }
 
-    reply_buf->type = RMCType::RMC_CALL;
+    reply_buf->type = CmdType::CALL_RMC;
     reply_buf->reply.call.status = status;
     post_send_reply();
     rserver.blocking_poll_nofunc(1);
@@ -76,9 +76,9 @@ void RMCServer::connect(int port)
     rserver.connect_events(port);
 
     /* nic writes incoming requests */
-    req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(RMCRequest), IBV_ACCESS_LOCAL_WRITE);
+    req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), IBV_ACCESS_LOCAL_WRITE);
     /* cpu writes outgoing replies */
-    reply_buf_mr = rserver.register_mr(reply_buf.get(), sizeof(RMCReply), 0);
+    reply_buf_mr = rserver.register_mr(reply_buf.get(), sizeof(CmdReply), 0);
     rmcsready = true;
 }
 
@@ -91,17 +91,17 @@ void RMCServer::handle_requests()
         rserver.blocking_poll_nofunc(1);
 
         switch (req_buf->type) {
-        case RMCType::RMC_GET_ID:
+        case CmdType::GET_RMCID:
             get_rmc_id();
             break;
-        case RMCType::RMC_CALL:
+        case CmdType::CALL_RMC:
             call_rmc();
             break;
-        case RMCType::RMC_LAST:
+        case CmdType::LAST_CMD:
             disconnect();
             break;
         default:
-            die("unrecognized RMCRequest type\n");
+            die("unrecognized CmdRequest type\n");
         }
     }
 

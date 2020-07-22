@@ -10,8 +10,8 @@ class RMCClient {
     RDMAClient rclient;
     /* rmc client ready */
     bool rmccready;
-    std::unique_ptr<RMCRequest> req_buf;
-    std::unique_ptr<RMCReply> reply_buf;
+    std::unique_ptr<CmdRequest> req_buf;
+    std::unique_ptr<CmdReply> reply_buf;
     ibv_mr *req_buf_mr;
     ibv_mr *reply_buf_mr;
 
@@ -22,8 +22,8 @@ class RMCClient {
 
 public:
     RMCClient() : rmccready(false) {
-        req_buf = std::make_unique<RMCRequest>();
-        reply_buf = std::make_unique<RMCReply>();
+        req_buf = std::make_unique<CmdRequest>();
+        reply_buf = std::make_unique<CmdReply>();
     }
 
     void connect(const std::string &ip, const std::string &port);

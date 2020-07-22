@@ -22,15 +22,15 @@ struct CallReply {
 struct LastReq {};
 /* No LastReply */
 
-enum RMCType {
-    RMC_GET_ID = 1,
-    RMC_CALL,
-    RMC_LAST
+enum CmdType {
+    GET_RMCID = 1,
+    CALL_RMC,
+    LAST_CMD
 };
 
 /* Request struct */
-struct RMCRequest {
-    RMCType type;
+struct CmdRequest {
+    CmdType type;
 
     union {
         GetIdReq getid;
@@ -40,8 +40,8 @@ struct RMCRequest {
 };
 
 /* Reply struct */
-struct RMCReply {
-    RMCType type;
+struct CmdReply {
+    CmdType type;
 
     union {
         GetIdReply getid;
