@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <chrono>
+#include <list>
 #include <cassert>
 
 #include <netdb.h>
@@ -91,16 +92,12 @@ protected:
 
     bool connected;
 
-    ibv_mr *rdma_buffer_mr;
-    ibv_mr peer_mr;
-
-    // physically resides in server but needs to be created and mapped
-    // in client too
-    std::unique_ptr<char[]> rdma_buffer;
+    std::list<ibv_mr *> registered_mrs;
 
     void create_context(ibv_context *verbs);
     void create_qps();
     void connect_or_accept(bool connect);
+    void dereg_mrs();
 
     void handle_conn_established(rdma_cm_id *cm_id)
     {
@@ -113,11 +110,7 @@ public:
     RDMAPeer() : connected(false) { }
     virtual ~RDMAPeer() { }
 
-    const ibv_mr &get_remote_mr() const;
-    const ibv_mr &get_local_mr() const;
-
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
-    void dereg_mr(ibv_mr *mr);
 
     void post_simple_recv(ibv_sge *sge) const;
     void post_simple_send(ibv_sge *sge) const;
@@ -129,33 +122,33 @@ public:
     virtual void disconnect();
 };
 
-inline const ibv_mr &RDMAPeer::get_remote_mr() const
-{
-    return this->peer_mr;
-}
-
-inline const ibv_mr &RDMAPeer::get_local_mr() const
-{
-    return *this->rdma_buffer_mr;
-}
-
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 {
     ibv_mr *mr = ibv_reg_mr(pd, addr, len, permissions);
     if (!mr)
         die("could not register mr");
+
+    registered_mrs.push_back(mr);
     return mr;
 }
 
-inline void RDMAPeer::dereg_mr(ibv_mr *mr)
+inline void RDMAPeer::dereg_mrs()
 {
-    ibv_dereg_mr(mr);
+    assert(connected);
+
+    std::cout << "dereg_mrs()\n";
+    for (ibv_mr *curr_mr: registered_mrs)
+        ibv_dereg_mr(curr_mr);
+
+    registered_mrs.clear();
 }
 
 inline void RDMAPeer::post_simple_recv(ibv_sge *sge) const
 {
     ibv_recv_wr wr = {};
     ibv_recv_wr *bad_wr = nullptr;
+
+    std::cout << "post_simple_recv\n";
 
     wr.next = nullptr;
     wr.sg_list = sge;
@@ -166,6 +159,7 @@ inline void RDMAPeer::post_simple_recv(ibv_sge *sge) const
 
 inline void RDMAPeer::post_simple_send(ibv_sge *sge) const
 {
+    std::cout << "post_simple_send\n";
     ibv_wr_start(qpx);
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);

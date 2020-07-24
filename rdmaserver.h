@@ -6,17 +6,13 @@
 class RDMAServer: public RDMAPeer {
 
     rdma_cm_id *listen_id;
-    // for server to send info about rdma buffer
     std::unique_ptr<RDMAMessage> send_msg;
     ibv_mr *send_mr;
-
-    void send_buff_info();
 
 public:
     RDMAServer() : RDMAPeer()
     {
         send_msg = std::make_unique<RDMAMessage>();
-        rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
     }
 
     /* server multi step connection establishment
@@ -25,14 +21,12 @@ public:
     void connect_events(int port);
     void disconnect_events();
     void handle_conn_request(rdma_cm_id *cm_id);
-    void register_server_mrs();
     void disconnect();
 };
 
 inline void RDMAServer::disconnect()
 {
-    dereg_mr(send_mr);
-    dereg_mr(rdma_buffer_mr);
+    dereg_mrs();
 
     RDMAPeer::disconnect();
 

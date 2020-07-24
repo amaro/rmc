@@ -10,14 +10,11 @@ protected:
     std::unique_ptr<RDMAMessage> recv_msg;
     ibv_mr *recv_mr;
 
-    void recv_buff_info();
     void handle_addr_resolved(rdma_cm_id *cm_id);
-    void register_client_mrs();
 
 public:
     RDMAClient() : RDMAPeer() {
         recv_msg = std::make_unique<RDMAMessage>();
-        rdma_buffer = std::make_unique<char[]>(RDMA_BUFF_SIZE);
     }
 
     /* client multi step connection establishment,
@@ -28,8 +25,8 @@ public:
 
 inline void RDMAClient::disconnect()
 {
-    dereg_mr(recv_mr);
-    dereg_mr(rdma_buffer_mr);
+    dereg_mrs();
+
     RDMAPeer::disconnect();
     rdma_destroy_event_channel(event_channel);
 }

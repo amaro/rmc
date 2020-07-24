@@ -1,15 +1,5 @@
 #include "rdmaclient.h"
 
-void RDMAClient::recv_buff_info()
-{
-    blocking_poll_one([this]() -> void {
-        std::cout << "recv successful\n";
-        assert(recv_msg->type == RDMAMessage::MSG_MR);
-        memcpy(&peer_mr, &recv_msg->data.mr, sizeof(ibv_mr));
-        std::cout << "ready for rdma ops\n";
-    });
-}
-
 void RDMAClient::connect_to_server(const std::string &ip, const std::string &port)
 {
     addrinfo *addr = nullptr;
@@ -37,7 +27,6 @@ void RDMAClient::connect_to_server(const std::string &ip, const std::string &por
             connect_or_accept(true); // connect
         } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
             handle_conn_established(event->id);
-            recv_buff_info();
             return;
         } else {
             die("unknown or unexpected event.");
@@ -53,23 +42,16 @@ void RDMAClient::handle_addr_resolved(rdma_cm_id *cm_id)
     create_context(id->verbs);
     this->id = cm_id;
     create_qps();
-    register_client_mrs();
 
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) recv_msg.get(),
-        .length = sizeof(*(recv_msg.get())),
-        .lkey = recv_mr->lkey
-    };
+    recv_mr = register_mr(recv_msg.get(), sizeof(RDMAMessage), IBV_ACCESS_LOCAL_WRITE);
 
-    post_simple_recv(&sge);
+    //struct ibv_sge sge = {
+    //    .addr = (uintptr_t) recv_msg.get(),
+    //    .length = sizeof(*(recv_msg.get())),
+    //    .lkey = recv_mr->lkey
+    //};
+
+    //post_simple_recv(&sge);
 
     TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));
 }
-
-void RDMAClient::register_client_mrs()
-{
-    recv_mr = register_mr(recv_msg.get(), sizeof(RDMAMessage), IBV_ACCESS_LOCAL_WRITE);
-    rdma_buffer_mr = register_mr(rdma_buffer.get(), RDMA_BUFF_SIZE,
-            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
-}
-

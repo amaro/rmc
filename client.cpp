@@ -93,8 +93,6 @@ void Client::last_cmd()
 void Client::disconnect()
 {
     assert(rmccready);
-    rclient.dereg_mr(reply_buf_mr);
-    rclient.dereg_mr(req_buf_mr);
     rclient.disconnect();
     rmccready = false;
 }

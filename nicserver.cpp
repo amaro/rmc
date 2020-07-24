@@ -78,6 +78,7 @@ void NICServer::connect(int port)
     req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), IBV_ACCESS_LOCAL_WRITE);
     /* cpu writes outgoing replies */
     reply_buf_mr = rserver.register_mr(reply_buf.get(), sizeof(CmdReply), 0);
+
     rmcsready = true;
 }
 
@@ -112,8 +113,6 @@ void NICServer::disconnect()
     assert(rmcsready);
 
     std::cout << "received disconnect req\n";
-    rserver.dereg_mr(req_buf_mr);
-    rserver.dereg_mr(reply_buf_mr);
     rserver.disconnect_events();
     rmcsready = false;
 }

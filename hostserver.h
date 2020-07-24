@@ -1,40 +1,32 @@
 #ifndef HOST_SERVER_H
 #define HOST_SERVER_H
 
-#include <functional>
-#include <unordered_map>
+#include <cstdlib>
 #include "rdmaserver.h"
 #include "rmc.h"
 
-class HostServer {
+#define PAGE_SIZE       4096
+#define MEMORY_SIZE     (1 << 20) // 1MB
 
-    std::unordered_map<RMCId, RMC> id_rmc_map;
+class HostServer {
 
     RDMAServer rserver;
     /* rmc server ready */
-    bool rmcsready;
-    std::unique_ptr<CmdRequest> req_buf;
-    std::unique_ptr<CmdReply> reply_buf;
-    ibv_mr *req_buf_mr;
-    ibv_mr *reply_buf_mr;
-
-    /* post an ibv recv for an incoming CmdRequest */
-    void post_recv_req();
-    /* send a reply back to client */
-    void post_send_reply();
-
-    /* RMC entry points */
-    void get_rmc_id();
-    void call_rmc();
+    bool hsready;
+    void *memory;
+    ibv_mr *memory_mr;
 
 public:
-    HostServer() : rmcsready(false) {
-        req_buf = std::make_unique<CmdRequest>();
-        reply_buf = std::make_unique<CmdReply>();
+    HostServer() : hsready(false) {
+        memory = aligned_alloc(PAGE_SIZE, MEMORY_SIZE);
     }
 
-    void connect(int port);
-    void handle_requests();
+    ~HostServer() {
+        free(memory);
+    }
+
+    void connect_and_block(int port);
+
     void disconnect();
 };
 

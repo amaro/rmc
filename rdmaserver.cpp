@@ -1,23 +1,23 @@
 #include "rdmaserver.h"
 
-void RDMAServer::send_buff_info()
-{
-    struct ibv_sge sge = {};
-    assert(connected);
-
-    send_msg->type = RDMAMessage::MSG_MR;
-    memcpy(&send_msg->data.mr, rdma_buffer_mr, sizeof(struct ibv_mr));
-
-    sge.addr = (uintptr_t) send_msg.get();
-    sge.length = sizeof(RDMAMessage);
-    sge.lkey = send_mr->lkey;
-
-    post_simple_send(&sge);
-
-    blocking_poll_one([]() -> void {
-        std::cout << "send successful\n";
-    });
-}
+//void RDMAServer::send_buff_info()
+//{
+//    struct ibv_sge sge = {};
+//    assert(connected);
+//
+//    send_msg->type = RDMAMessage::MSG_MR;
+//    memcpy(&send_msg->data.mr, rdma_buffer_mr, sizeof(struct ibv_mr));
+//
+//    sge.addr = (uintptr_t) send_msg.get();
+//    sge.length = sizeof(RDMAMessage);
+//    sge.lkey = send_mr->lkey;
+//
+//    post_simple_send(&sge);
+//
+//    blocking_poll_one([]() -> void {
+//        std::cout << "send successful\n";
+//    });
+//}
 
 void RDMAServer::connect_events(int port)
 {
@@ -42,7 +42,6 @@ void RDMAServer::connect_events(int port)
             handle_conn_request(event->id);
         } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
             handle_conn_established(event->id);
-            send_buff_info();
             should_break = true;
         } else {
             die("unknown or unexpected event at connect_events().");
@@ -79,14 +78,8 @@ void RDMAServer::handle_conn_request(rdma_cm_id *cm_id)
     create_context(cm_id->verbs);
     this->id = cm_id;
     create_qps();
-    register_server_mrs();
+
+    send_mr = register_mr(send_msg.get(), sizeof(RDMAMessage), 0);
 
     connect_or_accept(false); // accept
-}
-
-void RDMAServer::register_server_mrs()
-{
-    send_mr = register_mr(send_msg.get(), sizeof(RDMAMessage), 0);
-    rdma_buffer_mr = register_mr(rdma_buffer.get(), RDMA_BUFF_SIZE,
-         IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
 }
