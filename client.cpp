@@ -3,7 +3,7 @@
 #include "rmc.h"
 
 /* post a recv for CmdReply */
-void Client::post_recv_reply()
+void HostClient::post_recv_reply()
 {
     assert(rmccready);
 
@@ -16,7 +16,7 @@ void Client::post_recv_reply()
     rclient.post_simple_recv(&sge);
 }
 
-void Client::post_send_req()
+void HostClient::post_send_req()
 {
     assert(rmccready);
 
@@ -29,7 +29,7 @@ void Client::post_send_req()
     rclient.post_simple_send(&sge);
 }
 
-void Client::connect(const std::string &ip, const std::string &port)
+void HostClient::connect(const std::string &ip, const std::string &port)
 {
     assert(!rmccready);
     rclient.connect_to_server(ip, port);
@@ -39,7 +39,7 @@ void Client::connect(const std::string &ip, const std::string &port)
     rmccready = true;
 }
 
-RMCId Client::get_rmc_id(const RMC &rmc)
+RMCId HostClient::get_rmc_id(const RMC &rmc)
 {
     assert(rmccready);
 
@@ -58,7 +58,7 @@ RMCId Client::get_rmc_id(const RMC &rmc)
     return reply_buf->reply.getid.id;
 }
 
-int Client::call_rmc(const RMCId &id)
+int HostClient::call_rmc(const RMCId &id)
 {
     assert(rmccready);
 
@@ -77,7 +77,7 @@ int Client::call_rmc(const RMCId &id)
     return reply_buf->reply.call.status;
 }
 
-void Client::last_cmd()
+void HostClient::last_cmd()
 {
     assert(rmccready);
 
@@ -90,7 +90,7 @@ void Client::last_cmd()
     disconnect();
 }
 
-void Client::disconnect()
+void HostClient::disconnect()
 {
     assert(rmccready);
     rclient.disconnect();
@@ -109,7 +109,7 @@ int main(int argc, char* argv[])
 
     std::string server;
     std::string port;
-    Client client;
+    HostClient client;
 
     try {
         auto result = opts.parse(argc, argv);
