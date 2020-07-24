@@ -5,10 +5,10 @@ APPS    := client nicserver
 
 all: $(APPS)
 
-client: client.o rmcclient.o rdmaclient.o rdmapeer.o
+client: client.o rdmaclient.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
-nicserver: nicserver.o rmcserver.o rdmaserver.o rdmapeer.o
+nicserver: nicserver.o rdmaserver.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
 .PHONY: clean

@@ -5,7 +5,7 @@
 #include "rdmaclient.h"
 #include "rmc.h"
 
-class RMCClient {
+class Client {
 
     RDMAClient rclient;
     /* rmc client ready */
@@ -21,7 +21,7 @@ class RMCClient {
     void disconnect();
 
 public:
-    RMCClient() : rmccready(false) {
+    Client() : rmccready(false) {
         req_buf = std::make_unique<CmdRequest>();
         reply_buf = std::make_unique<CmdReply>();
     }

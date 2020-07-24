@@ -1,12 +1,12 @@
-#ifndef RMC_SERVER_H
-#define RMC_SERVER_H
+#ifndef NIC_SERVER_H
+#define NIC_SERVER_H
 
 #include <functional>
 #include <unordered_map>
 #include "rdmaserver.h"
 #include "rmc.h"
 
-class RMCServer {
+class NICServer {
 
     std::unordered_map<RMCId, RMC> id_rmc_map;
 
@@ -28,7 +28,7 @@ class RMCServer {
     void call_rmc();
 
 public:
-    RMCServer() : rmcsready(false) {
+    NICServer() : rmcsready(false) {
         req_buf = std::make_unique<CmdRequest>();
         reply_buf = std::make_unique<CmdReply>();
     }
