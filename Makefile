@@ -1,7 +1,7 @@
 CXXFLAGS  := -Wall -Werror -g -std=c++17 -O2
 LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
 
-APPS    := client nicserver
+APPS    := client nicserver hostserver
 
 all: $(APPS)
 
@@ -9,6 +9,9 @@ client: client.o rdmaclient.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
 nicserver: nicserver.o rdmaserver.o rdmapeer.o
+	$(CXX) -o $@ $^ ${LDLIBS}
+
+hostserver: hostserver.o rdmaserver.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
 .PHONY: clean
