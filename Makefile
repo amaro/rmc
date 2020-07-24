@@ -8,7 +8,7 @@ all: $(APPS)
 client: client.o rdmaclient.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
-nicserver: nicserver.o rdmaserver.o rdmapeer.o
+nicserver: nicserver.o rdmaserver.o rdmaclient.o rdmapeer.o
 	$(CXX) -o $@ $^ ${LDLIBS}
 
 hostserver: hostserver.o rdmaserver.o rdmapeer.o

@@ -109,7 +109,6 @@ int main(int argc, char* argv[])
 
     std::string server;
     std::string port;
-    HostClient client;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -124,6 +123,7 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
+    HostClient client;
     client.connect(server, port);
 
     const char *prog = R"(void hello() { printf("hello world\n"); })";

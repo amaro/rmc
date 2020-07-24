@@ -1,8 +1,9 @@
+#include "cxxopts.h"
 #include "nicserver.h"
 
 void NICServer::post_recv_req()
 {
-    assert(rmcsready);
+    assert(nsready);
 
     struct ibv_sge sge = {
         .addr = (uintptr_t) req_buf.get(),
@@ -15,7 +16,7 @@ void NICServer::post_recv_req()
 
 void NICServer::post_send_reply()
 {
-    assert(rmcsready);
+    assert(nsready);
 
     struct ibv_sge sge = {
         .addr = (uintptr_t) reply_buf.get(),
@@ -30,7 +31,7 @@ void NICServer::post_send_reply()
    Return the id */
 void NICServer::get_rmc_id()
 {
-    assert(rmcsready);
+    assert(nsready);
     assert(req_buf->type == CmdType::GET_RMCID);
 
     RMC rmc(req_buf->request.getid.rmc);
@@ -50,7 +51,7 @@ void NICServer::get_rmc_id()
 
 void NICServer::call_rmc()
 {
-    assert(rmcsready);
+    assert(nsready);
     assert(req_buf->type == CmdType::CALL_RMC);
 
     RMCId id = req_buf->request.call.id;
@@ -71,7 +72,7 @@ void NICServer::call_rmc()
 
 void NICServer::connect(int port)
 {
-    assert(!rmcsready);
+    assert(!nsready);
     rserver.connect_events(port);
 
     /* nic writes incoming requests */
@@ -79,14 +80,14 @@ void NICServer::connect(int port)
     /* cpu writes outgoing replies */
     reply_buf_mr = rserver.register_mr(reply_buf.get(), sizeof(CmdReply), 0);
 
-    rmcsready = true;
+    nsready = true;
 }
 
 void NICServer::handle_requests()
 {
-    assert(rmcsready);
+    assert(nsready);
 
-    while (rmcsready) {
+    while (nsready) {
         post_recv_req();
         rserver.blocking_poll_nofunc(1);
 
@@ -110,19 +111,55 @@ void NICServer::handle_requests()
 
 void NICServer::disconnect()
 {
-    assert(rmcsready);
+    assert(nsready);
 
     std::cout << "received disconnect req\n";
     rserver.disconnect_events();
-    rmcsready = false;
+    nsready = false;
+}
+
+void NICClient::connect(const std::string &ip, const std::string &port)
+{
+    assert(!ncready);
+    rclient.connect_to_server(ip, port);
+
+    ncready = true;
 }
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2)
-        die("usage: server <port>");
+    cxxopts::Options opts("nicserver", "NIC Server");
 
-    NICServer server;
-    server.connect(atoi(argv[1]));
-    server.handle_requests();
+    opts.add_options()
+        ("hostaddr", "Host server address to connect to", cxxopts::value<std::string>())
+        ("hostport", "Host server port", cxxopts::value<std::string>()->default_value("30001"))
+        ("clientport", "Host client port to listen to", cxxopts::value<std::string>()->default_value("30000"))
+        ("h,help", "Print usage")
+    ;
+
+    std::string hostaddr, hostport, clientport;
+
+    try {
+        auto result = opts.parse(argc, argv);
+
+        if (result.count("help"))
+            die(opts.help());
+
+        hostaddr = result["hostaddr"].as<std::string>();
+        hostport = result["hostport"].as<std::string>();
+        clientport = result["clientport"].as<std::string>();
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << "\n";
+        die(opts.help());
+    }
+
+    NICClient nicclient; // interact with hostserver on same host
+    NICServer nicserver; // interact with nicclient on diff host
+
+    std::cout << "connecting to hostserver.\n";
+    nicclient.connect(hostaddr, hostport);
+
+    std::cout << "waiting for hostclient to connect.\n";
+    nicserver.connect(std::stoi(clientport));
+    nicserver.handle_requests();
 }
