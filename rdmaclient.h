@@ -5,17 +5,10 @@
 
 class RDMAClient: public RDMAPeer {
 
-protected:
-    // for client to receive info about rdma buffer
-    std::unique_ptr<RDMAMessage> recv_msg;
-    ibv_mr *recv_mr;
-
     void handle_addr_resolved(rdma_cm_id *cm_id);
 
 public:
-    RDMAClient() : RDMAPeer() {
-        recv_msg = std::make_unique<RDMAMessage>();
-    }
+    RDMAClient() : RDMAPeer() { }
 
     /* client multi step connection establishment,
        assumes caller is client. Blocks until connection established */

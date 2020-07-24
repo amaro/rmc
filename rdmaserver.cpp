@@ -1,5 +1,7 @@
 #include "rdmaserver.h"
 
+// keeping this around for a bit to remember how to
+// send mrs to peer (for lkey)
 //void RDMAServer::send_buff_info()
 //{
 //    struct ibv_sge sge = {};
@@ -78,8 +80,6 @@ void RDMAServer::handle_conn_request(rdma_cm_id *cm_id)
     create_context(cm_id->verbs);
     this->id = cm_id;
     create_qps();
-
-    send_mr = register_mr(send_msg.get(), sizeof(RDMAMessage), 0);
 
     connect_or_accept(false); // accept
 }

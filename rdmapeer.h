@@ -21,16 +21,7 @@ inline void die(const std::string& msg)
 #define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
-struct RDMAMessage {
-    enum {
-        MSG_MR
-    } type;
-
-    union {
-        struct ibv_mr mr;
-    } data;
-};
-
+/* TODO: update this */
 class RDMABatchOps {
 private:
     const ibv_mr &remote_mr;
@@ -135,6 +126,7 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 inline void RDMAPeer::dereg_mrs()
 {
     assert(connected);
+    assert(!registered_mrs.empty());
 
     std::cout << "dereg_mrs()\n";
     for (ibv_mr *curr_mr: registered_mrs)

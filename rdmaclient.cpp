@@ -43,15 +43,5 @@ void RDMAClient::handle_addr_resolved(rdma_cm_id *cm_id)
     this->id = cm_id;
     create_qps();
 
-    recv_mr = register_mr(recv_msg.get(), sizeof(RDMAMessage), IBV_ACCESS_LOCAL_WRITE);
-
-    //struct ibv_sge sge = {
-    //    .addr = (uintptr_t) recv_msg.get(),
-    //    .length = sizeof(*(recv_msg.get())),
-    //    .lkey = recv_mr->lkey
-    //};
-
-    //post_simple_recv(&sge);
-
     TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));
 }

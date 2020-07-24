@@ -6,14 +6,9 @@
 class RDMAServer: public RDMAPeer {
 
     rdma_cm_id *listen_id;
-    std::unique_ptr<RDMAMessage> send_msg;
-    ibv_mr *send_mr;
 
 public:
-    RDMAServer() : RDMAPeer()
-    {
-        send_msg = std::make_unique<RDMAMessage>();
-    }
+    RDMAServer() : RDMAPeer() { }
 
     /* server multi step connection establishment
        assumes caller is server. Blocks until connection
