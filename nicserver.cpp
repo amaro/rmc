@@ -29,18 +29,13 @@ void NICServer::post_send_reply()
 
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
-void NICServer::get_rmc_id()
+void NICServer::req_get_rmc_id()
 {
     assert(nsready);
     assert(req_buf->type == CmdType::GET_RMCID);
 
     RMC rmc(req_buf->request.getid.rmc);
-    RMCId id = std::hash<RMC>{}(rmc);
-
-    if (id_rmc_map.find(id) == id_rmc_map.end()) {
-        id_rmc_map.insert({id, rmc});
-        std::cout << "registered new id=" << id << "for rmc=" << rmc << "\n";
-    }
+    RMCId id = sched.get_rmc_id(rmc);
 
     /* get_id reply */
     reply_buf->type = CmdType::GET_RMCID;
@@ -49,20 +44,13 @@ void NICServer::get_rmc_id()
     rserver.blocking_poll_nofunc(1);
 }
 
-void NICServer::call_rmc()
+void NICServer::req_call_rmc()
 {
     assert(nsready);
     assert(req_buf->type == CmdType::CALL_RMC);
 
     RMCId id = req_buf->request.call.id;
-    int status = 0;
-    auto search = id_rmc_map.find(id);
-
-    if (search == id_rmc_map.end()) {
-        status = EINVAL;
-    } else {
-        std::cout << "Called RMC: " << search->second << "\n";
-    }
+    int status = sched.call_rmc(id);
 
     reply_buf->type = CmdType::CALL_RMC;
     reply_buf->reply.call.status = status;
@@ -93,10 +81,10 @@ void NICServer::handle_requests()
 
         switch (req_buf->type) {
         case CmdType::GET_RMCID:
-            get_rmc_id();
+            req_get_rmc_id();
             break;
         case CmdType::CALL_RMC:
-            call_rmc();
+            req_call_rmc();
             break;
         case CmdType::LAST_CMD:
             disconnect();
@@ -153,8 +141,9 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    NICClient nicclient; // interact with hostserver on same host
-    NICServer nicserver; // interact with nicclient on diff host
+    NICClient nicclient;
+    RMCScheduler sched(nicclient);
+    NICServer nicserver(sched);
 
     std::cout << "connecting to hostserver.\n";
     nicclient.connect(hostaddr, hostport);
