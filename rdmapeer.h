@@ -137,14 +137,14 @@ inline void RDMAPeer::dereg_mrs()
 
 inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
 {
-    static ibv_sge sge = {
+    ibv_sge sge = {
         .addr = (uintptr_t) laddr,
         .length = len,
         .lkey = lkey
     };
 
-    static ibv_recv_wr wr = {};
-    static ibv_recv_wr *bad_wr = nullptr;
+    ibv_recv_wr wr = {};
+    ibv_recv_wr *bad_wr = nullptr;
 
     std::cout << "post_recv on qp=" << &qp << "\n";
 
