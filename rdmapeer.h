@@ -103,8 +103,8 @@ public:
 
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
 
-    void post_simple_recv(ibv_sge *sge) const;
-    void post_simple_send(ibv_sge *sge) const;
+    void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
+    void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
     template<typename T> void blocking_poll_one(T&& func) const;
@@ -135,27 +135,33 @@ inline void RDMAPeer::dereg_mrs()
     registered_mrs.clear();
 }
 
-inline void RDMAPeer::post_simple_recv(ibv_sge *sge) const
+inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
 {
-    ibv_recv_wr wr = {};
-    ibv_recv_wr *bad_wr = nullptr;
+    static ibv_sge sge = {
+        .addr = (uintptr_t) laddr,
+        .length = len,
+        .lkey = lkey
+    };
 
-    std::cout << "post_simple_recv\n";
+    static ibv_recv_wr wr = {};
+    static ibv_recv_wr *bad_wr = nullptr;
+
+    std::cout << "post_recv on qp=" << &qp << "\n";
 
     wr.next = nullptr;
-    wr.sg_list = sge;
+    wr.sg_list = &sge;
     wr.num_sge = 1;
 
     TEST_NZ(ibv_post_recv(this->qp, &wr, &bad_wr));
 }
 
-inline void RDMAPeer::post_simple_send(ibv_sge *sge) const
+inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
 {
-    std::cout << "post_simple_send\n";
+    std::cout << "post_send on qpx=" << &qpx << "\n";
     ibv_wr_start(qpx);
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);
-    ibv_wr_set_sge(qpx, sge->lkey, sge->addr, sge->length);
+    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
     TEST_NZ(ibv_wr_complete(qpx));
 }
 

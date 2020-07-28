@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <unordered_map>
+#include <cstdint>
 #include "rdmaserver.h"
 #include "rdmaclient.h"
 #include "rmc.h"
@@ -12,28 +13,54 @@ class NICClient {
 
     bool ncready;
     ibv_mr host_mr;
+    ibv_mr *req_buf_mr;
+    std::unique_ptr<CmdRequest> req_buf;
 
-    void disconnect();
+    void disconnect(); //TODO: how is disconnect triggered?
+    void recv_rdma_mr();
 
 public:
-    NICClient() : ncready(false) { }
+    NICClient() : ncready(false) {
+        req_buf = std::make_unique<CmdRequest>();
+    }
 
     void connect(const std::string &ip, const std::string &port);
+    void readhost(uint64_t raddr, uint32_t size, void *localbuff);
+    void writehost(uint64_t raddr, uint32_t size, void *localbuff);
 };
+
+inline void NICClient::recv_rdma_mr()
+{
+    assert(ncready);
+
+    rclient.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+    rclient.blocking_poll_nofunc(1);
+
+    assert(req_buf->type == SET_RDMA_MR);
+    std::cout << "NICClient: received SET_RDMA_MR\n";
+}
 
 class RMCWorker {
     NICClient &client;
+    unsigned id;
 
 public:
-    RMCWorker(NICClient &c) : client(c) {}
+    RMCWorker(NICClient &c, unsigned id) : client(c), id(id) {}
+    int execute(const RMCId &id);
 };
 
 class RMCScheduler {
+    const unsigned NUM_WORKERS = 1;
+
     std::unordered_map<RMCId, RMC> id_rmc_map;
+    std::vector<std::unique_ptr<RMCWorker>> workers;
     NICClient &client;
 
 public:
-    RMCScheduler(NICClient &c) : client(c) { }
+    RMCScheduler(NICClient &c) : client(c) {
+        for (unsigned i = 0; i < NUM_WORKERS; ++i)
+            workers.push_back(std::make_unique<RMCWorker>(client, i));
+    }
 
     /* RMC entry points */
     RMCId get_rmc_id(const RMC &rmc);
@@ -59,7 +86,7 @@ inline int RMCScheduler::call_rmc(const RMCId &id)
 
     if (search != id_rmc_map.end()) {
         std::cout << "Called RMC: " << search->second << "\n";
-        res = 0;
+        return workers[0]->execute(id);
     }
 
     return res;
@@ -96,7 +123,16 @@ public:
     void disconnect();
 };
 
+inline void NICServer::post_recv_req()
+{
+    assert(nsready);
+    rserver.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+}
 
-
+inline void NICServer::post_send_reply()
+{
+    assert(nsready);
+    rserver.post_send(reply_buf.get(), sizeof(CmdReply), reply_buf_mr->lkey);
+}
 
 #endif

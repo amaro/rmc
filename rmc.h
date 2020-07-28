@@ -14,17 +14,19 @@ struct GetIdReply {
     RMCId id;
 };
 struct CallReq {
-    RMCId id; // TODO: figure out args
+    RMCId id; // TODO: add buff for args
 };
 struct CallReply {
     int status;
 };
-struct LastReq {};
-/* No LastReply */
+struct SetRDMAMrReq {
+    ibv_mr mr;
+};
 
 enum CmdType {
     GET_RMCID = 1,
     CALL_RMC,
+    SET_RDMA_MR,
     LAST_CMD
 };
 
@@ -35,7 +37,8 @@ struct CmdRequest {
     union {
         GetIdReq getid;
         CallReq call;
-        LastReq last;
+        SetRDMAMrReq rdma_mr;
+        // no req struct for LAST_CMD
     } request;
 };
 
@@ -46,6 +49,8 @@ struct CmdReply {
     union {
         GetIdReply getid;
         CallReply call;
+        // no reply struct for SET_RDMA_MR
+        // no reply struct for LAST_CMD
     } reply;
 };
 

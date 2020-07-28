@@ -1,30 +1,24 @@
 #include "cxxopts.h"
 #include "nicserver.h"
 
-void NICServer::post_recv_req()
+void NICClient::connect(const std::string &ip, const std::string &port)
 {
-    assert(nsready);
+    assert(!ncready);
+    rclient.connect_to_server(ip, port);
 
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) req_buf.get(),
-        .length = sizeof(*(req_buf.get())),
-        .lkey = req_buf_mr->lkey
-    };
+    req_buf_mr = rclient.register_mr(req_buf.get(), sizeof(CmdRequest),
+                                    IBV_ACCESS_LOCAL_WRITE);
 
-    rserver.post_simple_recv(&sge);
+    ncready = true;
+    recv_rdma_mr();
 }
 
-void NICServer::post_send_reply()
+int RMCWorker::execute(const RMCId &id)
 {
-    assert(nsready);
-
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) reply_buf.get(),
-        .length = sizeof(CmdReply),
-        .lkey = reply_buf_mr->lkey
-    };
-
-    rserver.post_simple_send(&sge);
+    //char buf[32];
+    //client.readhost(addr, size, buf);
+    // TODO: complete
+    return 0;
 }
 
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
@@ -106,13 +100,6 @@ void NICServer::disconnect()
     nsready = false;
 }
 
-void NICClient::connect(const std::string &ip, const std::string &port)
-{
-    assert(!ncready);
-    rclient.connect_to_server(ip, port);
-
-    ncready = true;
-}
 
 int main(int argc, char* argv[])
 {

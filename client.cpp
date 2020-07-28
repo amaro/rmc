@@ -2,33 +2,6 @@
 #include "client.h"
 #include "rmc.h"
 
-/* post a recv for CmdReply */
-void HostClient::post_recv_reply()
-{
-    assert(rmccready);
-
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) reply_buf.get(),
-        .length = sizeof(*(reply_buf.get())),
-        .lkey = reply_buf_mr->lkey
-    };
-
-    rclient.post_simple_recv(&sge);
-}
-
-void HostClient::post_send_req()
-{
-    assert(rmccready);
-
-    struct ibv_sge sge = {
-        .addr = (uintptr_t) req_buf.get(),
-        .length = sizeof(CmdRequest),
-        .lkey = req_buf_mr->lkey
-    };
-
-    rclient.post_simple_send(&sge);
-}
-
 void HostClient::connect(const std::string &ip, const std::string &port)
 {
     assert(!rmccready);

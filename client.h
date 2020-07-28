@@ -41,4 +41,19 @@ public:
     void last_cmd();
 };
 
+/* post a recv for CmdReply */
+inline void HostClient::post_recv_reply()
+{
+    assert(rmccready);
+
+    rclient.post_recv(reply_buf.get(), sizeof(CmdReply), reply_buf_mr->lkey);
+}
+
+inline void HostClient::post_send_req()
+{
+    assert(rmccready);
+
+    rclient.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+}
+
 #endif

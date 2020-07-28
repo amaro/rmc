@@ -1,26 +1,5 @@
 #include "rdmaserver.h"
 
-// keeping this around for a bit to remember how to
-// send mrs to peer (for lkey)
-//void RDMAServer::send_buff_info()
-//{
-//    struct ibv_sge sge = {};
-//    assert(connected);
-//
-//    send_msg->type = RDMAMessage::MSG_MR;
-//    memcpy(&send_msg->data.mr, rdma_buffer_mr, sizeof(struct ibv_mr));
-//
-//    sge.addr = (uintptr_t) send_msg.get();
-//    sge.length = sizeof(RDMAMessage);
-//    sge.lkey = send_mr->lkey;
-//
-//    post_simple_send(&sge);
-//
-//    blocking_poll_one([]() -> void {
-//        std::cout << "send successful\n";
-//    });
-//}
-
 void RDMAServer::connect_events(int port)
 {
     sockaddr_in addr = {};

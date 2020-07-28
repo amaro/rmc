@@ -6,28 +6,44 @@
 #include "rmc.h"
 
 #define PAGE_SIZE       4096
-#define MEMORY_SIZE     (1 << 20) // 1MB
+#define RDMA_BUFF_SIZE     (1 << 20) // 1MB
 
 class HostServer {
-
     RDMAServer rserver;
-    /* rmc server ready */
     bool hsready;
-    void *memory;
-    ibv_mr *memory_mr;
+    char *rdma_buffer;
+    // hostserver sends requests to nicserver
+    std::unique_ptr<CmdRequest> req_buf;
+    // no reply_buf since we don't need one right now.
+    ibv_mr *rdma_mr;
+    ibv_mr *req_buf_mr;
+
+    void send_rdma_mr();
 
 public:
     HostServer() : hsready(false) {
-        memory = aligned_alloc(PAGE_SIZE, MEMORY_SIZE);
+        rdma_buffer = (char *) aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE);
+        req_buf = std::make_unique<CmdRequest>();
     }
 
     ~HostServer() {
-        free(memory);
+        free(rdma_buffer);
     }
 
     void connect_and_block(int port);
 
     void disconnect();
 };
+
+inline void HostServer::send_rdma_mr()
+{
+    assert(hsready);
+
+    req_buf->type = CmdType::SET_RDMA_MR;
+    memcpy(&req_buf->request.rdma_mr.mr, rdma_mr, sizeof(ibv_mr));
+    rserver.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+    rserver.blocking_poll_nofunc(1);
+    std::cout << "sent SET_RDMA_MR\n";
+}
 
 #endif
