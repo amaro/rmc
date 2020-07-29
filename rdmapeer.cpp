@@ -57,33 +57,33 @@ void RDMAPeer::connect_or_accept(bool connect)
         TEST_NZ(rdma_accept(this->id, &cm_params));
 }
 
-void RDMAPeer::post_rdma_ops(RDMABatchOps &batchops, time_point &start) const
-{
-    ibv_send_wr *wr = batchops.get_wr_list();
-
-    ibv_wr_start(this->qpx);
-    while (wr) {
-        //qpx->wr_id = wr->wr_id;
-        qpx->wr_flags = wr->send_flags;
-
-        switch (batchops.opcode) {
-        case IBV_WR_RDMA_WRITE:
-            ibv_wr_rdma_write(this->qpx, wr->wr.rdma.rkey, wr->wr.rdma.remote_addr);
-            break;
-        case IBV_WR_RDMA_READ:
-            ibv_wr_rdma_read(this->qpx, wr->wr.rdma.rkey, wr->wr.rdma.remote_addr);
-            break;
-        default:
-            die("unrecognized opcode\n");
-        }
-
-        ibv_wr_set_sge(qpx, wr->sg_list->lkey, wr->sg_list->addr, wr->sg_list->length);
-        wr = wr->next;
-    }
-
-    start = std::chrono::steady_clock::now();
-    TEST_NZ(ibv_wr_complete(this->qpx));
-}
+//void RDMAPeer::post_rdma_ops(RDMABatchOps &batchops, time_point &start) const
+//{
+//    ibv_send_wr *wr = batchops.get_wr_list();
+//
+//    ibv_wr_start(this->qpx);
+//    while (wr) {
+//        //qpx->wr_id = wr->wr_id;
+//        qpx->wr_flags = wr->send_flags;
+//
+//        switch (batchops.opcode) {
+//        case IBV_WR_RDMA_WRITE:
+//            ibv_wr_rdma_write(this->qpx, wr->wr.rdma.rkey, wr->wr.rdma.remote_addr);
+//            break;
+//        case IBV_WR_RDMA_READ:
+//            ibv_wr_rdma_read(this->qpx, wr->wr.rdma.rkey, wr->wr.rdma.remote_addr);
+//            break;
+//        default:
+//            die("unrecognized opcode\n");
+//        }
+//
+//        ibv_wr_set_sge(qpx, wr->sg_list->lkey, wr->sg_list->addr, wr->sg_list->length);
+//        wr = wr->next;
+//    }
+//
+//    start = std::chrono::steady_clock::now();
+//    TEST_NZ(ibv_wr_complete(this->qpx));
+//}
 
 void RDMAPeer::disconnect()
 {

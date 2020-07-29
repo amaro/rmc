@@ -1,5 +1,6 @@
 #include "cxxopts.h"
 #include "nicserver.h"
+#include "utils.h"
 
 void NICClient::connect(const std::string &ip, const std::string &port)
 {

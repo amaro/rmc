@@ -1,4 +1,5 @@
 #include "hostserver.h"
+#include "utils.h"
 
 void HostServer::connect_and_block(int port)
 {

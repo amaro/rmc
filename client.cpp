@@ -1,6 +1,7 @@
 #include "cxxopts.h"
 #include "client.h"
 #include "rmc.h"
+#include "utils.h"
 
 void HostClient::connect(const std::string &ip, const std::string &port)
 {

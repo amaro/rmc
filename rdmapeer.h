@@ -3,23 +3,12 @@
 
 #include <iostream>
 #include <memory>
-#include <chrono>
 #include <list>
 #include <cassert>
 
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
-
-typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
-
-inline void die(const std::string& msg)
-{
-    std::cerr << msg << std::endl;
-    exit(1);
-}
-
-#define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
-#define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
+#include "utils.h"
 
 /* TODO: update this */
 class RDMABatchOps {
@@ -107,7 +96,7 @@ public:
     void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                     uint32_t offset, uint32_t len) const;
-    void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
+    //void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
     template<typename T> void blocking_poll_one(T&& func) const;
     void blocking_poll_nofunc(unsigned int times) const;
