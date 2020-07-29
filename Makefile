@@ -1,4 +1,4 @@
-CXXFLAGS  := -Wall -Werror -g -std=c++17 -O2
+CXXFLAGS  := -Wall -Werror -g -std=c++17 -O3
 LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
 
 APPS    := client nicserver hostserver
