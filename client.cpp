@@ -43,10 +43,13 @@ int HostClient::call_rmc(const RMCId &id)
     req_buf->type = CmdType::CALL_RMC;
     req_buf->request.call.id = id;
 
+    time_point start = time_start();
     post_send_req();
 
     /* poll twice, one for send, one for recv */
     rclient.blocking_poll_nofunc(2);
+    long long duration = time_end(start);
+    LOG("full rmc duration=" << duration << " ns");
 
     /* read CmdReply */
     assert(reply_buf->type == CmdType::CALL_RMC);
