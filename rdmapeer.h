@@ -105,6 +105,8 @@ public:
 
     void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
+    void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
+                    uint32_t offset, uint32_t len) const;
     void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
 
     template<typename T> void blocking_poll_one(T&& func) const;
@@ -162,6 +164,22 @@ inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);
     ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+    TEST_NZ(ibv_wr_complete(qpx));
+}
+
+/* for now assumes the mapping from host memory to nic memory is 1:1; i.e.
+   regions are the same size.
+   so the offsets are taken the same way remotely and locally */
+inline void RDMAPeer::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
+                                uint32_t offset, uint32_t len) const
+{
+    std::cout << "post_read\n";
+    uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
+    uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
+    ibv_wr_start(qpx);
+    qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
+    ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
     TEST_NZ(ibv_wr_complete(qpx));
 }
 

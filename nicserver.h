@@ -6,26 +6,35 @@
 #include <cstdint>
 #include "rdmaserver.h"
 #include "rdmaclient.h"
+#include "hostserver.h"
 #include "rmc.h"
 
 class NICClient {
     RDMAClient rclient;
 
     bool ncready;
-    ibv_mr host_mr;
-    ibv_mr *req_buf_mr;
+    ibv_mr host_mr;     // host's memory region; remote addr and rkey
+    ibv_mr *req_buf_mr; // to send Cmd requests
+    ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
     std::unique_ptr<CmdRequest> req_buf;
+    void *rdma_buffer;
 
     void disconnect(); //TODO: how is disconnect triggered?
     void recv_rdma_mr();
 
 public:
     NICClient() : ncready(false) {
+        rdma_buffer = (char *) aligned_alloc(HostServer::PAGE_SIZE,
+                                             HostServer::RDMA_BUFF_SIZE);
         req_buf = std::make_unique<CmdRequest>();
     }
 
+    ~NICClient() {
+        free(rdma_buffer);
+    }
+
     void connect(const std::string &ip, const std::string &port);
-    void readhost(uint64_t raddr, uint32_t size, void *localbuff);
+    void readhost(uint32_t offset, uint32_t size);
     void writehost(uint64_t raddr, uint32_t size, void *localbuff);
 };
 
@@ -41,12 +50,20 @@ inline void NICClient::recv_rdma_mr()
     std::cout << "NICClient: received SET_RDMA_MR; rkey=" << host_mr.rkey << "\n";
 }
 
+inline void NICClient::readhost(uint32_t offset, uint32_t size)
+{
+    assert(ncready);
+    rclient.post_read(*rdma_mr, host_mr, offset, size);
+    rclient.blocking_poll_nofunc(1);
+    std::cout << "read from host " << size << " bytes\n";
+}
+
 class RMCWorker {
-    NICClient &client;
+    NICClient &rclient;
     unsigned id;
 
 public:
-    RMCWorker(NICClient &c, unsigned id) : client(c), id(id) {}
+    RMCWorker(NICClient &c, unsigned id) : rclient(c), id(id) {}
     int execute(const RMCId &id);
 };
 

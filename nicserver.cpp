@@ -8,6 +8,8 @@ void NICClient::connect(const std::string &ip, const std::string &port)
 
     req_buf_mr = rclient.register_mr(req_buf.get(), sizeof(CmdRequest),
                                     IBV_ACCESS_LOCAL_WRITE);
+    rdma_mr = rclient.register_mr(rdma_buffer, HostServer::RDMA_BUFF_SIZE,
+                                    IBV_ACCESS_LOCAL_WRITE);
 
     ncready = true;
     recv_rdma_mr();
@@ -15,9 +17,7 @@ void NICClient::connect(const std::string &ip, const std::string &port)
 
 int RMCWorker::execute(const RMCId &id)
 {
-    //char buf[32];
-    //client.readhost(addr, size, buf);
-    // TODO: complete
+    rclient.readhost(0, 16);
     return 0;
 }
 

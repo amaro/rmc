@@ -5,9 +5,6 @@
 #include "rdmaserver.h"
 #include "rmc.h"
 
-#define PAGE_SIZE       4096
-#define RDMA_BUFF_SIZE     (1 << 20) // 1MB
-
 class HostServer {
     RDMAServer rserver;
     bool hsready;
@@ -21,6 +18,9 @@ class HostServer {
     void send_rdma_mr();
 
 public:
+    const static long RDMA_BUFF_SIZE = 1 << 20;
+    const static int PAGE_SIZE = 4096;
+
     HostServer() : hsready(false) {
         rdma_buffer = (char *) aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE);
         req_buf = std::make_unique<CmdRequest>();
