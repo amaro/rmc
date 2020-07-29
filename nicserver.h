@@ -47,15 +47,20 @@ inline void NICClient::recv_rdma_mr()
 
     assert(req_buf->type == SET_RDMA_MR);
     memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
-    std::cout << "NICClient: received SET_RDMA_MR; rkey=" << host_mr.rkey << "\n";
+    LOG("received SET_RDMA_MR; rkey=" << host_mr.rkey);
 }
 
 inline void NICClient::readhost(uint32_t offset, uint32_t size)
 {
     assert(ncready);
+
+    time_point start, end;
+    start = std::chrono::steady_clock::now();
     rclient.post_read(*rdma_mr, host_mr, offset, size);
     rclient.blocking_poll_nofunc(1);
-    std::cout << "read from host " << size << " bytes\n";
+    end = std::chrono::steady_clock::now();
+    long long duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count();
+    LOG("read from host " << size << " bytes in " << duration << " ns");
 }
 
 class RMCWorker {
@@ -91,7 +96,7 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
 
     if (id_rmc_map.find(id) == id_rmc_map.end()) {
         id_rmc_map.insert({id, rmc});
-        std::cout << "registered new id=" << id << "for rmc=" << rmc << "\n";
+        LOG("registered new id=" << id << "for rmc=" << rmc);
     }
 
     return id;
@@ -103,7 +108,7 @@ inline int RMCScheduler::call_rmc(const RMCId &id)
     auto search = id_rmc_map.find(id);
 
     if (search != id_rmc_map.end()) {
-        std::cout << "Called RMC: " << search->second << "\n";
+        LOG("Called RMC: " << search->second);
         return workers[0]->execute(id);
     }
 

@@ -12,7 +12,7 @@ void HostServer::connect_and_block(int port)
     rdma_mr = rserver.register_mr(rdma_buffer, RDMA_BUFF_SIZE,
             IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
 
-    std::cout << "rdma_mr rkey=" << rdma_mr->rkey << "\n";
+    LOG("rdma_mr rkey=" << rdma_mr->rkey);
     /* req_buf holds outgoing requests to nicserver */
     req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), 0);
 
@@ -26,7 +26,7 @@ void HostServer::disconnect()
 {
     assert(hsready);
 
-    std::cout << "received disconnect req\n";
+    LOG("received disconnect req");
     rserver.disconnect_events();
     hsready = false;
 }

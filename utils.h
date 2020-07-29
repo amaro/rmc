@@ -2,11 +2,13 @@
 #define UTILS_H
 
 #include <chrono>
+#include "logger.h"
+
 typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
 
 inline void die(const std::string& msg)
 {
-    std::cerr << msg << std::endl;
+    LOG(msg);
     exit(1);
 }
 

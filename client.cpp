@@ -2,6 +2,7 @@
 #include "client.h"
 #include "rmc.h"
 #include "utils.h"
+#include "logger.h"
 
 void HostClient::connect(const std::string &ip, const std::string &port)
 {
@@ -104,7 +105,7 @@ int main(int argc, char* argv[])
 
     RMC rmc(prog);
     RMCId id = client.get_rmc_id(rmc);
-    std::cout << "got id=" << id << "\n";
+    LOG("got id=" << id);
     client.call_rmc(id);
     client.last_cmd();
 }

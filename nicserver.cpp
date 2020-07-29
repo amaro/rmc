@@ -89,14 +89,14 @@ void NICServer::handle_requests()
         }
     }
 
-    std::cout << "handled request\n";
+    LOG("handled one request");
 }
 
 void NICServer::disconnect()
 {
     assert(nsready);
 
-    std::cout << "received disconnect req\n";
+    LOG("received disconnect req");
     rserver.disconnect_events();
     nsready = false;
 }
@@ -133,10 +133,10 @@ int main(int argc, char* argv[])
     RMCScheduler sched(nicclient);
     NICServer nicserver(sched);
 
-    std::cout << "connecting to hostserver.\n";
+    LOG("connecting to hostserver.");
     nicclient.connect(hostaddr, hostport);
 
-    std::cout << "waiting for hostclient to connect.\n";
+    LOG("waiting for hostclient to connect.");
     nicserver.connect(std::stoi(clientport));
     nicserver.handle_requests();
 }

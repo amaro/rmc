@@ -43,7 +43,7 @@ inline void HostServer::send_rdma_mr()
     memcpy(&req_buf->request.rdma_mr.mr, rdma_mr, sizeof(ibv_mr));
     rserver.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
     rserver.blocking_poll_nofunc(1);
-    std::cout << "sent SET_RDMA_MR\n";
+    LOG("sent SET_RDMA_MR");
 }
 
 #endif

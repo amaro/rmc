@@ -1,7 +1,6 @@
 #ifndef RDMA_PEER_H
 #define RDMA_PEER_H
 
-#include <iostream>
 #include <memory>
 #include <list>
 #include <cassert>
@@ -82,7 +81,7 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id)
     {
         assert(!connected);
-        std::cout << "connection established\n";
+        LOG("connection established");
         connected = true;
     }
 
@@ -119,7 +118,7 @@ inline void RDMAPeer::dereg_mrs()
     assert(connected);
     assert(!registered_mrs.empty());
 
-    std::cout << "dereg_mrs()\n";
+    LOG("dereg_mrs()");
     for (ibv_mr *curr_mr: registered_mrs)
         ibv_dereg_mr(curr_mr);
 
@@ -137,7 +136,7 @@ inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
     ibv_recv_wr wr = {};
     ibv_recv_wr *bad_wr = nullptr;
 
-    std::cout << "post_recv on qp=" << &qp << "\n";
+    LOG("post_recv on qp=" << &qp);
 
     wr.next = nullptr;
     wr.sg_list = &sge;
@@ -148,7 +147,7 @@ inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
 
 inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
 {
-    std::cout << "post_send on qpx=" << &qpx << "\n";
+    LOG("post_send on qpx=" << &qpx);
     ibv_wr_start(qpx);
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);
@@ -162,7 +161,6 @@ inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
 inline void RDMAPeer::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                                 uint32_t offset, uint32_t len) const
 {
-    std::cout << "post_read\n";
     uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
     uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
     ibv_wr_start(qpx);

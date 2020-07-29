@@ -14,7 +14,7 @@ void RDMAServer::connect_events(int port)
     TEST_NZ(rdma_bind_addr(listen_id, (sockaddr *) &addr));
     TEST_NZ(rdma_listen(listen_id, 1));
 
-    std::cout << "listening on port: " << port << "\n";
+    LOG("listening on port: " << port);
 
     while (rdma_get_cm_event(event_channel, &event) == 0) {
         bool should_break = false;
@@ -54,7 +54,7 @@ void RDMAServer::disconnect_events()
 void RDMAServer::handle_conn_request(rdma_cm_id *cm_id)
 {
     assert(!connected);
-    std::cout << "connect request \n";
+    LOG("connect request");
 
     create_context(cm_id->verbs);
     this->id = cm_id;
