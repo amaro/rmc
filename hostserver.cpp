@@ -10,6 +10,8 @@ void HostServer::connect_and_block(int port)
     /* register mrs */
     rdma_mr = rserver.register_mr(rdma_buffer, RDMA_BUFF_SIZE,
             IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+
+    std::cout << "rdma_mr rkey=" << rdma_mr->rkey << "\n";
     /* req_buf holds outgoing requests to nicserver */
     req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), 0);
 

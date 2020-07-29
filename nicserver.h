@@ -37,7 +37,8 @@ inline void NICClient::recv_rdma_mr()
     rclient.blocking_poll_nofunc(1);
 
     assert(req_buf->type == SET_RDMA_MR);
-    std::cout << "NICClient: received SET_RDMA_MR\n";
+    memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
+    std::cout << "NICClient: received SET_RDMA_MR; rkey=" << host_mr.rkey << "\n";
 }
 
 class RMCWorker {
