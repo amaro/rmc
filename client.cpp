@@ -42,6 +42,7 @@ int HostClient::call_rmc(const RMCId &id)
     /* call request */
     req_buf->type = CmdType::CALL_RMC;
     req_buf->request.call.id = id;
+
     post_send_req();
 
     /* poll twice, one for send, one for recv */

@@ -54,12 +54,10 @@ inline void NICClient::readhost(uint32_t offset, uint32_t size)
 {
     assert(ncready);
 
-    time_point start, end;
-    start = std::chrono::steady_clock::now();
+    time_point start = time_start();
     rclient.post_read(*rdma_mr, host_mr, offset, size);
     rclient.blocking_poll_nofunc(1);
-    end = std::chrono::steady_clock::now();
-    long long duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count();
+    long long duration = time_end(start);
     LOG("read from host " << size << " bytes in " << duration << " ns");
 }
 
