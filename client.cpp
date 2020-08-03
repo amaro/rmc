@@ -111,5 +111,6 @@ int main(int argc, char* argv[])
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
     client.call_rmc(id);
+    client.parse_rmc_reply();
     client.last_cmd();
 }

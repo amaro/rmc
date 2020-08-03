@@ -17,15 +17,15 @@ class NICClient {
     ibv_mr *req_buf_mr; // to send Cmd requests
     ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
     std::unique_ptr<CmdRequest> req_buf;
-    void *rdma_buffer;
+    char *rdma_buffer;
 
     void disconnect(); //TODO: how is disconnect triggered?
     void recv_rdma_mr();
 
 public:
     NICClient() : ncready(false) {
-        rdma_buffer = (char *) aligned_alloc(HostServer::PAGE_SIZE,
-                                             HostServer::RDMA_BUFF_SIZE);
+        rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
+                                    HostServer::RDMA_BUFF_SIZE));
         req_buf = std::make_unique<CmdRequest>();
     }
 
@@ -36,6 +36,7 @@ public:
     void connect(const std::string &ip, const std::string &port);
     void readhost(uint32_t offset, uint32_t size);
     void writehost(uint64_t raddr, uint32_t size, void *localbuff);
+    char *get_rdma_buffer();
 };
 
 inline void NICClient::recv_rdma_mr()
@@ -61,14 +62,35 @@ inline void NICClient::readhost(uint32_t offset, uint32_t size)
     LOG("read from host " << size << " bytes in " << duration << " ns");
 }
 
+inline char *NICClient::get_rdma_buffer()
+{
+    return rdma_buffer;
+}
+
 class RMCWorker {
     NICClient &rclient;
     unsigned id;
 
 public:
-    RMCWorker(NICClient &c, unsigned id) : rclient(c), id(id) {}
-    int execute(const RMCId &id);
+    RMCWorker(NICClient &c, unsigned id) : rclient(c), id(id) {
+    }
+
+    int execute(const RMCId &id, CallReply &reply);
+    std::string rdma_buffer_as_str(uint32_t offset, uint32_t size) const;
+    void prepare_reply(const size_t &hash, CallReply &reply) const;
 };
+
+inline std::string RMCWorker::rdma_buffer_as_str(uint32_t offset, uint32_t size) const
+{
+    char *result_buffer = rclient.get_rdma_buffer();
+    return std::string(result_buffer[offset], size);
+}
+
+inline void RMCWorker::prepare_reply(const size_t &hash, CallReply &reply) const
+{
+    std::string str = std::to_string(hash);
+    std::strcpy(reply.data, str.c_str());
+}
 
 class RMCScheduler {
     const unsigned NUM_WORKERS = 1;
@@ -85,7 +107,7 @@ public:
 
     /* RMC entry points */
     RMCId get_rmc_id(const RMC &rmc);
-    int call_rmc(const RMCId &id);
+    int call_rmc(const RMCId &id, CallReply &reply);
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
@@ -100,17 +122,18 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
     return id;
 }
 
-inline int RMCScheduler::call_rmc(const RMCId &id)
+inline int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply)
 {
-    int res = EINVAL;
     auto search = id_rmc_map.find(id);
 
     if (search != id_rmc_map.end()) {
         LOG("Called RMC: " << search->second);
-        return workers[0]->execute(id);
+        reply.status = workers[0]->execute(id, reply);
+    } else {
+        die("didn't find RMC");
     }
 
-    return res;
+    return 0;
 }
 
 class NICServer {

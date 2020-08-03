@@ -39,6 +39,8 @@ public:
 
     /* cmd to initiate disconnect */
     void last_cmd();
+
+    void parse_rmc_reply() const;
 };
 
 /* post a recv for CmdReply */
@@ -54,6 +56,13 @@ inline void HostClient::post_send_req()
     assert(rmccready);
 
     rclient.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+}
+
+inline void HostClient::parse_rmc_reply() const
+{
+    CallReply *reply = &reply_buf->reply.call;
+    size_t hash = std::stoull(reply->data);
+    LOG("hash at client=" << hash);
 }
 
 #endif

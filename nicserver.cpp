@@ -16,9 +16,15 @@ void NICClient::connect(const std::string &ip, const std::string &port)
     recv_rdma_mr();
 }
 
-int RMCWorker::execute(const RMCId &id)
+int RMCWorker::execute(const RMCId &id, CallReply &reply)
 {
-    rclient.readhost(0, 16);
+    uint32_t offset = 0;
+    uint32_t size = 16; // TODO: get from rmc args
+
+    rclient.readhost(offset, size);
+    std::string res = rdma_buffer_as_str(offset, size);
+    size_t hash = std::hash<std::string>{}(res);
+    num_to_str<size_t>(hash, reply.data, MAX_RMC_REPLY_LEN);
     return 0;
 }
 
@@ -43,12 +49,14 @@ void NICServer::req_call_rmc()
 {
     assert(nsready);
     assert(req_buf->type == CmdType::CALL_RMC);
+    CallReply reply;
 
     RMCId id = req_buf->request.call.id;
-    int status = sched.call_rmc(id);
+    sched.call_rmc(id, reply);
 
     reply_buf->type = CmdType::CALL_RMC;
-    reply_buf->reply.call.status = status;
+    memcpy(&reply_buf->reply.call, &reply, sizeof(reply));
+    //reply_buf->reply.call.status = status;
     post_send_reply();
     rserver.blocking_poll_nofunc(1);
 }

@@ -1,7 +1,10 @@
 #ifndef RMC_H
 #define RMC_H
 
-#define MAX_RMC_LEN 4096
+/* to store the actual rmc being queried */
+static const unsigned MAX_RMC_LEN = 1024;
+/* to store RMC reply results */
+static const unsigned MAX_RMC_REPLY_LEN = 1024;
 
 typedef std::string RMC;
 typedef size_t RMCId;
@@ -18,6 +21,8 @@ struct CallReq {
 };
 struct CallReply {
     int status;
+    char data[MAX_RMC_REPLY_LEN];
+    size_t size;
 };
 struct SetRDMAMrReq {
     ibv_mr mr;

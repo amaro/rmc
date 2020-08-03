@@ -136,8 +136,6 @@ inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
     ibv_recv_wr wr = {};
     ibv_recv_wr *bad_wr = nullptr;
 
-    LOG("post_recv on qp=" << &qp);
-
     wr.next = nullptr;
     wr.sg_list = &sge;
     wr.num_sge = 1;
@@ -147,7 +145,6 @@ inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
 
 inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
 {
-    LOG("post_send on qpx=" << &qpx);
     ibv_wr_start(qpx);
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);
