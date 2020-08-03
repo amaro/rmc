@@ -33,15 +33,14 @@ RMCId HostClient::get_rmc_id(const RMC &rmc)
     return reply_buf->reply.getid.id;
 }
 
-int HostClient::call_rmc(const RMCId &id)
+int HostClient::call_rmc(const RMCId &id, const size_t arg)
 {
     assert(rmccready);
 
     post_recv_reply();
 
     /* call request */
-    req_buf->type = CmdType::CALL_RMC;
-    req_buf->request.call.id = id;
+    arm_call_req(id, arg);
 
     time_point start = time_start();
     post_send_req();
@@ -110,7 +109,7 @@ int main(int argc, char* argv[])
     RMC rmc(prog);
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
-    client.call_rmc(id);
+    client.call_rmc(id, 8);
     client.parse_rmc_reply();
     client.last_cmd();
 }

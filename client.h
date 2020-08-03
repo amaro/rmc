@@ -35,12 +35,13 @@ public:
 
     /* calls an RMC by its id.
        TODO: figure out params, returns, etc. */
-    int call_rmc(const RMCId &id);
+    int call_rmc(const RMCId &id, const size_t arg);
 
     /* cmd to initiate disconnect */
     void last_cmd();
 
     void parse_rmc_reply() const;
+    void arm_call_req(const RMCId &id, const size_t arg);
 };
 
 /* post a recv for CmdReply */
@@ -63,6 +64,14 @@ inline void HostClient::parse_rmc_reply() const
     CallReply *reply = &reply_buf->reply.call;
     size_t hash = std::stoull(reply->data);
     LOG("hash at client=" << hash);
+}
+
+inline void HostClient::arm_call_req(const RMCId &id, const size_t arg)
+{
+    req_buf->type = CmdType::CALL_RMC;
+    CallReq &req = req_buf->request.call;
+    req.id = id;
+    num_to_str<size_t>(arg, req.data, MAX_RMC_ARG_LEN);
 }
 
 #endif

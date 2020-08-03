@@ -75,7 +75,7 @@ public:
     RMCWorker(NICClient &c, unsigned id) : rclient(c), id(id) {
     }
 
-    int execute(const RMCId &id, CallReply &reply);
+    int execute(const RMCId &id, CallReply &reply, size_t arg);
     std::string rdma_buffer_as_str(uint32_t offset, uint32_t size) const;
     void prepare_reply(const size_t &hash, CallReply &reply) const;
 };
@@ -107,7 +107,7 @@ public:
 
     /* RMC entry points */
     RMCId get_rmc_id(const RMC &rmc);
-    int call_rmc(const RMCId &id, CallReply &reply);
+    int call_rmc(const RMCId &id, CallReply &reply, size_t arg);
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
@@ -122,13 +122,13 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
     return id;
 }
 
-inline int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply)
+inline int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
 {
     auto search = id_rmc_map.find(id);
 
     if (search != id_rmc_map.end()) {
         LOG("Called RMC: " << search->second);
-        reply.status = workers[0]->execute(id, reply);
+        reply.status = workers[0]->execute(id, reply, arg);
     } else {
         die("didn't find RMC");
     }
