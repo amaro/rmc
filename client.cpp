@@ -86,11 +86,11 @@ void print_durations(const std::vector<long long> &durations)
 
 int main(int argc, char* argv[])
 {
-    cxxopts::Options opts("client", "Client for RDMA benchmarks");
+    cxxopts::Options opts("client", "RMC client");
 
     opts.add_options()
-        ("s,server", "Server address", cxxopts::value<std::string>())
-        ("p,port", "Server port", cxxopts::value<std::string>()->default_value("30000"))
+        ("s,server", "nicserver address", cxxopts::value<std::string>())
+        ("p,port", "nicserver port", cxxopts::value<std::string>()->default_value("30000"))
         ("h,help", "Print usage")
     ;
 

@@ -1,6 +1,6 @@
 B := build
 
-CXXFLAGS := -Wall -Werror -g -std=c++17 -MMD -O0
+CXXFLAGS := -Wall -Werror -g -std=c++17 -MMD -O3
 LDLIBS := ${LDLIBS} -lrdmacm -libverbs -lpthread
 
 APPS := client nicserver hostserver
