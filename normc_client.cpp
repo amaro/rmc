@@ -1,9 +1,9 @@
 #include <fstream>
 #include "utils/cxxopts.h"
-#include "onesidedclient.h"
-#include "rmc.h"
 #include "utils/utils.h"
 #include "utils/logger.h"
+#include "onesidedclient.h"
+#include "rmc.h"
 
 const int NUM_REPS = 100;
 const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192, 16384, 32768};
@@ -19,7 +19,6 @@ void benchmark(std::string server, std::string port, std::string ofile)
 {
     OneSidedClient client;
     std::vector<long long> durations(NUM_REPS);
-    //long long duration;
     std::ofstream stream(ofile, std::ofstream::out);
 
     client.connect(server, port);
@@ -30,24 +29,34 @@ void benchmark(std::string server, std::string port, std::string ofile)
         client.readhost(0, bufsize);
 
     // real thing
-    //for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
-    //    const int &bufsize = BUFF_SIZES[bufidx];
-    //    for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-    //        assert(!client.call_rmc(id, bufsize, duration));
-    //        durations[rep] = duration;
-    //    }
+    for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
+        const int &bufsize = BUFF_SIZES[bufidx];
+        for (size_t rep = 0; rep < NUM_REPS; ++rep) {
+            time_point start = time_start();
 
-    //    print_durations(stream, bufsize, durations);
-    //}
+            // similar to RMCWorker::Execute()
+            client.readhost(0, bufsize);
+            char *result_buffer = client.get_rdma_buffer();
+            std::string res(result_buffer[0], bufsize);
+            size_t hash = std::hash<std::string>{}(res);
+
+            durations[rep] = time_end(start);
+
+            LOG("hash=" << hash);
+        }
+
+        print_durations(stream, bufsize, durations);
+    }
 }
 
 int main(int argc, char* argv[])
 {
+    /* server is a regular hostserver */
     cxxopts::Options opts("client", "NORMC client");
 
     opts.add_options()
-        ("s,server", "normc_hostserver address", cxxopts::value<std::string>())
-        ("p,port", "normc_hostserver port", cxxopts::value<std::string>()->default_value("30000"))
+        ("s,server", "hostserver address", cxxopts::value<std::string>())
+        ("p,port", "hostserver port", cxxopts::value<std::string>()->default_value("30000"))
         ("o,output", "output file", cxxopts::value<std::string>())
         ("h,help", "Print usage")
     ;
