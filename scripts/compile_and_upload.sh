@@ -22,19 +22,20 @@ function upload {
 pushd $curdir/..
 
 (
-echo **Building nicserver for ARM**
+echo **Building ARM components**
 source $bf_env_setup
-make clean && make build/nicserver -j16
+make clean && make arm -j16
 pushd $build_dir
 upload nicserver $bf_user $bf_host /root
 popd
 )
 
 # build x86 now
-echo **Building client and hostserver for x86**
-make clean && make build/client build/hostserver -j16
+echo **Building x86 components**
+make clean && make x86 -j16
 pushd $build_dir
 upload client $client_user $client_host /home/$client_user
+upload normc_client $client_user $client_host /home/$client_user
 popd
 pushd $script_dir
 upload analyze_output.py $client_user $client_host /home/$client_user
