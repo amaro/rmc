@@ -1,3 +1,4 @@
+#include <fstream>
 #include "cxxopts.h"
 #include "client.h"
 #include "rmc.h"
@@ -78,10 +79,11 @@ void HostClient::disconnect()
     rmccready = false;
 }
 
-void print_durations(const std::vector<long long> &durations)
+void print_durations(std::ofstream &stream, int bufsize, const std::vector<long long> &durations)
 {
+    stream << "bufsize=" << bufsize << "\n";
     for (const long long &d: durations)
-        LOG(d);
+        stream << d << "\n";
 }
 
 int main(int argc, char* argv[])
@@ -91,11 +93,13 @@ int main(int argc, char* argv[])
     opts.add_options()
         ("s,server", "nicserver address", cxxopts::value<std::string>())
         ("p,port", "nicserver port", cxxopts::value<std::string>()->default_value("30000"))
+        ("o,output", "output file", cxxopts::value<std::string>())
         ("h,help", "Print usage")
     ;
 
     std::string server;
     std::string port;
+    std::string ofile;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -105,32 +109,30 @@ int main(int argc, char* argv[])
 
         server = result["server"].as<std::string>();
         port = result["port"].as<std::string>();
+        ofile = result["output"].as<std::string>();
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";
         die(opts.help());
     }
 
     HostClient client;
-    client.connect(server, port);
-
     const char *prog = R"(void hello() { printf("hello world\n"); })";
+    std::vector<long long> durations(NUM_REPS);
+    long long duration;
+    std::ofstream stream(ofile, std::ofstream::out);
 
+    client.connect(server, port);
     RMC rmc(prog);
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
 
-    std::vector<long long> durations(NUM_REPS);
-    long long duration;
-
     for (const int &bufsize: BUFF_SIZES) {
-        LOG("bufsize=" << bufsize);
-
         for (size_t rep = 0; rep < NUM_REPS; ++rep) {
             assert(!client.call_rmc(id, bufsize, duration));
             durations[rep] = duration;
         }
 
-        print_durations(durations);
+        print_durations(stream, bufsize, durations);
     }
 
     client.last_cmd();

@@ -8,6 +8,8 @@
 
 #include <iostream>
 
+namespace logger {
+
 struct None { };
 
 template <typename First,typename Second>
@@ -54,6 +56,8 @@ void log(const char *file,int line,const LogData<List> &data)
     std::cout << "\n";
 }
 
-#define LOG(x) (log(__FILE__,__LINE__,LogData<None>() << x))
+} // namespace
+
+#define LOG(x) (logger::log(__FILE__,__LINE__,logger::LogData<logger::None>() << x))
 
 #endif
