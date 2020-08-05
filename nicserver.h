@@ -55,11 +55,9 @@ inline void NICClient::readhost(uint32_t offset, uint32_t size)
 {
     assert(ncready);
 
-    time_point start = time_start();
     rclient.post_read(*rdma_mr, host_mr, offset, size);
     rclient.blocking_poll_nofunc(1);
-    long long duration = time_end(start);
-    LOG("read from host " << size << " bytes in " << duration << " ns");
+    LOG("read from host " << size << " bytes");
 }
 
 inline char *NICClient::get_rdma_buffer()
@@ -127,7 +125,6 @@ inline int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
     auto search = id_rmc_map.find(id);
 
     if (search != id_rmc_map.end()) {
-        LOG("Called RMC: " << search->second);
         reply.status = workers[0]->execute(id, reply, arg);
     } else {
         die("didn't find RMC");

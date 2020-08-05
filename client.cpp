@@ -4,6 +4,9 @@
 #include "utils.h"
 #include "logger.h"
 
+const int NUM_REPS = 10;
+const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192};
+
 void HostClient::connect(const std::string &ip, const std::string &port)
 {
     assert(!rmccready);
@@ -33,7 +36,8 @@ RMCId HostClient::get_rmc_id(const RMC &rmc)
     return reply_buf->reply.getid.id;
 }
 
-int HostClient::call_rmc(const RMCId &id, const size_t arg)
+int HostClient::call_rmc(const RMCId &id, const size_t arg,
+                         long long &duration)
 {
     assert(rmccready);
 
@@ -47,8 +51,7 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg)
 
     /* poll twice, one for send, one for recv */
     rclient.blocking_poll_nofunc(2);
-    long long duration = time_end(start);
-    LOG("full rmc duration=" << duration << " ns");
+    duration = time_end(start);
 
     /* read CmdReply */
     assert(reply_buf->type == CmdType::CALL_RMC);
@@ -73,6 +76,12 @@ void HostClient::disconnect()
     assert(rmccready);
     rclient.disconnect();
     rmccready = false;
+}
+
+void print_durations(const std::vector<long long> &durations)
+{
+    for (const long long &d: durations)
+        LOG(d);
 }
 
 int main(int argc, char* argv[])
@@ -109,7 +118,20 @@ int main(int argc, char* argv[])
     RMC rmc(prog);
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
-    client.call_rmc(id, 8);
-    client.parse_rmc_reply();
+
+    std::vector<long long> durations(NUM_REPS);
+    long long duration;
+
+    for (const int &bufsize: BUFF_SIZES) {
+        LOG("bufsize=" << bufsize);
+
+        for (size_t rep = 0; rep < NUM_REPS; ++rep) {
+            assert(!client.call_rmc(id, bufsize, duration));
+            durations[rep] = duration;
+        }
+
+        print_durations(durations);
+    }
+
     client.last_cmd();
 }

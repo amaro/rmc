@@ -2,6 +2,7 @@
 #define HOST_SERVER_H
 
 #include <cstdlib>
+#include <cstring>
 #include "rdmaserver.h"
 #include "rmc.h"
 
@@ -22,7 +23,9 @@ public:
     const static int PAGE_SIZE = 4096;
 
     HostServer() : hsready(false) {
-        rdma_buffer = (char *) aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE);
+        rdma_buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+        for (size_t i = 0; i < RDMA_BUFF_SIZE; ++i)
+            rdma_buffer[i] = (i + 1) % 255; // no 0 as it can be interpreted as escape char
         req_buf = std::make_unique<CmdRequest>();
     }
 
