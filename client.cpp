@@ -5,8 +5,8 @@
 #include "utils.h"
 #include "logger.h"
 
-const int NUM_REPS = 10;
-const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192};
+const int NUM_REPS = 100;
+const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192, 16384, 32768};
 
 void HostClient::connect(const std::string &ip, const std::string &port)
 {
@@ -100,7 +100,7 @@ void benchmark(std::string server, std::string port, std::string ofile)
     LOG("got id=" << id);
 
     // warm up
-    int bufsize = 16;
+    const int &bufsize = BUFF_SIZES[0];
     for (size_t rep = 0; rep < NUM_REPS; ++rep)
         assert(!client.call_rmc(id, bufsize, duration));
 
