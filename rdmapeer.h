@@ -7,7 +7,7 @@
 
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
-#include "utils.h"
+#include "utils/utils.h"
 
 /* TODO: update this */
 class RDMABatchOps {

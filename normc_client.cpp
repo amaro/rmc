@@ -1,9 +1,9 @@
 #include <fstream>
-#include "cxxopts.h"
+#include "utils/cxxopts.h"
 #include "onesidedclient.h"
 #include "rmc.h"
-#include "utils.h"
-#include "logger.h"
+#include "utils/utils.h"
+#include "utils/logger.h"
 
 const int NUM_REPS = 100;
 const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192, 16384, 32768};
