@@ -2,20 +2,6 @@
 #include "nicserver.h"
 #include "utils.h"
 
-void NICClient::connect(const std::string &ip, const std::string &port)
-{
-    assert(!ncready);
-    rclient.connect_to_server(ip, port);
-
-    req_buf_mr = rclient.register_mr(req_buf.get(), sizeof(CmdRequest),
-                                    IBV_ACCESS_LOCAL_WRITE);
-    rdma_mr = rclient.register_mr(rdma_buffer, HostServer::RDMA_BUFF_SIZE,
-                                    IBV_ACCESS_LOCAL_WRITE);
-
-    ncready = true;
-    recv_rdma_mr();
-}
-
 int RMCWorker::execute(const RMCId &id, CallReply &reply, size_t arg)
 {
     uint32_t offset = 0;
@@ -136,7 +122,7 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    NICClient nicclient;
+    OneSidedClient nicclient;
     RMCScheduler sched(nicclient);
     NICServer nicserver(sched);
 

@@ -19,6 +19,7 @@ class HostServer {
     void send_rdma_mr();
 
 public:
+    /* TODO: move these to a config.h or something */
     const static long RDMA_BUFF_SIZE = 1 << 20;
     const static int PAGE_SIZE = 4096;
 

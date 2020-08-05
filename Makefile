@@ -12,9 +12,9 @@ DEPS := ${OBJS:.o=.d}
 .PHONY: all
 all: $(APPS)
 
-$(B)/client: $(B)/client.o $(B)/rdmaclient.o $(B)/rdmapeer.o
+$(B)/client: $(B)/client.o $(B)/onesidedclient.o $(B)/rdmaclient.o $(B)/rdmapeer.o
 
-$(B)/nicserver: $(B)/nicserver.o $(B)/rdmaserver.o $(B)/rdmaclient.o $(B)/rdmapeer.o
+$(B)/nicserver: $(B)/nicserver.o $(B)/onesidedclient.o $(B)/rdmaserver.o $(B)/rdmaclient.o $(B)/rdmapeer.o
 
 $(B)/hostserver: $(B)/hostserver.o $(B)/rdmaserver.o $(B)/rdmapeer.o
 

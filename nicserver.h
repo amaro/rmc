@@ -5,72 +5,16 @@
 #include <unordered_map>
 #include <cstdint>
 #include "rdmaserver.h"
-#include "rdmaclient.h"
+#include "onesidedclient.h"
 #include "hostserver.h"
 #include "rmc.h"
 
-class NICClient {
-    RDMAClient rclient;
-
-    bool ncready;
-    ibv_mr host_mr;     // host's memory region; remote addr and rkey
-    ibv_mr *req_buf_mr; // to send Cmd requests
-    ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
-    std::unique_ptr<CmdRequest> req_buf;
-    char *rdma_buffer;
-
-    void disconnect(); //TODO: how is disconnect triggered?
-    void recv_rdma_mr();
-
-public:
-    NICClient() : ncready(false) {
-        rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
-                                    HostServer::RDMA_BUFF_SIZE));
-        req_buf = std::make_unique<CmdRequest>();
-    }
-
-    ~NICClient() {
-        free(rdma_buffer);
-    }
-
-    void connect(const std::string &ip, const std::string &port);
-    void readhost(uint32_t offset, uint32_t size);
-    void writehost(uint64_t raddr, uint32_t size, void *localbuff);
-    char *get_rdma_buffer();
-};
-
-inline void NICClient::recv_rdma_mr()
-{
-    assert(ncready);
-
-    rclient.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
-    rclient.blocking_poll_nofunc(1);
-
-    assert(req_buf->type == SET_RDMA_MR);
-    memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
-    LOG("received SET_RDMA_MR; rkey=" << host_mr.rkey);
-}
-
-inline void NICClient::readhost(uint32_t offset, uint32_t size)
-{
-    assert(ncready);
-
-    rclient.post_read(*rdma_mr, host_mr, offset, size);
-    rclient.blocking_poll_nofunc(1);
-    LOG("read from host " << size << " bytes");
-}
-
-inline char *NICClient::get_rdma_buffer()
-{
-    return rdma_buffer;
-}
-
 class RMCWorker {
-    NICClient &rclient;
+    OneSidedClient &rclient;
     unsigned id;
 
 public:
-    RMCWorker(NICClient &c, unsigned id) : rclient(c), id(id) {
+    RMCWorker(OneSidedClient &c, unsigned id) : rclient(c), id(id) {
     }
 
     int execute(const RMCId &id, CallReply &reply, size_t arg);
@@ -95,10 +39,10 @@ class RMCScheduler {
 
     std::unordered_map<RMCId, RMC> id_rmc_map;
     std::vector<std::unique_ptr<RMCWorker>> workers;
-    NICClient &client;
+    OneSidedClient &client;
 
 public:
-    RMCScheduler(NICClient &c) : client(c) {
+    RMCScheduler(OneSidedClient &c) : client(c) {
         for (unsigned i = 0; i < NUM_WORKERS; ++i)
             workers.push_back(std::make_unique<RMCWorker>(client, i));
     }
