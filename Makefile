@@ -9,8 +9,11 @@ SRCS := $(wildcard *.cpp)
 OBJS := $(patsubst %.cpp,$(B)/%.o,$(SRCS))
 DEPS := ${OBJS:.o=.d}
 
-.PHONY: all
 all: $(APPS)
+
+x86: $(B)/client $(B)/hostserver $(B)/normc_client
+
+arm: $(B)/nicserver
 
 $(B)/client: $(B)/client.o $(B)/onesidedclient.o $(B)/rdmaclient.o $(B)/rdmapeer.o
 
@@ -31,8 +34,9 @@ $(B)/.:
 $(B)/%.o: %.cpp | $$(@D)/.
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-.PHONY: clean
 clean:
 	rm -rf $(B)
+
+.PHONY: all x86 arm clean
 
 -include $(DEPS)
