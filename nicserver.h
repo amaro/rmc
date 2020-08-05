@@ -19,19 +19,12 @@ public:
 
     int execute(const RMCId &id, CallReply &reply, size_t arg);
     std::string rdma_buffer_as_str(uint32_t offset, uint32_t size) const;
-    void prepare_reply(const size_t &hash, CallReply &reply) const;
 };
 
 inline std::string RMCWorker::rdma_buffer_as_str(uint32_t offset, uint32_t size) const
 {
     char *result_buffer = rclient.get_rdma_buffer();
     return std::string(result_buffer[offset], size);
-}
-
-inline void RMCWorker::prepare_reply(const size_t &hash, CallReply &reply) const
-{
-    std::string str = std::to_string(hash);
-    std::strcpy(reply.data, str.c_str());
 }
 
 class RMCScheduler {
