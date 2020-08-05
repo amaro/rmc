@@ -1,19 +1,36 @@
-CXXFLAGS  := -Wall -Werror -g -std=c++17 -O3
-LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
+B := build
 
-APPS    := client nicserver hostserver
+CXXFLAGS := -Wall -Werror -g -std=c++17 -MMD -O0
+LDLIBS := ${LDLIBS} -lrdmacm -libverbs -lpthread
 
+APPS := client nicserver hostserver
+APPS := $(addprefix $(B)/,$(APPS))
+SRCS := $(wildcard *.cpp)
+OBJS := $(patsubst %.cpp,$(B)/%.o,$(SRCS))
+DEPS := ${OBJS:.o=.d}
+
+.PHONY: all
 all: $(APPS)
 
-client: client.o rdmaclient.o rdmapeer.o
+$(B)/client: $(B)/client.o $(B)/rdmaclient.o $(B)/rdmapeer.o
+
+$(B)/nicserver: $(B)/nicserver.o $(B)/rdmaserver.o $(B)/rdmaclient.o $(B)/rdmapeer.o
+
+$(B)/hostserver: $(B)/hostserver.o $(B)/rdmaserver.o $(B)/rdmapeer.o
+
+$(APPS):
 	$(CXX) -o $@ $^ ${LDLIBS}
 
-nicserver: nicserver.o rdmaserver.o rdmaclient.o rdmapeer.o
-	$(CXX) -o $@ $^ ${LDLIBS}
+$(B)/.:
+	mkdir -p $@
 
-hostserver: hostserver.o rdmaserver.o rdmapeer.o
-	$(CXX) -o $@ $^ ${LDLIBS}
+.SECONDEXPANSION:
+
+$(B)/%.o: %.cpp | $$(@D)/.
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 .PHONY: clean
 clean:
-	rm -f *.o $(APPS)
+	rm -rf $(B)
+
+-include $(DEPS)
