@@ -7,6 +7,7 @@ bf_host=192.168.100.2
 
 curdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 build_dir=build
+script_dir=scripts
 bf_env_setup=/opt/poky/2.5.3/environment-setup-aarch64-poky-linux
 
 # $1 is file
@@ -34,6 +35,9 @@ echo **Building client and hostserver for x86**
 make clean && make build/client build/hostserver -j16
 pushd $build_dir
 upload client $client_user $client_host /home/$client_user
+popd
+pushd $script_dir
+upload analyze_output.py $client_user $client_host /home/$client_user
 popd
 
 popd

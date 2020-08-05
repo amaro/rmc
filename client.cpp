@@ -86,6 +86,38 @@ void print_durations(std::ofstream &stream, int bufsize, const std::vector<long 
         stream << d << "\n";
 }
 
+void benchmark(std::string server, std::string port, std::string ofile)
+{
+    HostClient client;
+    const char *prog = R"(void hello() { printf("hello world\n"); })";
+    RMC rmc(prog);
+    std::vector<long long> durations(NUM_REPS);
+    long long duration;
+    std::ofstream stream(ofile, std::ofstream::out);
+
+    client.connect(server, port);
+    RMCId id = client.get_rmc_id(rmc);
+    LOG("got id=" << id);
+
+    // warm up
+    int bufsize = 16;
+    for (size_t rep = 0; rep < NUM_REPS; ++rep)
+        assert(!client.call_rmc(id, bufsize, duration));
+
+    // real thing
+    for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
+        const int &bufsize = BUFF_SIZES[bufidx];
+        for (size_t rep = 0; rep < NUM_REPS; ++rep) {
+            assert(!client.call_rmc(id, bufsize, duration));
+            durations[rep] = duration;
+        }
+
+        print_durations(stream, bufsize, durations);
+    }
+
+    client.last_cmd();
+}
+
 int main(int argc, char* argv[])
 {
     cxxopts::Options opts("client", "RMC client");
@@ -97,9 +129,7 @@ int main(int argc, char* argv[])
         ("h,help", "Print usage")
     ;
 
-    std::string server;
-    std::string port;
-    std::string ofile;
+    std::string server, port, ofile;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -115,25 +145,5 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    HostClient client;
-    const char *prog = R"(void hello() { printf("hello world\n"); })";
-    std::vector<long long> durations(NUM_REPS);
-    long long duration;
-    std::ofstream stream(ofile, std::ofstream::out);
-
-    client.connect(server, port);
-    RMC rmc(prog);
-    RMCId id = client.get_rmc_id(rmc);
-    LOG("got id=" << id);
-
-    for (const int &bufsize: BUFF_SIZES) {
-        for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-            assert(!client.call_rmc(id, bufsize, duration));
-            durations[rep] = duration;
-        }
-
-        print_durations(stream, bufsize, durations);
-    }
-
-    client.last_cmd();
+    benchmark(server, port, ofile);
 }
