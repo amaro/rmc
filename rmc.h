@@ -2,11 +2,11 @@
 #define RMC_H
 
 /* to store the actual rmc being queried */
-static const unsigned MAX_RMC_PROG_LEN = 1024;
+static const unsigned MAX_RMC_PROG_LEN = 256;
 /* rmc arguments */
-static const unsigned MAX_RMC_ARG_LEN = 512;
+static const unsigned MAX_RMC_ARG_LEN = 16;
 /* to store RMC reply results */
-static const unsigned MAX_RMC_REPLY_LEN = 1024;
+static const unsigned MAX_RMC_REPLY_LEN = 16;
 
 typedef std::string RMC;
 typedef size_t RMCId;
