@@ -63,9 +63,10 @@ void NICServer::handle_requests()
 {
     assert(nsready);
 
+    post_recv_req();
     while (nsready) {
-        post_recv_req();
         rserver.blocking_poll_nofunc(1);
+        post_recv_req();
 
         switch (req_buf->type) {
         case CmdType::GET_RMCID:
