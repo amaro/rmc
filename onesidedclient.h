@@ -53,7 +53,6 @@ inline void OneSidedClient::readhost(uint32_t offset, uint32_t size)
 
     rclient.post_read(*rdma_mr, host_mr, offset, size);
     rclient.blocking_poll_nofunc(1);
-    LOG("read from host " << size << " bytes");
 }
 
 inline char *OneSidedClient::get_rdma_buffer()
