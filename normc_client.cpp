@@ -6,7 +6,7 @@
 #include "rmc.h"
 
 const int NUM_REPS = 100;
-const std::vector<int> BUFF_SIZES = {8, 32, 64, 128, 512, 2048, 4096, 8192, 16384, 32768};
+const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072};
 
 void print_durations(std::ofstream &stream, int bufsize, const std::vector<long long> &durations)
 {
