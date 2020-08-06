@@ -188,10 +188,37 @@ inline void RDMAPeer::blocking_poll_one(T&& func) const
     ibv_end_poll(cqx);
 }
 
-inline void RDMAPeer::blocking_poll_nofunc(unsigned int times) const
+inline void RDMAPeer::blocking_poll_nofunc(unsigned int target) const
 {
-    auto nofunc = []() -> void {};
-    for (unsigned int i = 0; i < times; ++i)
-        blocking_poll_one(nofunc);
+    int ret;
+    unsigned int polled = 0;
+    struct ibv_poll_cq_attr cq_attr = {};
+
+    while ((ret = ibv_start_poll(cqx, &cq_attr)) != 0) {
+        if (ret == ENOENT)
+            continue;
+        else
+            die("error in ibv_start_poll()\n");
+    }
+
+again:
+    if (polled > 0) {
+        while ((ret = ibv_next_poll(cqx)) != 0) {
+            if (ret == ENOENT)
+                continue;
+            else
+                die("error in ibv_next_poll()\n");
+        }
+    }
+
+    if (cqx->status != IBV_WC_SUCCESS)
+        die("cqe status is not success\n");
+
+    polled++;
+
+    if (polled < target)
+        goto again;
+
+    ibv_end_poll(cqx);
 }
 #endif

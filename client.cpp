@@ -6,7 +6,7 @@
 #include "utils/logger.h"
 
 const int NUM_REPS = 100;
-const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072};
+const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
 void HostClient::connect(const std::string &ip, const std::string &port)
 {
