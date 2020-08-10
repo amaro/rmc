@@ -46,7 +46,7 @@ inline void HostServer::send_rdma_mr()
     req_buf->type = CmdType::SET_RDMA_MR;
     memcpy(&req_buf->request.rdma_mr.mr, rdma_mr, sizeof(ibv_mr));
     rserver.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
-    rserver.blocking_poll_nofunc(1);
+    rserver.blocking_poll_nofunc(1, rserver.get_send_cq());
     LOG("sent SET_RDMA_MR");
 }
 

@@ -9,48 +9,6 @@
 #include <rdma/rdma_cma.h>
 #include "utils/utils.h"
 
-/* TODO: update this */
-class RDMABatchOps {
-private:
-    const ibv_mr &remote_mr;
-    const ibv_mr &local_mr;
-
-    size_t op_size;
-    size_t batch_size;
-    std::unique_ptr<ibv_send_wr []> wrs;
-    std::unique_ptr<ibv_sge []> sges;
-    bool ready_for_post;
-
-public:
-    ibv_wr_opcode opcode;
-
-    RDMABatchOps(const ibv_mr &rmr, const ibv_mr &lmr, ibv_wr_opcode op,
-                 size_t op_size, size_t batch_size):
-        remote_mr(rmr), local_mr(lmr), op_size(op_size), batch_size(batch_size),
-        ready_for_post(false), opcode(op)
-    {
-        wrs = std::make_unique<ibv_send_wr[]>(batch_size);
-        sges = std::make_unique<ibv_sge[]>(batch_size);
-
-        /* accesses must be aligned to bufsize */
-        assert(local_mr.length == remote_mr.length);
-        assert(local_mr.length % this->op_size == 0);
-    }
-
-    /* only sets signaled to last element of batch.
-       wraps around accesses if buffer runs out of space.
-       returns new local_addr.
-    */
-    uint64_t build_seq_accesses(uint64_t start_offset);
-
-    ibv_send_wr *get_wr_list()
-    {
-        assert(ready_for_post);
-        this->ready_for_post = false;
-        return &this->wrs[0];
-    }
-};
-
 class RDMAPeer {
 protected:
     const int CQ_NUM_CQE = 16;
@@ -66,7 +24,8 @@ protected:
     ibv_qp_ex *qpx;
     ibv_context *dev_ctx;
     ibv_pd *pd;
-    ibv_cq_ex *cqx;
+    ibv_cq_ex *send_cqx;
+    ibv_cq_ex *recv_cqx;
     rdma_event_channel *event_channel;
 
     bool connected;
@@ -77,30 +36,22 @@ protected:
     void create_qps();
     void connect_or_accept(bool connect);
     void dereg_mrs();
-
-    void handle_conn_established(rdma_cm_id *cm_id)
-    {
-        assert(!connected);
-        LOG("connection established");
-        connected = true;
-    }
+    void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
     RDMAPeer() : connected(false) { }
     virtual ~RDMAPeer() { }
 
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
-
     void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                     uint32_t offset, uint32_t len) const;
-    //void post_rdma_ops(RDMABatchOps &batchops, time_point &start) const;
-
-    template<typename T> void blocking_poll_one(T&& func) const;
-    void blocking_poll_nofunc(unsigned int times) const;
-
+    template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
+    void blocking_poll_nofunc(unsigned int times, ibv_cq_ex *cq) const;
     virtual void disconnect();
+    ibv_cq_ex *get_send_cq();
+    ibv_cq_ex *get_recv_cq();
 };
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
@@ -123,6 +74,13 @@ inline void RDMAPeer::dereg_mrs()
         ibv_dereg_mr(curr_mr);
 
     registered_mrs.clear();
+}
+
+inline void RDMAPeer::handle_conn_established(rdma_cm_id *cm_id)
+{
+    assert(!connected);
+    LOG("connection established");
+    connected = true;
 }
 
 inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
@@ -169,32 +127,32 @@ inline void RDMAPeer::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
 
 /* data path */
 template<typename T>
-inline void RDMAPeer::blocking_poll_one(T&& func) const
+inline void RDMAPeer::blocking_poll_one(T&& func, ibv_cq_ex *cq) const
 {
     int ret;
     struct ibv_poll_cq_attr cq_attr = {};
 
-    while ((ret = ibv_start_poll(cqx, &cq_attr)) != 0) {
+    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
         if (ret == ENOENT)
             continue;
         else
             die("error in ibv_start_poll()\n");
     }
 
-    if (cqx->status != IBV_WC_SUCCESS)
+    if (cq->status != IBV_WC_SUCCESS)
         die("cqe status is not success\n");
 
     func();
-    ibv_end_poll(cqx);
+    ibv_end_poll(cq);
 }
 
-inline void RDMAPeer::blocking_poll_nofunc(unsigned int target) const
+inline void RDMAPeer::blocking_poll_nofunc(unsigned int target, ibv_cq_ex *cq) const
 {
     int ret;
     unsigned int polled = 0;
     struct ibv_poll_cq_attr cq_attr = {};
 
-    while ((ret = ibv_start_poll(cqx, &cq_attr)) != 0) {
+    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
         if (ret == ENOENT)
             continue;
         else
@@ -203,7 +161,7 @@ inline void RDMAPeer::blocking_poll_nofunc(unsigned int target) const
 
 again:
     if (polled > 0) {
-        while ((ret = ibv_next_poll(cqx)) != 0) {
+        while ((ret = ibv_next_poll(cq)) != 0) {
             if (ret == ENOENT)
                 continue;
             else
@@ -211,7 +169,7 @@ again:
         }
     }
 
-    if (cqx->status != IBV_WC_SUCCESS)
+    if (cq->status != IBV_WC_SUCCESS)
         die("cqe status is not success\n");
 
     polled++;
@@ -219,6 +177,17 @@ again:
     if (polled < target)
         goto again;
 
-    ibv_end_poll(cqx);
+    ibv_end_poll(cq);
 }
+
+inline ibv_cq_ex *RDMAPeer::get_send_cq()
+{
+    return send_cqx;
+}
+
+inline ibv_cq_ex *RDMAPeer::get_recv_cq()
+{
+    return recv_cqx;
+}
+
 #endif

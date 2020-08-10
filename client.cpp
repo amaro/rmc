@@ -29,8 +29,8 @@ RMCId HostClient::get_rmc_id(const RMC &rmc)
     rmc.copy(req_buf->request.getid.rmc, sizeof(req_buf->request.getid.rmc));
     post_send_req();
 
-    /* poll twice, one for send, one for recv */
-    rclient.blocking_poll_nofunc(2);
+    rclient.blocking_poll_nofunc(1, rclient.get_send_cq());
+    rclient.blocking_poll_nofunc(1, rclient.get_recv_cq());
 
     /* read CmdReply */
     assert(reply_buf->type == CmdType::GET_RMCID);
@@ -50,8 +50,8 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg,
     time_point start = time_start();
     post_send_req();
 
-    /* poll twice, one for send, one for recv */
-    rclient.blocking_poll_nofunc(2);
+    rclient.blocking_poll_nofunc(1, rclient.get_send_cq());
+    rclient.blocking_poll_nofunc(1, rclient.get_recv_cq());
     duration = time_end(start);
 
     /* read CmdReply */
@@ -67,7 +67,7 @@ void HostClient::last_cmd()
     post_send_req();
 
     /* poll once for send */
-    rclient.blocking_poll_nofunc(1);
+    rclient.blocking_poll_nofunc(1, rclient.get_send_cq());
 
     disconnect();
 }

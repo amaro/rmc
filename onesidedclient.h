@@ -40,7 +40,7 @@ inline void OneSidedClient::recv_rdma_mr()
     assert(onesready);
 
     rclient.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
-    rclient.blocking_poll_nofunc(1);
+    rclient.blocking_poll_nofunc(1, rclient.get_recv_cq());
 
     assert(req_buf->type == SET_RDMA_MR);
     memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
@@ -52,7 +52,7 @@ inline void OneSidedClient::readhost(uint32_t offset, uint32_t size)
     assert(onesready);
 
     rclient.post_read(*rdma_mr, host_mr, offset, size);
-    rclient.blocking_poll_nofunc(1);
+    rclient.blocking_poll_nofunc(1, rclient.get_send_cq());
 }
 
 inline char *OneSidedClient::get_rdma_buffer()

@@ -28,7 +28,7 @@ void NICServer::req_get_rmc_id()
     reply_buf->type = CmdType::GET_RMCID;
     reply_buf->reply.getid.id = id;
     post_send_reply();
-    rserver.blocking_poll_nofunc(1);
+    rserver.blocking_poll_nofunc(1, rserver.get_send_cq());
 }
 
 void NICServer::req_call_rmc()
@@ -43,7 +43,7 @@ void NICServer::req_call_rmc()
 
     reply_buf->type = CmdType::CALL_RMC;
     post_send_reply();
-    rserver.blocking_poll_nofunc(1);
+    rserver.blocking_poll_nofunc(1, rserver.get_send_cq());
 }
 
 void NICServer::connect(int port)
@@ -65,7 +65,7 @@ void NICServer::handle_requests()
 
     post_recv_req();
     while (nsready) {
-        rserver.blocking_poll_nofunc(1);
+        rserver.blocking_poll_nofunc(1, rserver.get_recv_cq());
         post_recv_req();
 
         switch (req_buf->type) {
