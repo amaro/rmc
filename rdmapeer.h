@@ -16,7 +16,7 @@ protected:
     const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
     const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
-    const int QP_ATTRS_MAX_INLINE_DATA = 1;
+    const int QP_ATTRS_MAX_INLINE_DATA = 256;
     const size_t MAX_UNSIGNALED_SENDS = 4;
 
     rdma_cm_id *id;
@@ -91,7 +91,8 @@ inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
     ibv_wr_start(qpx);
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(qpx);
-    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+    //ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+    ibv_wr_set_inline_data(qpx, laddr, len);
     TEST_NZ(ibv_wr_complete(qpx));
 }
 
