@@ -6,6 +6,7 @@ void RDMAPeer::create_context(ibv_context *verbs)
     cq_attrs_ex.cqe = CQ_NUM_CQE;
     cq_attrs_ex.comp_vector = 0;
     cq_attrs_ex.wc_flags = IBV_WC_EX_WITH_BYTE_LEN;
+    cq_attrs_ex.comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS;
     cq_attrs_ex.flags = IBV_CREATE_CQ_ATTR_SINGLE_THREADED;
 
     dev_ctx = verbs;
