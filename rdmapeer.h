@@ -11,13 +11,13 @@
 
 class RDMAPeer {
 protected:
-    const int CQ_NUM_CQE = 16;
-    const int RDMA_BUFF_SIZE = 4096 * 32;
+    const int CQ_NUM_CQE = 32;
     const int TIMEOUT_MS = 500;
     const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 32;
-    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 32;
+    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     const int QP_ATTRS_MAX_INLINE_DATA = 1;
+    const size_t MAX_UNSIGNALED_SENDS = 8;
 
     rdma_cm_id *id;
     ibv_qp *qp;
@@ -29,6 +29,7 @@ protected:
     rdma_event_channel *event_channel;
 
     bool connected;
+    size_t unsignaled_sends;
 
     std::list<ibv_mr *> registered_mrs;
 
@@ -39,16 +40,19 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
-    RDMAPeer() : connected(false) { }
+    RDMAPeer() : connected(false), unsignaled_sends(0) { }
     virtual ~RDMAPeer() { }
 
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
     void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
+    /* posts an unsignaled send, and returns whether the send_cqx should be polled */
+    bool post_send_unsignaled(void *laddr, uint32_t len, uint32_t lkey);
     void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                     uint32_t offset, uint32_t len) const;
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
-    void blocking_poll_nofunc(unsigned int times, ibv_cq_ex *cq) const;
+    void poll_atleast(unsigned int times, ibv_cq_ex *cq);
+    void poll_exactly(unsigned int times, ibv_cq_ex *cq);
     virtual void disconnect();
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
@@ -62,25 +66,6 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 
     registered_mrs.push_back(mr);
     return mr;
-}
-
-inline void RDMAPeer::dereg_mrs()
-{
-    assert(connected);
-    assert(!registered_mrs.empty());
-
-    LOG("dereg_mrs()");
-    for (ibv_mr *curr_mr: registered_mrs)
-        ibv_dereg_mr(curr_mr);
-
-    registered_mrs.clear();
-}
-
-inline void RDMAPeer::handle_conn_established(rdma_cm_id *cm_id)
-{
-    assert(!connected);
-    LOG("connection established");
-    connected = true;
 }
 
 inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
@@ -108,6 +93,53 @@ inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
     ibv_wr_send(qpx);
     ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
     TEST_NZ(ibv_wr_complete(qpx));
+}
+
+inline void RDMAPeer::dereg_mrs()
+{
+    assert(connected);
+    assert(!registered_mrs.empty());
+
+    LOG("dereg_mrs()");
+    for (ibv_mr *curr_mr: registered_mrs)
+        ibv_dereg_mr(curr_mr);
+
+    registered_mrs.clear();
+}
+
+inline void RDMAPeer::handle_conn_established(rdma_cm_id *cm_id)
+{
+    assert(!connected);
+    LOG("connection established");
+    connected = true;
+}
+
+inline bool RDMAPeer::post_send_unsignaled(void *laddr, uint32_t len, uint32_t lkey)
+{
+    bool signaled = false;
+    int ret;
+
+    if (unsignaled_sends >= MAX_UNSIGNALED_SENDS)
+        signaled = true;
+
+    ibv_wr_start(qpx);
+
+    if (signaled)
+        qpx->wr_flags = IBV_SEND_SIGNALED;
+
+    ibv_wr_send(qpx);
+    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+
+    if ((ret = ibv_wr_complete(qpx)) != 0)
+        DIE("ibv_wr_complete returned=" << ret);
+
+    /* if we posted a signaled send, reset unsignaled counter */
+    if (signaled)
+        unsignaled_sends = 0;
+    else
+        unsignaled_sends++;
+
+    return signaled;
 }
 
 /* for now assumes the mapping from host memory to nic memory is 1:1; i.e.
@@ -140,43 +172,9 @@ inline void RDMAPeer::blocking_poll_one(T&& func, ibv_cq_ex *cq) const
     }
 
     if (cq->status != IBV_WC_SUCCESS)
-        die("cqe status is not success\n");
+        LOG("cq->status =" << cq->status);
 
     func();
-    ibv_end_poll(cq);
-}
-
-inline void RDMAPeer::blocking_poll_nofunc(unsigned int target, ibv_cq_ex *cq) const
-{
-    int ret;
-    unsigned int polled = 0;
-    struct ibv_poll_cq_attr cq_attr = {};
-
-    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
-        if (ret == ENOENT)
-            continue;
-        else
-            die("error in ibv_start_poll()\n");
-    }
-
-again:
-    if (polled > 0) {
-        while ((ret = ibv_next_poll(cq)) != 0) {
-            if (ret == ENOENT)
-                continue;
-            else
-                die("error in ibv_next_poll()\n");
-        }
-    }
-
-    if (cq->status != IBV_WC_SUCCESS)
-        die("cqe status is not success\n");
-
-    polled++;
-
-    if (polled < target)
-        goto again;
-
     ibv_end_poll(cq);
 }
 

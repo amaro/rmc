@@ -83,8 +83,8 @@ class NICServer {
 
     /* post an ibv recv for an incoming CmdRequest */
     void post_recv_req();
-    /* send a reply back to client */
-    void post_send_reply();
+    /* send an unsignaled reply back to client */
+    void post_send_uns_reply();
 
     /* RMC entry points */
     void req_get_rmc_id();
@@ -107,10 +107,13 @@ inline void NICServer::post_recv_req()
     rserver.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
 }
 
-inline void NICServer::post_send_reply()
+inline void NICServer::post_send_uns_reply()
 {
     assert(nsready);
-    rserver.post_send(reply_buf.get(), sizeof(CmdReply), reply_buf_mr->lkey);
+    bool poll = rserver.post_send_unsignaled(reply_buf.get(), sizeof(CmdReply),
+                                             reply_buf_mr->lkey);
+    if (poll)
+        rserver.poll_atleast(1, rserver.get_send_cq());
 }
 
 #endif

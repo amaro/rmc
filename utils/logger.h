@@ -56,8 +56,16 @@ void log(const char *file,int line,const LogData<List> &data)
     std::cout << "\n";
 }
 
+template <typename List>
+void logandie(const char *file,int line,const LogData<List> &data)
+{
+    log(file, line, data);
+    exit(1);
+}
+
 } // namespace
 
 #define LOG(x) (logger::log(__FILE__,__LINE__,logger::LogData<logger::None>() << x))
+#define DIE(x) (logger::logandie(__FILE__,__LINE__,logger::LogData<logger::None>() << x))
 
 #endif
