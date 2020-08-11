@@ -16,7 +16,7 @@ class HostClient {
     ibv_mr *reply_buf_mr;
 
     void post_recv_reply();
-    void post_send_req();
+    void post_send_req(bool signaled);
 
     void disconnect();
 
@@ -52,11 +52,19 @@ inline void HostClient::post_recv_reply()
     rclient.post_recv(reply_buf.get(), sizeof(CmdReply), reply_buf_mr->lkey);
 }
 
-inline void HostClient::post_send_req()
+inline void HostClient::post_send_req(bool signaled)
 {
     assert(rmccready);
 
-    rclient.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+    if (!signaled) {
+        bool poll = rclient.post_send_unsignaled(req_buf.get(), sizeof(CmdRequest),
+                                                req_buf_mr->lkey);
+        if (poll)
+            rclient.poll_atleast(1, rclient.get_send_cq());
+    } else {
+        rclient.post_send(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+        rclient.poll_exactly(1, rclient.get_send_cq());
+    }
 }
 
 inline void HostClient::parse_rmc_reply() const
