@@ -11,13 +11,13 @@
 
 class RDMAPeer {
 protected:
-    const int CQ_NUM_CQE = 32;
+    const int CQ_NUM_CQE = 16;
     const int TIMEOUT_MS = 500;
-    const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 32;
+    const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
     const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     const int QP_ATTRS_MAX_INLINE_DATA = 1;
-    const size_t MAX_UNSIGNALED_SENDS = 8;
+    const size_t MAX_UNSIGNALED_SENDS = 4;
 
     rdma_cm_id *id;
     ibv_qp *qp;
