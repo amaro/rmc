@@ -120,7 +120,7 @@ void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
         if (ret == ENOENT)
             continue;
         else
-            die("error in ibv_start_poll()\n");
+            DIE("ibv_start_poll() returned " << ret);
     }
 
     do {
@@ -129,12 +129,12 @@ void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
                 if (ret == ENOENT)
                     continue;
                 else
-                    die("error in ibv_next_poll()\n");
+                    DIE("ibv_next_poll() returned " << ret);
             }
         }
 
         if (cq->status != IBV_WC_SUCCESS)
-            die("cqe status is not success\n");
+            DIE("cqe->status=" << cq->status);
 
         polled++;
     } while (polled < target);

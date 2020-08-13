@@ -2,86 +2,58 @@
 #include "nicserver.h"
 #include "utils/utils.h"
 
-int RMCWorker::execute(const RMCId &id, CallReply &reply, size_t arg)
-{
-    uint32_t offset = 0;
-    size_t size = arg;
-
-    rclient.readhost(offset, size);
-    std::string res = rdma_buffer_as_str(offset, size);
-    size_t hash = std::hash<std::string>{}(res);
-    num_to_str<size_t>(hash, reply.data, MAX_RMC_REPLY_LEN);
-    return 0;
-}
-
-/* Compute the id for this rmc, if it doesn't exist, register it in map.
-   Return the id */
-void NICServer::req_get_rmc_id()
-{
-    assert(nsready);
-    assert(req_buf->type == CmdType::GET_RMCID);
-
-    RMC rmc(req_buf->request.getid.rmc);
-    RMCId id = sched.get_rmc_id(rmc);
-
-    /* get_id reply */
-    reply_buf->type = CmdType::GET_RMCID;
-    reply_buf->reply.getid.id = id;
-    post_send_uns_reply();
-}
-
-void NICServer::req_call_rmc()
-{
-    assert(nsready);
-    assert(req_buf->type == CmdType::CALL_RMC);
-    CallReply &reply = reply_buf->reply.call;
-    CallReq &req = req_buf->request.call;
-
-    size_t arg = std::stoull(req.data);
-    sched.call_rmc(req.id, reply, arg);
-
-    reply_buf->type = CmdType::CALL_RMC;
-    post_send_uns_reply();
-}
-
 void NICServer::connect(int port)
 {
     assert(!nsready);
     rserver.connect_events(port);
 
     /* nic writes incoming requests */
-    req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), IBV_ACCESS_LOCAL_WRITE);
+    req_buf_mr = rserver.register_mr(&req_buf[0], sizeof(CmdRequest)*bsize, IBV_ACCESS_LOCAL_WRITE);
     /* cpu writes outgoing replies */
-    reply_buf_mr = rserver.register_mr(reply_buf.get(), sizeof(CmdReply), 0);
+    reply_buf_mr = rserver.register_mr(&reply_buf[0], sizeof(CmdReply)*bsize, 0);
 
     nsready = true;
+}
+
+/* not inline, but datapath inside is inline */
+void NICServer::dispatch(CmdRequest *req, CmdReply *reply)
+{
+    switch (req->type) {
+    case CmdType::GET_RMCID:
+        return req_get_rmc_id(req, reply);
+    case CmdType::CALL_RMC:
+        return req_call_rmc(req, reply);
+    case CmdType::LAST_CMD:
+        return disconnect();
+    default:
+        DIE("unrecognized CmdRequest type");
+    }
 }
 
 void NICServer::handle_requests()
 {
     assert(nsready);
 
-    post_recv_req();
+    /* handle the rmc get id call */
+    post_recv_req(get_req(0));
+    rserver.poll_exactly(1, rserver.get_recv_cq());
+    dispatch(get_req(0), get_reply(0));
+
+    for (size_t i = 0; i < bsize; ++i)
+        post_recv_req(get_req(i));
+
     while (nsready) {
-        rserver.poll_exactly(1, rserver.get_recv_cq());
-        post_recv_req();
-
-        switch (req_buf->type) {
-        case CmdType::GET_RMCID:
-            req_get_rmc_id();
-            break;
-        case CmdType::CALL_RMC:
-            req_call_rmc();
-            break;
-        case CmdType::LAST_CMD:
-            disconnect();
-            break;
-        default:
-            die("unrecognized CmdRequest type\n");
+        /* wait for recvs to arrive in-order */
+        for (size_t i = 0; i < bsize; ++i) {
+            rserver.poll_exactly(1, rserver.get_recv_cq()); // poll for a recv'ed req
+            dispatch(get_req(i), get_reply(i));
         }
-    }
 
-    LOG("handled one request");
+        /* post receives of next batch */
+        if (nsready)
+            for (size_t i = 0; i < bsize; ++i)
+                post_recv_req(get_req(i));
+    }
 }
 
 void NICServer::disconnect()
@@ -92,7 +64,6 @@ void NICServer::disconnect()
     rserver.disconnect_events();
     nsready = false;
 }
-
 
 int main(int argc, char* argv[])
 {
@@ -123,7 +94,7 @@ int main(int argc, char* argv[])
 
     OneSidedClient nicclient;
     RMCScheduler sched(nicclient);
-    NICServer nicserver(sched);
+    NICServer nicserver(sched, RDMAPeer::MAX_UNSIGNALED_SENDS);
 
     LOG("connecting to hostserver.");
     nicclient.connect(hostaddr, hostport);

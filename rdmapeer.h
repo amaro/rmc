@@ -12,12 +12,11 @@
 class RDMAPeer {
 protected:
     const int CQ_NUM_CQE = 16;
-    const int TIMEOUT_MS = 500;
+    const int TIMEOUT_MS = 5;
     const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
     const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     const int QP_ATTRS_MAX_INLINE_DATA = 256;
-    const size_t MAX_UNSIGNALED_SENDS = 4;
 
     rdma_cm_id *id;
     ibv_qp *qp;
@@ -40,6 +39,8 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
+    static const size_t MAX_UNSIGNALED_SENDS = 4;
+
     RDMAPeer() : connected(false), unsignaled_sends(0) { }
     virtual ~RDMAPeer() { }
 
@@ -70,6 +71,7 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 
 inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
 {
+
     ibv_sge sge = {
         .addr = (uintptr_t) laddr,
         .length = len,
@@ -120,7 +122,7 @@ inline bool RDMAPeer::post_send_unsignaled(void *laddr, uint32_t len, uint32_t l
     bool signaled = false;
     int ret;
 
-    if (unsignaled_sends >= MAX_UNSIGNALED_SENDS)
+    if (unsignaled_sends + 1 == MAX_UNSIGNALED_SENDS)
         signaled = true;
 
     ibv_wr_start(qpx);
