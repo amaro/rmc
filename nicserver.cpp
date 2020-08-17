@@ -47,12 +47,14 @@ void NICServer::handle_requests()
         for (size_t i = 0; i < bsize; ++i) {
             rserver.poll_exactly(1, rserver.get_recv_cq()); // poll for a recv'ed req
             dispatch(get_req(i), get_reply(i));
+
+            if (!nsready)
+                return;
         }
 
         /* post receives of next batch */
-        if (nsready)
-            for (size_t i = 0; i < bsize; ++i)
-                post_recv_req(get_req(i));
+        for (size_t i = 0; i < bsize; ++i)
+            post_recv_req(get_req(i));
     }
 }
 
