@@ -4,7 +4,7 @@
 #include <functional>
 #include <unordered_map>
 #include <cstdint>
-#include "rdmaserver.h"
+#include "rdma/rdmaserver.h"
 #include "onesidedclient.h"
 #include "hostserver.h"
 #include "rmc.h"

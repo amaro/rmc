@@ -1,7 +1,7 @@
 #ifndef ONE_SIDED_CLIENT_H
 #define ONE_SIDED_CLIENT_H
 
-#include "rdmaclient.h"
+#include "rdma/rdmaclient.h"
 #include "hostserver.h"
 #include "rmc.h"
 

@@ -2,7 +2,7 @@
 #define RMC_CLIENT_H
 
 #include <algorithm>
-#include "rdmaclient.h"
+#include "rdma/rdmaclient.h"
 #include "rmc.h"
 
 class HostClient {

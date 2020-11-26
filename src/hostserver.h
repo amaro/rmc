@@ -3,7 +3,7 @@
 
 #include <cstdlib>
 #include <cstring>
-#include "rdmaserver.h"
+#include "rdma/rdmaserver.h"
 #include "rmc.h"
 
 class HostServer {
