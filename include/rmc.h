@@ -20,11 +20,11 @@ struct GetIdReply {
 };
 struct CallReq {
     RMCId id;
-    char data[MAX_RMC_ARG_LEN];
+    char data[MAX_RMC_ARG_LEN + 1];
 };
 struct CallReply {
     int status;
-    char data[MAX_RMC_REPLY_LEN];
+    char data[MAX_RMC_REPLY_LEN + 1];
 };
 struct SetRDMAMrReq {
     ibv_mr mr;

@@ -65,6 +65,7 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg,
     /* check CmdReplys */
     for (size_t i = 0; i < bsize; ++i) {
         CmdReply *reply = get_reply(i);
+        (void) reply;
         assert(reply->type == CmdType::CALL_RMC);
         assert(reply->reply.call.status == 0);
     }
