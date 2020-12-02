@@ -7,6 +7,7 @@
 #include "rdma/rdmaserver.h"
 #include "onesidedclient.h"
 #include "hostserver.h"
+#include "scheduler.h"
 #include "rmc.h"
 
 class RMCWorker {
@@ -36,49 +37,6 @@ inline int RMCWorker::execute(const RMCId &id, CallReply &reply, size_t arg)
     std::string res = rdma_buffer_as_str(offset, size);
     size_t hash = std::hash<std::string>{}(res);
     num_to_str<size_t>(hash, reply.data, MAX_RMC_REPLY_LEN);
-    return 0;
-}
-
-class RMCScheduler {
-    const unsigned NUM_WORKERS = 1;
-
-    std::unordered_map<RMCId, RMC> id_rmc_map;
-    std::vector<std::unique_ptr<RMCWorker>> workers;
-    OneSidedClient &client;
-
-public:
-    RMCScheduler(OneSidedClient &c) : client(c) {
-        for (unsigned i = 0; i < NUM_WORKERS; ++i)
-            workers.push_back(std::make_unique<RMCWorker>(client, i));
-    }
-
-    /* RMC entry points */
-    RMCId get_rmc_id(const RMC &rmc);
-    int call_rmc(const RMCId &id, CallReply &reply, size_t arg);
-};
-
-inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
-{
-    RMCId id = std::hash<RMC>{}(rmc);
-
-    if (id_rmc_map.find(id) == id_rmc_map.end()) {
-        id_rmc_map.insert({id, rmc});
-        LOG("registered new id=" << id << "for rmc=" << rmc);
-    }
-
-    return id;
-}
-
-inline int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
-{
-    auto search = id_rmc_map.find(id);
-
-    if (search != id_rmc_map.end()) {
-        reply.status = workers[0]->execute(id, reply, arg);
-    } else {
-        die("didn't find RMC");
-    }
-
     return 0;
 }
 

@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include "rdma/rdmaserver.h"
 #include "rmc.h"
 

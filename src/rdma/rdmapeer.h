@@ -1,7 +1,6 @@
 #ifndef RDMA_PEER_H
 #define RDMA_PEER_H
 
-#include <memory>
 #include <list>
 #include <cassert>
 
