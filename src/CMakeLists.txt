@@ -11,6 +11,7 @@ target_include_directories(rdmaserver_obj PUBLIC ${INCLUDE_DIR})
 
 add_library(onesidedclient_obj OBJECT onesidedclient.cpp)
 target_include_directories(onesidedclient_obj PUBLIC ${INCLUDE_DIR})
+target_compile_options(onesidedclient_obj PUBLIC "-fcoroutines")
 
 add_library(scheduler_obj OBJECT scheduler.cpp)
 target_include_directories(scheduler_obj PUBLIC ${INCLUDE_DIR})
@@ -51,5 +52,5 @@ add_executable(normc_client normc_client.cpp
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_include_directories(normc_client PUBLIC ${INCLUDE_DIR})
-target_compile_options(normc_client PUBLIC "-fpermissive")
+target_compile_options(normc_client PUBLIC "-fcoroutines")
 target_link_libraries(normc_client rdmacm ibverbs pthread)

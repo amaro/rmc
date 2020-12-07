@@ -130,6 +130,26 @@ void benchmark(std::string server, std::string port, std::string ofile)
     client.last_cmd();
 }
 
+/* sends one req at a time */
+void test(std::string server, std::string port, std::string ofile)
+{
+    HostClient client(1);
+    // won't really be used; uses hardcoded RMC
+    const char *prog = R"(void hello() { printf("hello world\n"); })";
+    RMC rmc(prog);
+    long long duration;
+    // bufsize is unused for now
+    const int &bufsize = BUFF_SIZES[0];
+
+    client.connect(server, port);
+    RMCId id = client.get_rmc_id(rmc);
+    LOG("got id=" << id);
+
+    client.call_rmc(id, bufsize, duration);
+
+    client.last_cmd();
+}
+
 int main(int argc, char* argv[])
 {
     cxxopts::Options opts("client", "RMC client");
@@ -157,5 +177,6 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    benchmark(server, port, ofile);
+    //benchmark(server, port, ofile);
+    test(server, port, ofile);
 }

@@ -3,7 +3,7 @@
 BUILD_DIR_x86=$(realpath ./build_x86)
 BUILD_DIR_arm=$(realpath ./build_arm)
 CXX_x86=g++-10
-CXX_arm=aarch64-none-linux-gnu-g++
+CXX_arm=/home/amaro/downloads/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-g++
 EXECS_x86="client hostserver normc_client"
 EXECS_arm="nicserver"
 

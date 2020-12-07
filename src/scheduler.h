@@ -72,10 +72,9 @@ public:
     suspend point, or false if the coroutine is suspended at other suspend
     points. The behavior is undefined if it does not refer to a suspended
     coroutine. */
-    bool atfinalsuspend = coroutine.done();
-    assert(not atfinalsuspend);
+    assert(not coroutine.done());
     coroutine.resume();
-    return not atfinalsuspend;
+    return coroutine.done();
   }
 
 private:
