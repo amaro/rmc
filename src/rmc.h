@@ -61,4 +61,9 @@ struct CmdReply {
     } reply;
 };
 
+struct LLNode {
+    void *next;
+    uint64_t data[7];
+};
+
 #endif

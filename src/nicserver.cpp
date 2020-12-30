@@ -75,10 +75,12 @@ int main(int argc, char* argv[])
         ("hostaddr", "Host server address to connect to", cxxopts::value<std::string>())
         ("hostport", "Host server port", cxxopts::value<std::string>()->default_value("30001"))
         ("clientport", "Host client port to listen to", cxxopts::value<std::string>()->default_value("30000"))
+        ("llnodes", "Number of linked list nodes to traverse", cxxopts::value<int>()->default_value("65536"))
         ("h,help", "Print usage")
     ;
 
     std::string hostaddr, hostport, clientport;
+    unsigned int llnodes;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -89,6 +91,12 @@ int main(int argc, char* argv[])
         hostaddr = result["hostaddr"].as<std::string>();
         hostport = result["hostport"].as<std::string>();
         clientport = result["clientport"].as<std::string>();
+        llnodes = result["llnodes"].as<int>();
+
+        auto max_nodes = HostServer::RDMA_BUFF_SIZE / sizeof(struct LLNode);
+        if (llnodes > max_nodes)
+            throw std::runtime_error("llnodes > max_nodes");
+
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";
         die(opts.help());
@@ -96,6 +104,7 @@ int main(int argc, char* argv[])
 
     OneSidedClient nicclient;
     RMCScheduler sched(nicclient);
+    sched.set_num_llnodes(llnodes);
     NICServer nicserver(sched, RDMAPeer::MAX_UNSIGNALED_SENDS);
 
     LOG("connecting to hostserver.");

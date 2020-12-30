@@ -7,8 +7,7 @@ CXX_arm=/home/amaro/downloads/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu
 EXECS_x86="client hostserver normc_client"
 EXECS_arm="nicserver"
 
-rm ${BUILD_DIR_x86} -rf && rm ${BUILD_DIR_arm} -rf
-mkdir ${BUILD_DIR_x86} && mkdir ${BUILD_DIR_arm}
+mkdir ${BUILD_DIR_x86} -p && mkdir ${BUILD_DIR_arm} -p
 
 echo "building x86 executables ${EXECS_x86}"
 pushd ${BUILD_DIR_x86}

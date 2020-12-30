@@ -46,6 +46,7 @@ public:
     /* calls an RMC by its id.
        TODO: figure out params, returns, etc. */
     int call_rmc(const RMCId &id, const size_t arg, long long &duration);
+    int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
     /* cmd to initiate disconnect */
     void last_cmd();

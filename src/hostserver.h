@@ -16,28 +16,30 @@ class HostServer {
     // no reply_buf since we don't need one right now.
     ibv_mr *rdma_mr;
     ibv_mr *req_buf_mr;
+    /* initialized in init_rdma_buffer */
+    LLNode *linkedlist;
 
     void send_rdma_mr();
 
 public:
     /* TODO: move these to a config.h or something */
-    const static long RDMA_BUFF_SIZE = 1 << 20;
+    const static long RDMA_BUFF_SIZE = 1 << 26;
     const static int PAGE_SIZE = 4096;
 
     HostServer() : hsready(false) {
-        rdma_buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
-        for (size_t i = 0; i < RDMA_BUFF_SIZE; ++i)
-            rdma_buffer[i] = (i + 1) % 255; // no 0 as it can be interpreted as escape char
+        init_rdma_buffer();
         req_buf = std::make_unique<CmdRequest>();
     }
 
     ~HostServer() {
+        /* see https://stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new */
+        linkedlist->~LLNode();
         free(rdma_buffer);
     }
 
     void connect_and_block(int port);
-
     void disconnect();
+    void init_rdma_buffer();
 };
 
 inline void HostServer::send_rdma_mr()

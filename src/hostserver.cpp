@@ -31,6 +31,19 @@ void HostServer::disconnect()
     hsready = false;
 }
 
+void HostServer::init_rdma_buffer()
+{
+    rdma_buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+
+    /* create linked list */
+    size_t num_nodes = RDMA_BUFF_SIZE / sizeof(LLNode);
+    linkedlist = new(rdma_buffer) LLNode[num_nodes];
+    for (size_t n = 0; n < num_nodes - 1; ++n)
+        linkedlist[n].next = &linkedlist[n + 1];
+    linkedlist[num_nodes - 1].next = nullptr;
+    LOG("linkedlist[0].next=" << linkedlist[0].next);
+}
+
 int main(int argc, char* argv[])
 {
     if (argc != 2)

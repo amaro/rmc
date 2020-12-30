@@ -39,6 +39,7 @@ public:
     void poll_async();
     void writehost(uint64_t raddr, uint32_t size, void *localbuff);
     char *get_rdma_buffer();
+    void *get_remote_base_addr();
 };
 
 class HostMemoryAsyncRead {
@@ -48,20 +49,23 @@ class HostMemoryAsyncRead {
 
 public:
     HostMemoryAsyncRead(OneSidedClient &c, uint32_t o, uint32_t s) :
-            client(c), offset(o), size(s) {
-        client.read_async(offset, size);
-    }
+            client(c), offset(o), size(s) { }
 
     /* always suspend when we co_await HostMemoryAsyncRead */
     bool await_ready() const noexcept { return false; }
 
     /* called when await_ready() return false, so always */
     auto await_suspend(std::coroutine_handle<> awaitingcoro) {
+        client.read_async(offset, size);
         return true; // suspend the coroutine
     }
 
-    /* called before resuming? */
-    void await_resume() {}
+    /* this is what's actually returned in the co_await
+       we assume poll has been called, so memory is ready to be read */
+    void *await_resume() {
+        char *rdma_buff = client.get_rdma_buffer();
+        return rdma_buff + offset;
+    }
 };
 
 inline void OneSidedClient::recv_rdma_mr()
@@ -95,7 +99,7 @@ inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_
 {
     assert(onesready);
 
-    std::cout << "readfromcoro\n";
+    //LOG("readfromcoro, offset=" << offset << " size=" << size);
     return HostMemoryAsyncRead{*this, offset, size};
 }
 
@@ -109,6 +113,11 @@ inline void OneSidedClient::poll_async()
 inline char *OneSidedClient::get_rdma_buffer()
 {
     return rdma_buffer;
+}
+
+inline void *OneSidedClient::get_remote_base_addr()
+{
+    return host_mr.addr;
 }
 
 #endif

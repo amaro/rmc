@@ -73,6 +73,30 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg,
     return 0;
 }
 
+int HostClient::call_one_rmc(const RMCId &id, const size_t arg,
+                         long long &duration)
+{
+    assert(rmccready);
+
+    CmdRequest *req = get_req(0);
+    post_recv_reply(get_reply(0));
+    arm_call_req(req, id, arg);
+
+    time_point start = time_start();
+    post_send_req_unsig(req);
+    /* wait to receive 1 replies */
+    rclient.poll_exactly(1, rclient.get_recv_cq());
+    duration = time_end(start);
+
+    /* check CmdReply */
+    CmdReply *reply = get_reply(0);
+    (void) reply;
+    assert(reply->type == CmdType::CALL_RMC);
+    assert(reply->reply.call.status == 0);
+
+    return 0;
+}
+
 void HostClient::last_cmd()
 {
     assert(rmccready);
@@ -131,23 +155,32 @@ void benchmark(std::string server, std::string port, std::string ofile)
 }
 
 /* sends one req at a time */
-void test(std::string server, std::string port, std::string ofile)
+void benchmark_one(std::string server, std::string port, std::string ofile)
 {
     HostClient client(1);
-    // won't really be used; uses hardcoded RMC
-    const char *prog = R"(void hello() { printf("hello world\n"); })";
+    const char *prog = R"(void hello() { printf("hello world\n"); })"; // unused
     RMC rmc(prog);
     long long duration;
-    // bufsize is unused for now
-    const int &bufsize = BUFF_SIZES[0];
+    std::vector<long long> durations(NUM_REPS);
+    const int bufsize = 0; // unused
+    std::ofstream stream(ofile, std::ofstream::out);
 
     client.connect(server, port);
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
 
-    client.call_rmc(id, bufsize, duration);
+    /* warm up */
+    for (int i = 0; i < 10; ++i) {
+        client.call_one_rmc(id, bufsize, duration);
+    }
+
+    for (int i = 0; i < NUM_REPS; ++i) {
+        client.call_one_rmc(id, bufsize, duration);
+        durations[i] = duration;
+    }
 
     client.last_cmd();
+    print_durations(stream, bufsize, durations);
 }
 
 int main(int argc, char* argv[])
@@ -178,5 +211,5 @@ int main(int argc, char* argv[])
     }
 
     //benchmark(server, port, ofile);
-    test(server, port, ofile);
+    benchmark_one(server, port, ofile);
 }
