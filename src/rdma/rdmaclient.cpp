@@ -29,6 +29,7 @@ void RDMAClient::connect_to_server(const std::string &ip, const std::string &por
             handle_conn_established(event->id);
             return;
         } else {
+            std::cout << rdma_event_str(event->event) << "\n";
             die("unknown or unexpected event.");
         }
     }

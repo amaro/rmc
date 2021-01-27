@@ -1,22 +1,22 @@
 #!/bin/bash
 
-BUILD_DIR_x86=$(realpath ./build_x86)
-BUILD_DIR_arm=$(realpath ./build_arm)
-CXX_x86=g++-10
-CXX_arm=/home/amaro/downloads/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-g++
-EXECS_x86="client hostserver normc_client"
-EXECS_arm="nicserver"
+build() {
+    mkdir ${BUILD_DIR} -p
+    echo "building ${EXECS} with ${CXX}"
+    pushd ${BUILD_DIR}
+    CXX=${CXX} cmake ../ -DRDMA_CORE=${RDMA_CORE}
+    make ${EXECS} $1
+    popd
+}
 
-mkdir ${BUILD_DIR_x86} -p && mkdir ${BUILD_DIR_arm} -p
+BUILD_DIR=$(realpath ./build_x86)
+CXX=g++-10
+EXECS="client hostserver normc_client"
+RDMA_CORE=/home/amaro/RMC/rdma-core/build_x86
+build $1
 
-echo "building x86 executables ${EXECS_x86}"
-pushd ${BUILD_DIR_x86}
-CXX=${CXX_x86} cmake ../
-make ${EXECS_x86} $1
-popd
-
-echo "building ARM executables ${EXECS_arm}"
-pushd ${BUILD_DIR_arm}
-CXX=${CXX_arm} cmake ../
-make ${EXECS_arm} $1
-popd
+BUILD_DIR=$(realpath ./build_arm)
+CXX=/home/amaro/RMC/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/bin/aarch64-none-linux-gnu-g++
+EXECS="nicserver"
+RDMA_CORE=/home/amaro/RMC/rdma-core/build_arm
+build $1

@@ -1,6 +1,7 @@
 #ifndef RDMA_SERVER_H
 #define RDMA_SERVER_H
 
+#include <arpa/inet.h>
 #include "rdmapeer.h"
 
 class RDMAServer: public RDMAPeer {

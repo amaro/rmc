@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <unordered_map>
+#include <queue>
 #include <rdma/rdma_cma.h>
 
 #include "rmc.h"
@@ -81,37 +82,13 @@ private:
   corotype coroutine;
 };
 
-//class HostMemory;
-//
-///* trying to make this an awaitable */
-//class HostMemoryWriteOp {
-//public:
-//  HostMemoryWriteOp(const char *buf) {
-//    std::cout << "(not really) writing=" << buf << "\n";
-//  }
-//  /* always suspend when we co_await HostMemoryWriteOp */
-//  bool await_ready() const noexcept { return false; }
-//  /* suspend is called when await_ready() returns false.
-//   returning true here means suspend the coroutine */
-//  auto await_suspend(std::coroutine_handle<> awaitingcoro) {
-//    std::cout << "HostMemoryWriteOp::await_suspend\n";
-//    return true;
-//  }
-//  void await_resume() { std::cout << "HostMemoryWriteOp::await_resume\n"; }
-//};
-//
-//class HostMemory {
-//public:
-//  HostMemory() noexcept {};
-//
-//  HostMemoryWriteOp write(const char *buf) noexcept {
-//    return HostMemoryWriteOp{buf};
-//  }
-//};
-
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
     std::unordered_map<RMCId, RMC> id_rmc_map;
+    /* RMCs ready to be run */
+    std::queue<CoroRMC<int>*> runqueue;
+    /* RMCs waiting for host memory accesses */
+    std::queue<CoroRMC<int>*> memqueue;
     OneSidedClient &client;
     size_t num_llnodes;
 

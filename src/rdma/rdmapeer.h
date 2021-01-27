@@ -6,6 +6,7 @@
 
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
+#include <infiniband/verbs.h>
 #include "utils/utils.h"
 
 class RDMAPeer {
@@ -53,6 +54,7 @@ public:
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
     void poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
+    int poll_atmost(unsigned int max, ibv_cq_ex *cq);
     virtual void disconnect();
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();

@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
         ("hostaddr", "Host server address to connect to", cxxopts::value<std::string>())
         ("hostport", "Host server port", cxxopts::value<std::string>()->default_value("30001"))
         ("clientport", "Host client port to listen to", cxxopts::value<std::string>()->default_value("30000"))
-        ("llnodes", "Number of linked list nodes to traverse", cxxopts::value<int>()->default_value("65536"))
+        ("llnodes", "Number of linked list nodes to traverse", cxxopts::value<int>()->default_value("8"))
         ("h,help", "Print usage")
     ;
 

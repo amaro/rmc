@@ -17,14 +17,31 @@ int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
     //auto search = id_rmc_map.find(id); unused
 
     // just call a hardcoded CoroRMC for now
-    auto rmc1 = rmc_test(client, num_llnodes);
+    CoroRMC<int> rmc1 = rmc_test(client, num_llnodes);
     int resumes = 1;
+    int completed = 0;
 
-    while (!rmc1.resume()) {
-        resumes++;
-        client.poll_async(); // blocking
+    runqueue.push(&rmc1);
+
+    while (!runqueue.empty() || !memqueue.empty()) {
+        /* if there's an RMC to run, run it */
+        if (!runqueue.empty()) {
+            CoroRMC<int> *current = runqueue.front();
+            runqueue.pop();
+            resumes++;
+            /* if RMC is not done running, add it to memqueue */
+            if (!current->resume())
+                memqueue.push(current);
+        }
+
+        /* poll host memory qp */
+        completed = client.poll_async(); // not blocking
+        for (int i = 0; i < completed; ++i) {
+            runqueue.push(memqueue.front());
+            memqueue.pop();
+        }
     }
 
-    //LOG("total coro resumes = " << resumes);
+    LOG("resumes=" << resumes);
     return 0;
 }
