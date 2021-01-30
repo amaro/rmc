@@ -10,36 +10,6 @@
 #include "scheduler.h"
 #include "rmc.h"
 
-class RMCWorker {
-    OneSidedClient &rclient;
-    unsigned id;
-
-public:
-    RMCWorker(OneSidedClient &c, unsigned id) : rclient(c), id(id) {
-    }
-
-    int execute(const RMCId &id, CallReply &reply, size_t arg);
-    std::string rdma_buffer_as_str(uint32_t offset, uint32_t size) const;
-};
-
-inline std::string RMCWorker::rdma_buffer_as_str(uint32_t offset, uint32_t size) const
-{
-    char *result_buffer = rclient.get_rdma_buffer();
-    return std::string(result_buffer[offset], size);
-}
-
-inline int RMCWorker::execute(const RMCId &id, CallReply &reply, size_t arg)
-{
-    uint32_t offset = 0;
-    size_t size = arg;
-
-    rclient.readhost(offset, size);
-    std::string res = rdma_buffer_as_str(offset, size);
-    size_t hash = std::hash<std::string>{}(res);
-    num_to_str<size_t>(hash, reply.data, MAX_RMC_REPLY_LEN);
-    return 0;
-}
-
 class NICServer {
     RDMAServer rserver;
     RMCScheduler &sched;
@@ -127,6 +97,7 @@ inline void NICServer::req_call_rmc(CmdRequest *req, CmdReply *reply)
     CallReq &callreq = req->request.call;
 
     size_t arg = std::stoull(callreq.data);
+    sched.add_rmc();
     sched.call_rmc(callreq.id, callreply, arg);
 
     reply->type = CmdType::CALL_RMC;

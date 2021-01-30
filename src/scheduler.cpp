@@ -12,36 +12,45 @@ CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
     }
 }
 
+void RMCScheduler::add_rmc()
+{
+    CoroRMC<int> *rmc = new auto(rmc_test(client, num_llnodes));
+    runqueue.push(rmc);
+    std::cout << "added rmc=" << std::hex << rmc << "\n";
+}
+
 int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
 {
     //auto search = id_rmc_map.find(id); unused
-
-    // just call a hardcoded CoroRMC for now
-    CoroRMC<int> rmc1 = rmc_test(client, num_llnodes);
     int resumes = 1;
     int completed = 0;
-
-    runqueue.push(&rmc1);
+    std::cout << "call_rmc\n";
 
     while (!runqueue.empty() || !memqueue.empty()) {
         /* if there's an RMC to run, run it */
         if (!runqueue.empty()) {
-            CoroRMC<int> *current = runqueue.front();
+            CoroRMC<int> *rmc = runqueue.front();
             runqueue.pop();
+
             resumes++;
             /* if RMC is not done running, add it to memqueue */
-            if (!current->resume())
-                memqueue.push(current);
+            std::cout << "will run rmc=" << std::hex << rmc << "\n";
+            if (!rmc->resume()) {
+                memqueue.push(rmc);
+            } else {
+                std::cout << "finished rmc=" << std::hex << rmc << "\n";
+            }
         }
 
         /* poll host memory qp */
         completed = client.poll_async(); // not blocking
+        std::cout << "completed=" << completed << "\n";
         for (int i = 0; i < completed; ++i) {
             runqueue.push(memqueue.front());
             memqueue.pop();
         }
     }
 
-    LOG("resumes=" << resumes);
+    LOG("resumes=" << std::dec << resumes);
     return 0;
 }

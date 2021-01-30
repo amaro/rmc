@@ -46,11 +46,9 @@ public:
     value_type current_value;
   };
 
-  using corotype = std::coroutine_handle<promise_type>;
-
   /* constructors */
   CoroRMC() noexcept : coroutine(nullptr) {}
-  CoroRMC(corotype h) : coroutine(h) {}
+  CoroRMC(std::coroutine_handle<promise_type> h) : coroutine(h) {}
   CoroRMC(CoroRMC &&oth) noexcept : coroutine(oth.coroutine) {
     oth.coroutine = nullptr;
   }
@@ -79,8 +77,9 @@ public:
   }
 
 private:
-  corotype coroutine;
+  std::coroutine_handle<promise_type> coroutine;
 };
+
 
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
@@ -99,6 +98,7 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
     int call_rmc(const RMCId &id, CallReply &reply, size_t arg);
     void set_num_llnodes(size_t num_nodes);
+    void add_rmc();
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
