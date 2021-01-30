@@ -12,45 +12,47 @@ CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
     }
 }
 
-void RMCScheduler::add_rmc()
+void RMCScheduler::create_rmc()
 {
+    static int id = 0;
     CoroRMC<int> *rmc = new auto(rmc_test(client, num_llnodes));
+    rmc->id = id++;
     runqueue.push(rmc);
-    std::cout << "added rmc=" << std::hex << rmc << "\n";
+    std::cout << "created new rmc=" << rmc->id << "\n";
 }
 
-int RMCScheduler::call_rmc(const RMCId &id, CallReply &reply, size_t arg)
+bool RMCScheduler::schedule()
 {
     //auto search = id_rmc_map.find(id); unused
-    int resumes = 1;
     int completed = 0;
-    std::cout << "call_rmc\n";
+    bool finished_rmc = false;
 
-    while (!runqueue.empty() || !memqueue.empty()) {
-        /* if there's an RMC to run, run it */
-        if (!runqueue.empty()) {
-            CoroRMC<int> *rmc = runqueue.front();
-            runqueue.pop();
+    /* if there's an RMC ready to run, run it */
+    while (!runqueue.empty()) {
+        CoroRMC<int> *rmc = runqueue.front();
+        runqueue.pop();
 
-            resumes++;
-            /* if RMC is not done running, add it to memqueue */
-            std::cout << "will run rmc=" << std::hex << rmc << "\n";
-            if (!rmc->resume()) {
-                memqueue.push(rmc);
-            } else {
-                std::cout << "finished rmc=" << std::hex << rmc << "\n";
-            }
+        /* if RMC is not done running, add it to memqueue */
+        std::cout << "executing rmc=" << rmc->id << "\n";
+        if (!rmc->resume()) {
+            memqueue.push(rmc);
+        } else {
+            finished_rmc = true;
+            std::cout << "finished rmc=" << rmc->id << "\n";
         }
+    }
 
-        /* poll host memory qp */
+    /* if there are RMCs waiting for their host mem accesses to finish,
+       poll their qp */
+    if (!memqueue.empty()) {
         completed = client.poll_async(); // not blocking
-        std::cout << "completed=" << completed << "\n";
+        std::cout << "hostmem accesses completed=" << completed << "\n";
         for (int i = 0; i < completed; ++i) {
+            std::cout << "adding to runqueue rmc=" << memqueue.front()->id << "\n";
             runqueue.push(memqueue.front());
             memqueue.pop();
         }
     }
 
-    LOG("resumes=" << std::dec << resumes);
-    return 0;
+    return finished_rmc;
 }

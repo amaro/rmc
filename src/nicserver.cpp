@@ -16,15 +16,17 @@ void NICServer::connect(int port)
 }
 
 /* not inline, but datapath inside is inline */
-void NICServer::dispatch(CmdRequest *req, CmdReply *reply)
+void NICServer::dispatch_new_req(CmdRequest *req)
 {
     switch (req->type) {
     case CmdType::GET_RMCID:
-        return req_get_rmc_id(req, reply);
+        return req_get_rmc_id(req);
     case CmdType::CALL_RMC:
-        return req_call_rmc(req, reply);
+        return req_new_rmc(req);
     case CmdType::LAST_CMD:
-        return disconnect();
+        std::cout << "received disconnect req\n";
+        this->recvd_disconnect = true;
+        return;
     default:
         DIE("unrecognized CmdRequest type");
     }
@@ -34,27 +36,40 @@ void NICServer::handle_requests()
 {
     assert(nsready);
 
-    /* handle the rmc get id call */
+    /* handle the initial rmc get id call */
     post_recv_req(get_req(0));
     rserver.poll_exactly(1, rserver.get_recv_cq());
-    dispatch(get_req(0), get_reply(0));
+    dispatch_new_req(get_req(0));
 
     for (size_t i = 0; i < bsize; ++i)
         post_recv_req(get_req(i));
 
+    int req_idx = 0;
+    int reply_idx = 0;
+    int new_reqs = 0;
     while (nsready) {
-        /* wait for recvs to arrive in-order */
-        for (size_t i = 0; i < bsize; ++i) {
-            rserver.poll_exactly(1, rserver.get_recv_cq()); // poll for a recv'ed req
-            dispatch(get_req(i), get_reply(i));
-
-            if (!nsready)
-                return;
+        if (!this->recvd_disconnect) {
+            new_reqs = rserver.poll_atmost(1, rserver.get_recv_cq());
+            std::cout << "server recv_cq polled=" << new_reqs << "\n";
+            if (new_reqs > 0) {
+                assert(new_reqs == 1);
+                std::cout << "received new req; idx=" << req_idx << "\n";
+                dispatch_new_req(get_req(req_idx));
+                post_recv_req(get_req(req_idx));
+                req_idx = (req_idx + 1) % bsize;
+            }
         }
 
-        /* post receives of next batch */
-        for (size_t i = 0; i < bsize; ++i)
-            post_recv_req(get_req(i));
+        /* if a task finished, send its reply */
+        if (sched.schedule()) {
+            CmdReply *reply = get_reply(reply_idx);
+            reply->type = CmdType::CALL_RMC;
+            post_send_uns_reply(reply);
+            reply_idx = (reply_idx + 1) % bsize;
+        }
+
+        if (this->recvd_disconnect && !sched.executing())
+            return this->disconnect();
     }
 }
 

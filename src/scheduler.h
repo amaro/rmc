@@ -76,6 +76,8 @@ public:
     return coroutine.done();
   }
 
+  int id;
+
 private:
   std::coroutine_handle<promise_type> coroutine;
 };
@@ -96,9 +98,10 @@ public:
 
     /* RMC entry points */
     RMCId get_rmc_id(const RMC &rmc);
-    int call_rmc(const RMCId &id, CallReply &reply, size_t arg);
+    bool schedule();
     void set_num_llnodes(size_t num_nodes);
-    void add_rmc();
+    void create_rmc();
+    bool executing();
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
@@ -116,6 +119,11 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
 inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
 {
     num_llnodes = num_nodes;
+}
+
+inline bool RMCScheduler::executing()
+{
+    return !runqueue.empty() || !memqueue.empty();
 }
 
 #endif

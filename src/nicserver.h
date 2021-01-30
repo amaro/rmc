@@ -15,6 +15,9 @@ class NICServer {
     RMCScheduler &sched;
 
     bool nsready;
+    /* true if we received a disconnect req, so we are waiting for rmcs to
+       finish executing before disconnecting */
+    bool recvd_disconnect;
     size_t bsize;
 
     /* communication with client */
@@ -28,13 +31,13 @@ class NICServer {
     void post_send_reply(CmdReply *reply);
     /* send an unsignaled reply back to client */
     void post_send_uns_reply(CmdReply *reply);
-    void dispatch(CmdRequest *req, CmdReply *reply);
+    void dispatch_new_req(CmdRequest *req);
     CmdRequest *get_req(size_t req_idx);
     CmdReply *get_reply(size_t req_idx);
 
     /* RMC entry points */
-    void req_get_rmc_id(CmdRequest *req, CmdReply *reply);
-    void req_call_rmc(CmdRequest *req, CmdReply *reply);
+    void req_get_rmc_id(CmdRequest *req);
+    void req_new_rmc(CmdRequest *req);
 
 public:
     NICServer(RMCScheduler &s, size_t b) : sched(s), nsready(false), bsize(b) {
@@ -75,7 +78,7 @@ inline void NICServer::post_send_uns_reply(CmdReply *reply)
 
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
-inline void NICServer::req_get_rmc_id(CmdRequest *req, CmdReply *reply)
+inline void NICServer::req_get_rmc_id(CmdRequest *req)
 {
     assert(nsready);
     assert(req->type == CmdType::GET_RMCID);
@@ -83,25 +86,22 @@ inline void NICServer::req_get_rmc_id(CmdRequest *req, CmdReply *reply)
     RMC rmc(req->request.getid.rmc);
     RMCId id = sched.get_rmc_id(rmc);
 
-    /* get_id reply */
+    /* for now, just use buffer 0 for get rmc id reply */
+    CmdReply *reply = get_reply(0);
     reply->type = CmdType::GET_RMCID;
     reply->reply.getid.id = id;
     post_send_reply(reply);
     rserver.poll_exactly(1, rserver.get_send_cq());
 }
 
-inline void NICServer::req_call_rmc(CmdRequest *req, CmdReply *reply)
+inline void NICServer::req_new_rmc(CmdRequest *req)
 {
     assert(req->type == CmdType::CALL_RMC);
-    CallReply &callreply = reply->reply.call;
-    CallReq &callreq = req->request.call;
+    //CallReply &callreply = reply->reply.call;
+    //CallReq &callreq = req->request.call;
 
-    size_t arg = std::stoull(callreq.data);
-    sched.add_rmc();
-    sched.call_rmc(callreq.id, callreply, arg);
-
-    reply->type = CmdType::CALL_RMC;
-    post_send_uns_reply(reply);
+    //size_t arg = std::stoull(callreq.data);
+    sched.create_rmc();
 }
 
 inline CmdRequest *NICServer::get_req(size_t req_idx)

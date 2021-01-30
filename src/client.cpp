@@ -6,7 +6,7 @@
 #include "utils/utils.h"
 #include "utils/logger.h"
 
-const int NUM_REPS = 100;
+const int NUM_REPS = 1;
 const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
 void HostClient::connect(const std::string &ip, const std::string &port)
@@ -56,6 +56,7 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg,
         post_recv_reply(get_reply(i));
         arm_call_req(req, id, arg);
         post_send_req_unsig(req);
+        std::cout << "sent req " << i << " from bsize=" << bsize << "\n";
     }
 
     /* wait to receive all replies */
@@ -141,15 +142,15 @@ void benchmark(std::string server, std::string port, std::string ofile)
         client.call_rmc(id, bufsize, duration);
 
     // real thing
-    for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
-        const int &bufsize = BUFF_SIZES[bufidx];
-        for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-            client.call_rmc(id, bufsize, duration);
-            durations[rep] = duration;
-        }
+    //for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
+    //    const int &bufsize = BUFF_SIZES[bufidx];
+    //    for (size_t rep = 0; rep < NUM_REPS; ++rep) {
+    //        client.call_rmc(id, bufsize, duration);
+    //        durations[rep] = duration;
+    //    }
 
-        print_durations(stream, bufsize, durations);
-    }
+    //    print_durations(stream, bufsize, durations);
+    //}
 
     client.last_cmd();
 }
@@ -210,6 +211,6 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    //benchmark(server, port, ofile);
-    benchmark_one(server, port, ofile);
+    benchmark(server, port, ofile);
+    //benchmark_one(server, port, ofile);
 }
