@@ -74,7 +74,7 @@ void RDMAPeer::disconnect()
     rdma_destroy_id(id);
 }
 
-void RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq)
+unsigned int RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq)
 {
     int ret;
     unsigned int polled = 0;
@@ -108,6 +108,7 @@ next_poll:
 
 out:
     ibv_end_poll(cq);
+    return polled;
 }
 
 void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
@@ -142,11 +143,13 @@ void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
     ibv_end_poll(cq);
 }
 
-int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
+unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
 {
     int ret;
     unsigned int polled = 0;
     struct ibv_poll_cq_attr cq_attr = {};
+
+    assert(max > 0);
 
     while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
         if (ret == ENOENT)
@@ -173,5 +176,6 @@ int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
 
 end_poll:
     ibv_end_poll(cq);
+    assert(polled <= max);
     return polled;
 }

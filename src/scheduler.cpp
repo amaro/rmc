@@ -18,37 +18,30 @@ void RMCScheduler::create_rmc()
     CoroRMC<int> *rmc = new auto(rmc_test(client, num_llnodes));
     rmc->id = id++;
     runqueue.push(rmc);
-    std::cout << "created new rmc=" << rmc->id << "\n";
 }
 
 bool RMCScheduler::schedule()
 {
     //auto search = id_rmc_map.find(id); unused
-    int completed = 0;
     bool finished_rmc = false;
 
     /* if there's an RMC ready to run, run it */
-    while (!runqueue.empty()) {
+    while (!runqueue.empty() && !finished_rmc) {
         CoroRMC<int> *rmc = runqueue.front();
         runqueue.pop();
 
         /* if RMC is not done running, add it to memqueue */
-        std::cout << "executing rmc=" << rmc->id << "\n";
-        if (!rmc->resume()) {
+        if (!rmc->resume())
             memqueue.push(rmc);
-        } else {
+        else
             finished_rmc = true;
-            std::cout << "finished rmc=" << rmc->id << "\n";
-        }
     }
 
     /* if there are RMCs waiting for their host mem accesses to finish,
        poll their qp */
     if (!memqueue.empty()) {
-        completed = client.poll_async(); // not blocking
-        std::cout << "hostmem accesses completed=" << completed << "\n";
+        int completed = client.poll_async(); // not blocking
         for (int i = 0; i < completed; ++i) {
-            std::cout << "adding to runqueue rmc=" << memqueue.front()->id << "\n";
             runqueue.push(memqueue.front());
             memqueue.pop();
         }

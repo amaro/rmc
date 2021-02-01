@@ -50,10 +50,8 @@ void NICServer::handle_requests()
     while (nsready) {
         if (!this->recvd_disconnect) {
             new_reqs = rserver.poll_atmost(1, rserver.get_recv_cq());
-            std::cout << "server recv_cq polled=" << new_reqs << "\n";
             if (new_reqs > 0) {
                 assert(new_reqs == 1);
-                std::cout << "received new req; idx=" << req_idx << "\n";
                 dispatch_new_req(get_req(req_idx));
                 post_recv_req(get_req(req_idx));
                 req_idx = (req_idx + 1) % bsize;

@@ -118,6 +118,7 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
 
 inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
 {
+    LOG("num nodes in each linked list=" << num_nodes);
     num_llnodes = num_nodes;
 }
 

@@ -48,20 +48,38 @@ int HostClient::call_rmc(const RMCId &id, const size_t arg,
 {
     assert(rmccready);
 
-    time_point start = time_start();
+    int max_inflight = bsize;
+    int curr_inflight = 0;
+    int polled = 0;
+    int buf_idx = 0;
+    int total_reqs = 1000;
 
-    /* post bsize replies and requests */
-    for (size_t i = 0; i < bsize; ++i) {
-        CmdRequest *req = get_req(i);
-        post_recv_reply(get_reply(i));
-        arm_call_req(req, id, arg);
-        post_send_req_unsig(req);
-        std::cout << "sent req " << i << " from bsize=" << bsize << "\n";
+    LOG("batch size=" << bsize);
+    time_point start = time_start();
+    for (int i = 0; i < total_reqs; i++) {
+        /* send as many requests as we have credits for */
+        if (curr_inflight < max_inflight) {
+            post_recv_reply(get_reply(buf_idx));
+            arm_call_req(get_req(buf_idx), id, arg);
+            post_send_req_unsig(get_req(buf_idx));
+            curr_inflight++;
+            buf_idx = (buf_idx + 1) % bsize;
+        }
+
+        polled = 0;
+        if (curr_inflight > 0) {
+            if (curr_inflight < max_inflight)
+                polled = rclient.poll_atmost(bsize, rclient.get_recv_cq());
+            else
+                polled = rclient.poll_atleast(1, rclient.get_recv_cq());
+        }
+
+        curr_inflight -= polled;
     }
 
-    /* wait to receive all replies */
-    rclient.poll_exactly(bsize, rclient.get_recv_cq());
+    rclient.poll_exactly(curr_inflight, rclient.get_recv_cq());
     duration = time_end(start);
+    std::cout << "duration=" << duration << " ns\n";
 
     /* check CmdReplys */
     for (size_t i = 0; i < bsize; ++i) {

@@ -52,9 +52,9 @@ public:
     void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                     uint32_t offset, uint32_t len) const;
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
-    void poll_atleast(unsigned int times, ibv_cq_ex *cq);
+    unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
-    int poll_atmost(unsigned int max, ibv_cq_ex *cq);
+    unsigned int poll_atmost(unsigned int max, ibv_cq_ex *cq);
     virtual void disconnect();
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
