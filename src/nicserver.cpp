@@ -16,65 +16,20 @@ void NICServer::connect(int port)
 }
 
 /* not inline, but datapath inside is inline */
-void NICServer::dispatch_new_req(CmdRequest *req)
-{
-    switch (req->type) {
-    case CmdType::GET_RMCID:
-        return req_get_rmc_id(req);
-    case CmdType::CALL_RMC:
-        return req_new_rmc(req);
-    case CmdType::LAST_CMD:
-        std::cout << "received disconnect req\n";
-        this->recvd_disconnect = true;
-        return;
-    default:
-        DIE("unrecognized CmdRequest type");
-    }
-}
 
-void NICServer::handle_requests()
+void NICServer::init(RMCScheduler &sched)
 {
     assert(nsready);
 
     /* handle the initial rmc get id call */
     post_recv_req(get_req(0));
     rserver.poll_exactly(1, rserver.get_recv_cq());
-    dispatch_new_req(get_req(0));
+    sched.dispatch_new_req(get_req(0));
 
     for (size_t i = 0; i < bsize; ++i)
         post_recv_req(get_req(i));
 
-    int req_idx = 0;
-    int reply_idx = 0;
-    int new_reqs = 0;
-    //static int total_reqs = 0;
-    //static int total_replies = 0;
-    while (nsready) {
-        if (!this->recvd_disconnect) {
-            new_reqs = rserver.poll_atmost(1, rserver.get_recv_cq());
-            if (new_reqs > 0) {
-                assert(new_reqs == 1);
-                //total_reqs++;
-                //LOG("received new request; total_reqs=" << total_reqs);
-                dispatch_new_req(get_req(req_idx));
-                post_recv_req(get_req(req_idx));
-                req_idx = (req_idx + 1) % bsize;
-            }
-        }
-
-        /* if a task finished, send its reply */
-        if (sched.schedule()) {
-            CmdReply *reply = get_reply(reply_idx);
-            reply->type = CmdType::CALL_RMC;
-            post_send_uns_reply(reply);
-            reply_idx = (reply_idx + 1) % bsize;
-            //total_replies++;
-            //LOG("sent reply; total_replies=" << total_replies);
-        }
-
-        if (this->recvd_disconnect && !sched.executing())
-            return this->disconnect();
-    }
+    sched.run();
 }
 
 void NICServer::disconnect()
@@ -84,6 +39,17 @@ void NICServer::disconnect()
     LOG("received disconnect req");
     rserver.disconnect_events();
     nsready = false;
+}
+
+void NICServer::start(RMCScheduler &sched, const std::string &hostaddr,
+                        const std::string &hostport, const std::string &clientport)
+{
+    LOG("connecting to hostserver.");
+    rclient.connect(hostaddr, hostport);
+
+    LOG("waiting for hostclient to connect.");
+    this->connect(std::stoi(clientport));
+    this->init(sched);
 }
 
 int main(int argc, char* argv[])
@@ -121,15 +87,12 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    OneSidedClient nicclient;
-    RMCScheduler sched(nicclient);
+    OneSidedClient rclient;
+    RDMAServer rserver;
+    NICServer nicserver(rclient, rserver, RDMAPeer::MAX_UNSIGNALED_SENDS);
+
+    RMCScheduler sched(nicserver);
     sched.set_num_llnodes(llnodes);
-    NICServer nicserver(sched, RDMAPeer::MAX_UNSIGNALED_SENDS);
 
-    LOG("connecting to hostserver.");
-    nicclient.connect(hostaddr, hostport);
-
-    LOG("waiting for hostclient to connect.");
-    nicserver.connect(std::stoi(clientport));
-    nicserver.handle_requests();
+    nicserver.start(sched, hostaddr, hostport, clientport);
 }

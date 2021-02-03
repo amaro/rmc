@@ -10,7 +10,7 @@
 #include <rdma/rdma_cma.h>
 
 #include "rmc.h"
-#include "onesidedclient.h"
+#include "nicserver.h"
 
 template <typename T = void> class CoroRMC {
 /*
@@ -82,26 +82,38 @@ private:
   std::coroutine_handle<promise_type> coroutine;
 };
 
+class NICServer;
 
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
+    NICServer &ns;
+
     std::unordered_map<RMCId, RMC> id_rmc_map;
     /* RMCs ready to be run */
     std::queue<CoroRMC<int>*> runqueue;
     /* RMCs waiting for host memory accesses */
     std::queue<CoroRMC<int>*> memqueue;
-    OneSidedClient &client;
+
     size_t num_llnodes;
+    /* true if we received a disconnect req, so we are waiting for rmcs to
+       finish executing before disconnecting */
+    bool recvd_disconnect;
 
 public:
-    RMCScheduler(OneSidedClient &c) : client(c) { }
+    RMCScheduler(NICServer &nicserver) : ns(nicserver) { }
+
+    /* RMC entry points */
+
+    void run();
+    void schedule();
+    void set_num_llnodes(size_t num_nodes);
+    bool executing();
+    void dispatch_new_req(CmdRequest *req);
 
     /* RMC entry points */
     RMCId get_rmc_id(const RMC &rmc);
-    bool schedule();
-    void set_num_llnodes(size_t num_nodes);
-    void create_rmc();
-    bool executing();
+    void req_get_rmc_id(CmdRequest *req);
+    void req_new_rmc(CmdRequest *req);
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
