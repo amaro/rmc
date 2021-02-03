@@ -43,16 +43,15 @@ public:
        3. return id */
     RMCId get_rmc_id(const RMC &rmc);
 
-    /* calls an RMC by its id.
-       TODO: figure out params, returns, etc. */
-    int call_rmc(const RMCId &id, const size_t arg, long long &duration);
+    int call_rmc(long long &duration, int maxinflight);
     int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
     /* cmd to initiate disconnect */
     void last_cmd();
 
     void parse_rmc_reply(CmdReply *reply) const;
-    void arm_call_req(CmdRequest *req, const RMCId &id, const size_t arg);
+    //void arm_call_req(CmdRequest *req, const RMCId &id, const size_t arg);
+    void arm_call_req(CmdRequest *req);
 };
 
 /* post a recv for CmdReply */
@@ -96,12 +95,12 @@ inline void HostClient::parse_rmc_reply(CmdReply *reply) const
     LOG("hash at client=" << hash);
 }
 
-inline void HostClient::arm_call_req(CmdRequest *req, const RMCId &id, const size_t arg)
+inline void HostClient::arm_call_req(CmdRequest *req)
 {
     req->type = CmdType::CALL_RMC;
-    CallReq *callreq = &req->request.call;
-    callreq->id = id;
-    num_to_str<size_t>(arg, callreq->data, MAX_RMC_ARG_LEN);
+    //CallReq *callreq = &req->request.call;
+    //callreq->id = id;
+    //num_to_str<size_t>(arg, callreq->data, MAX_RMC_ARG_LEN);
 }
 
 #endif

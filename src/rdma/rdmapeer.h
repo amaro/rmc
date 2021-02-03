@@ -14,7 +14,7 @@ protected:
     const int CQ_NUM_CQE = 16;
     const int TIMEOUT_MS = 5;
     const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
-    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1;
+    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 10;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     const int QP_ATTRS_MAX_INLINE_DATA = 256;
 
@@ -39,7 +39,7 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
-    static const size_t MAX_UNSIGNALED_SENDS = 4;
+    static const size_t MAX_UNSIGNALED_SENDS = 8;
 
     RDMAPeer() : connected(false), unsignaled_sends(0) { }
     virtual ~RDMAPeer() { }
@@ -123,7 +123,7 @@ inline bool RDMAPeer::post_send_unsignaled(void *laddr, uint32_t len, uint32_t l
     bool signaled = false;
     int ret;
 
-    if (unsignaled_sends + 1 == MAX_UNSIGNALED_SENDS)
+    if (this->unsignaled_sends + 1 == MAX_UNSIGNALED_SENDS)
         signaled = true;
 
     ibv_wr_start(qpx);
@@ -132,17 +132,12 @@ inline bool RDMAPeer::post_send_unsignaled(void *laddr, uint32_t len, uint32_t l
         qpx->wr_flags = IBV_SEND_SIGNALED;
 
     ibv_wr_send(qpx);
-    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len); /* TODO: should this be inline? */
 
     if ((ret = ibv_wr_complete(qpx)) != 0)
         DIE("ibv_wr_complete returned=" << ret);
 
-    /* if we posted a signaled send, reset unsignaled counter */
-    if (signaled)
-        unsignaled_sends = 0;
-    else
-        unsignaled_sends++;
-
+    this->unsignaled_sends = (this->unsignaled_sends + 1) % MAX_UNSIGNALED_SENDS;
     return signaled;
 }
 

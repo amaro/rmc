@@ -47,11 +47,15 @@ void NICServer::handle_requests()
     int req_idx = 0;
     int reply_idx = 0;
     int new_reqs = 0;
+    //static int total_reqs = 0;
+    //static int total_replies = 0;
     while (nsready) {
         if (!this->recvd_disconnect) {
             new_reqs = rserver.poll_atmost(1, rserver.get_recv_cq());
             if (new_reqs > 0) {
                 assert(new_reqs == 1);
+                //total_reqs++;
+                //LOG("received new request; total_reqs=" << total_reqs);
                 dispatch_new_req(get_req(req_idx));
                 post_recv_req(get_req(req_idx));
                 req_idx = (req_idx + 1) % bsize;
@@ -64,6 +68,8 @@ void NICServer::handle_requests()
             reply->type = CmdType::CALL_RMC;
             post_send_uns_reply(reply);
             reply_idx = (reply_idx + 1) % bsize;
+            //total_replies++;
+            //LOG("sent reply; total_replies=" << total_replies);
         }
 
         if (this->recvd_disconnect && !sched.executing())
