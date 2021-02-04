@@ -29,7 +29,7 @@ void RMCScheduler::req_new_rmc(CmdRequest *req)
    Return the id */
 void RMCScheduler::req_get_rmc_id(CmdRequest *req)
 {
-    assert(nsready);
+    assert(ns.nsready);
     assert(req->type == CmdType::GET_RMCID);
 
     RMC rmc(req->request.getid.rmc);

@@ -1,8 +1,5 @@
 set(INCLUDE_DIR "${RMC_SOURCE_DIR}/src")
-
-#include_directories(${RDMA_CORE}/include)
 include_directories(${INCLUDE_DIR})
-#link_directories(${RDMA_CORE}/lib)
 
 add_library(rdmapeer_obj OBJECT rdma/rdmapeer.cpp)
 
