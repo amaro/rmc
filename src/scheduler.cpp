@@ -51,7 +51,6 @@ void RMCScheduler::dispatch_new_req(CmdRequest *req)
     case CmdType::CALL_RMC:
         return req_new_rmc(req);
     case CmdType::LAST_CMD:
-        std::cout << "received disconnect req\n";
         this->recvd_disconnect = true;
         return;
     default:
@@ -88,6 +87,7 @@ void RMCScheduler::schedule()
         } else {
             CmdReply *reply = ns.get_reply(reply_idx);
             reply->type = CmdType::CALL_RMC;
+            reply->reply.call.status = 0;
             ns.post_send_uns_reply(reply);
             reply_idx = (reply_idx + 1) % ns.bsize;
         }

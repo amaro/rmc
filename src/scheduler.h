@@ -100,7 +100,7 @@ class RMCScheduler {
     bool recvd_disconnect;
 
 public:
-    RMCScheduler(NICServer &nicserver) : ns(nicserver) { }
+    RMCScheduler(NICServer &nicserver) : ns(nicserver), recvd_disconnect(false) { }
 
     /* RMC entry points */
 

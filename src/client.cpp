@@ -52,15 +52,12 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
     int polled = 0;
     int buf_idx = 0;
     int total_reqs = 1000;
-    //int sent_reqs = 0;
-    //int recv_replies = 0;
 
     if (maxinflight > (int) RDMAPeer::MAX_UNSIGNALED_SENDS)
         die("max in flight > MAX_UNSIGNALED_SENDS");
 
-
     time_point start = time_start();
-    for (int i = 0; i < total_reqs; i++) {
+    for (auto i = 0; i < total_reqs; i++) {
         /* send as many requests as we have credits for */
         if (curr_inflight < maxinflight) {
             post_recv_reply(get_reply(buf_idx));
@@ -68,8 +65,6 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
             post_send_req_unsig(get_req(buf_idx));
             curr_inflight++;
             buf_idx = (buf_idx + 1) % maxinflight;
-            //sent_reqs++;
-            //LOG("sent_reqs=" << sent_reqs);
         }
 
         polled = 0;
@@ -81,22 +76,24 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
         }
 
         curr_inflight -= polled;
-        //recv_replies += polled;
-        //LOG("recvd replies=" << recv_replies);
     }
 
     if (curr_inflight > 0)
         rclient.poll_exactly(curr_inflight, rclient.get_recv_cq());
     duration = time_end(start);
 
+    LOG("benchmark done");
+
     /* check CmdReplys */
-    for (int i = 0; i < maxinflight; ++i) {
+
+    for (auto i = 0; i < maxinflight; ++i) {
         CmdReply *reply = get_reply(i);
         (void) reply;
         assert(reply->type == CmdType::CALL_RMC);
         assert(reply->reply.call.status == 0);
     }
 
+    std::cout << "total_reqs=" << total_reqs << "\n";
     return 0;
 }
 
@@ -163,6 +160,7 @@ void print_stats(std::vector<long long> &durations, int maxinflight)
     else
         median = durations[vecsize / 2];
 
+    std::cout << "NUM_REPS=" << NUM_REPS << "\n";
     std::cout << "max inflight=" << maxinflight << "\n";
     std::cout << "avg=" << avg << "\n";
     std::cout << "median=" << median << "\n";
@@ -183,8 +181,10 @@ void benchmark(std::string server, std::string port, std::string ofile, int maxi
 
     // warm up
     //const int &bufsize = BUFF_SIZES[0];
+    LOG("warming up");
     client.call_rmc(duration, maxinflight);
 
+    LOG("start benchmark");
     for (size_t rep = 0; rep < NUM_REPS; ++rep) {
         client.call_rmc(duration, maxinflight);
         durations[rep] = duration;
