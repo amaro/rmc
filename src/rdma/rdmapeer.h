@@ -14,7 +14,7 @@ protected:
     const int CQ_NUM_CQE = 16;
     const int TIMEOUT_MS = 5;
     const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
-    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 10;
+    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 13;
     const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     const int QP_ATTRS_MAX_INLINE_DATA = 256;
 
@@ -39,7 +39,7 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
-    static const size_t MAX_UNSIGNALED_SENDS = 8;
+    static const size_t MAX_UNSIGNALED_SENDS = 13;
 
     RDMAPeer() : connected(false), unsignaled_sends(0) { }
     virtual ~RDMAPeer() { }
@@ -185,6 +185,112 @@ inline ibv_cq_ex *RDMAPeer::get_send_cq()
 inline ibv_cq_ex *RDMAPeer::get_recv_cq()
 {
     return recv_cqx;
+}
+
+inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
+{
+    int ret;
+    unsigned int polled = 0;
+    struct ibv_poll_cq_attr cq_attr = {};
+
+    assert(max > 0);
+
+    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
+        if (ret == ENOENT)
+            return 0;
+        else
+            DIE("ibv_start_poll() returned " << ret);
+    }
+
+    do {
+        if (polled > 0) {
+            while ((ret = ibv_next_poll(cq)) != 0) {
+                if (ret == ENOENT)
+                    goto end_poll;
+                else
+                    DIE("ibv_next_poll() returned " << ret);
+            }
+        }
+
+        if (cq->status != IBV_WC_SUCCESS)
+            DIE("cqe->status=" << cq->status);
+
+        polled++;
+    } while (polled < max);
+
+end_poll:
+    ibv_end_poll(cq);
+    assert(polled <= max);
+    return polled;
+}
+
+inline void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
+{
+    int ret;
+    unsigned int polled = 0;
+    struct ibv_poll_cq_attr cq_attr = {};
+
+    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
+        if (ret == ENOENT)
+            continue;
+        else
+            DIE("ibv_start_poll() returned " << ret);
+    }
+
+    do {
+        if (polled > 0) {
+            while ((ret = ibv_next_poll(cq)) != 0) {
+                if (ret == ENOENT)
+                    continue;
+                else
+                    DIE("ibv_next_poll() returned " << ret);
+            }
+        }
+
+        if (cq->status != IBV_WC_SUCCESS)
+            DIE("cqe->status=" << cq->status);
+
+        polled++;
+    } while (polled < target);
+
+    ibv_end_poll(cq);
+}
+
+inline unsigned int RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq)
+{
+    int ret;
+    unsigned int polled = 0;
+    struct ibv_poll_cq_attr cq_attr = {};
+
+    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
+        if (ret == ENOENT)
+            continue;
+        else
+            die("error in ibv_start_poll()\n");
+    }
+
+read:
+    if (cq->status != IBV_WC_SUCCESS)
+        die("cq status is not success\n");
+
+    polled++;
+
+next_poll:
+    ret = ibv_next_poll(cq);
+    if (ret == 0) {
+        goto read;
+    } else if (ret == ENOENT) {
+        if (polled < target)
+            goto next_poll; /* we haven't reached the target, retry. */
+        else
+            goto out;       /* reached target, we can leave */
+    } else {
+        die("error in ibv_next_poll()\n");
+    }
+
+out:
+    ibv_end_poll(cq);
+    return polled;
 }
 
 #endif

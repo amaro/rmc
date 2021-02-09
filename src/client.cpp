@@ -82,10 +82,7 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
         rclient.poll_exactly(curr_inflight, rclient.get_recv_cq());
     duration = time_end(start);
 
-    LOG("benchmark done");
-
     /* check CmdReplys */
-
     for (auto i = 0; i < maxinflight; ++i) {
         CmdReply *reply = get_reply(i);
         (void) reply;
@@ -93,7 +90,6 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
         assert(reply->reply.call.status == 0);
     }
 
-    std::cout << "total_reqs=" << total_reqs << "\n";
     return 0;
 }
 
@@ -162,7 +158,7 @@ void print_stats(std::vector<long long> &durations, int maxinflight)
 
     std::cout << "NUM_REPS=" << NUM_REPS << "\n";
     std::cout << "max inflight=" << maxinflight << "\n";
-    std::cout << "avg=" << avg << "\n";
+    std::cout << "avg=" << std::fixed << avg << "\n";
     std::cout << "median=" << median << "\n";
 }
 
@@ -184,11 +180,12 @@ void benchmark(std::string server, std::string port, std::string ofile, int maxi
     LOG("warming up");
     client.call_rmc(duration, maxinflight);
 
-    LOG("start benchmark");
+    LOG("benchmark start");
     for (size_t rep = 0; rep < NUM_REPS; ++rep) {
         client.call_rmc(duration, maxinflight);
         durations[rep] = duration;
     }
+    LOG("benchmark end");
 
     print_stats(durations, maxinflight);
 

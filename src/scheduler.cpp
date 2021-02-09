@@ -43,21 +43,6 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req)
     ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
-void RMCScheduler::dispatch_new_req(CmdRequest *req)
-{
-    switch (req->type) {
-    case CmdType::GET_RMCID:
-        return req_get_rmc_id(req);
-    case CmdType::CALL_RMC:
-        return req_new_rmc(req);
-    case CmdType::LAST_CMD:
-        this->recvd_disconnect = true;
-        return;
-    default:
-        DIE("unrecognized CmdRequest type");
-    }
-}
-
 void RMCScheduler::run()
 {
     while (ns.nsready) {
@@ -73,7 +58,6 @@ void RMCScheduler::schedule()
     //auto search = id_rmc_map.find(id); unused
     static int req_idx = 0;
     static int reply_idx = 0;
-    int new_reqs = 0;
 
     /* if there's an RMC ready to run, run it */
     while (!runqueue.empty()) {
@@ -86,30 +70,27 @@ void RMCScheduler::schedule()
             memqueue.push(rmc);
         } else {
             CmdReply *reply = ns.get_reply(reply_idx);
-            reply->type = CmdType::CALL_RMC;
-            reply->reply.call.status = 0;
             ns.post_send_uns_reply(reply);
             reply_idx = (reply_idx + 1) % ns.bsize;
+        }
+    }
+
+    if (!this->recvd_disconnect) {
+        int new_reqs = ns.rserver.poll_atmost(4, ns.rserver.get_recv_cq());
+        for (int i = 0; i < new_reqs; ++i) {
+            this->dispatch_new_req(ns.get_req(req_idx));
+            ns.post_recv_req(ns.get_req(req_idx));
+            req_idx = (req_idx + 1) % ns.bsize;
         }
     }
 
     /* if there are RMCs waiting for their host mem accesses to finish,
        poll their qp */
     if (!memqueue.empty()) {
-        int completed = ns.rclient.poll_async(); // not blocking
+        int completed = ns.rclient.poll_reads_atmost(4);
         for (int i = 0; i < completed; ++i) {
             runqueue.push(memqueue.front());
             memqueue.pop();
-        }
-    }
-
-    if (!this->recvd_disconnect) {
-        new_reqs = ns.rserver.poll_atmost(1, ns.rserver.get_recv_cq());
-        if (new_reqs > 0) {
-            assert(new_reqs == 1);
-            this->dispatch_new_req(ns.get_req(req_idx));
-            ns.post_recv_req(ns.get_req(req_idx));
-            req_idx = (req_idx + 1) % ns.bsize;
         }
     }
 }

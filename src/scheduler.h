@@ -139,4 +139,19 @@ inline bool RMCScheduler::executing()
     return !runqueue.empty() || !memqueue.empty();
 }
 
+inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
+{
+    switch (req->type) {
+    case CmdType::GET_RMCID:
+        return req_get_rmc_id(req);
+    case CmdType::CALL_RMC:
+        return req_new_rmc(req);
+    case CmdType::LAST_CMD:
+        this->recvd_disconnect = true;
+        return;
+    default:
+        DIE("unrecognized CmdRequest type");
+    }
+}
+
 #endif

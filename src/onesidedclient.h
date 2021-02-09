@@ -36,8 +36,8 @@ public:
     void readhost(uint32_t offset, uint32_t size);
     void read_async(uint32_t offset, uint32_t size);
     HostMemoryAsyncRead readfromcoro(uint32_t offset, uint32_t size) noexcept;
-    int poll_async();
     void writehost(uint64_t raddr, uint32_t size, void *localbuff);
+    int poll_reads_atmost(int max);
     char *get_rdma_buffer();
     void *get_remote_base_addr();
 };
@@ -102,11 +102,11 @@ inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_
     return HostMemoryAsyncRead{*this, offset, size};
 }
 
-inline int OneSidedClient::poll_async()
+inline int OneSidedClient::poll_reads_atmost(int max)
 {
     assert(onesready);
 
-    return rclient.poll_atmost(8, rclient.get_send_cq());
+    return rclient.poll_atmost(max, rclient.get_send_cq());
 }
 
 inline char *OneSidedClient::get_rdma_buffer()
