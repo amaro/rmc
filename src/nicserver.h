@@ -74,7 +74,7 @@ inline void NICServer::post_send_reply(CmdReply *reply)
 inline void NICServer::post_send_uns_reply(CmdReply *reply)
 {
     assert(nsready);
-    bool poll = rserver.post_send_unsignaled(reply, sizeof(CmdReply), reply_buf_mr->lkey);
+    bool poll = rserver.post_2s_send_unsig(reply, sizeof(CmdReply), reply_buf_mr->lkey);
     if (poll)
         rserver.poll_atleast(1, rserver.get_send_cq());
 }

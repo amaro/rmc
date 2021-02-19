@@ -18,13 +18,13 @@ add_executable(client client.cpp
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
-target_link_libraries(client rdmacm ibverbs pthread)
+target_link_libraries(client mlx5 rdmacm ibverbs pthread)
 
 # hostserver
 add_executable(hostserver hostserver.cpp
     $<TARGET_OBJECTS:rdmaserver_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
-target_link_libraries(hostserver rdmacm ibverbs pthread)
+target_link_libraries(hostserver mlx5 rdmacm ibverbs pthread)
 
 # nicserver; needs both rdmaserver and rdmaclient;
 # and for some reason it needs onesidedclient.cpp too (TODO)
@@ -36,7 +36,7 @@ add_executable(nicserver nicserver.cpp
     $<TARGET_OBJECTS:rdmaserver_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_options(nicserver PUBLIC "-fcoroutines")
-target_link_libraries(nicserver rdmacm ibverbs pthread)
+target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
 
 # no rmc client; i.e., a one sided client that connects to host server directly
 # without a nicserver
@@ -45,4 +45,4 @@ add_executable(normc_client normc_client.cpp
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_options(normc_client PUBLIC "-fcoroutines")
-target_link_libraries(normc_client rdmacm ibverbs pthread)
+target_link_libraries(normc_client mlx5 rdmacm ibverbs pthread)

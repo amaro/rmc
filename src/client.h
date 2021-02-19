@@ -73,7 +73,7 @@ inline void HostClient::post_send_req_unsig(CmdRequest *req)
 {
     assert(rmccready);
 
-    bool poll = rclient.post_send_unsignaled(req, sizeof(CmdRequest), req_buf_mr->lkey);
+    bool poll = rclient.post_2s_send_unsig(req, sizeof(CmdRequest), req_buf_mr->lkey);
     if (poll)
         rclient.poll_atleast(1, rclient.get_send_cq());
 }

@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
+#include <infiniband/mlx5dv.h>
 #include "utils/utils.h"
 
 class RDMAPeer {
@@ -47,8 +48,9 @@ public:
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
     void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
     void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
-    /* posts an unsignaled send, and returns whether the send_cqx should be polled */
-    bool post_send_unsignaled(void *laddr, uint32_t len, uint32_t lkey);
+    /* posts an unsignaled 2-sided send,
+       returns whether send_cqx should be polled */
+    bool post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey);
     void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
                     uint32_t offset, uint32_t len) const;
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
@@ -118,7 +120,7 @@ inline void RDMAPeer::handle_conn_established(rdma_cm_id *cm_id)
     connected = true;
 }
 
-inline bool RDMAPeer::post_send_unsignaled(void *laddr, uint32_t len, uint32_t lkey)
+inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey)
 {
     bool signaled = false;
     int ret;

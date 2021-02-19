@@ -5,14 +5,14 @@ void RDMAPeer::create_context(ibv_context *verbs)
     ibv_cq_init_attr_ex cq_attrs_ex = {};
     cq_attrs_ex.cqe = CQ_NUM_CQE;
     cq_attrs_ex.comp_vector = 0;
-    cq_attrs_ex.wc_flags = IBV_WC_EX_WITH_BYTE_LEN;
+    //cq_attrs_ex.wc_flags = IBV_WC_EX_WITH_BYTE_LEN;
     cq_attrs_ex.comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS;
     cq_attrs_ex.flags = IBV_CREATE_CQ_ATTR_SINGLE_THREADED;
 
     dev_ctx = verbs;
     TEST_Z(pd = ibv_alloc_pd(dev_ctx));
-    TEST_Z(send_cqx = ibv_create_cq_ex(dev_ctx, &cq_attrs_ex));
-    TEST_Z(recv_cqx = ibv_create_cq_ex(dev_ctx, &cq_attrs_ex));
+    TEST_Z(send_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+    TEST_Z(recv_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
 }
 
 /* this->id must be the connected cm_id */
@@ -35,8 +35,8 @@ void RDMAPeer::create_qps()
 
     qp_attrs.send_ops_flags |= IBV_WR_SEND | IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
 
-    TEST_NZ(rdma_create_qp_ex(this->id, &qp_attrs));
-    this->qp = this->id->qp;
+    TEST_Z(this->qp = mlx5dv_create_qp(this->id->verbs, &qp_attrs, NULL));
+    this->id->qp = this->qp;
     this->qpx = ibv_qp_to_qp_ex(this->qp);
 }
 
