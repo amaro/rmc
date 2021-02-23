@@ -23,6 +23,7 @@ void RDMAPeer::create_qps()
     qp_attrs.send_cq = ibv_cq_ex_to_cq(send_cqx);
     qp_attrs.recv_cq = ibv_cq_ex_to_cq(recv_cqx);
     qp_attrs.qp_type = IBV_QPT_RC;
+    qp_attrs.sq_sig_all = 0;
     qp_attrs.pd = this->pd;
     /* identified valid fields? */
     qp_attrs.comp_mask |= IBV_QP_INIT_ATTR_SEND_OPS_FLAGS | IBV_QP_INIT_ATTR_PD;

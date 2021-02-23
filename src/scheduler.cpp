@@ -60,7 +60,7 @@ void RMCScheduler::schedule()
     static int reply_idx = 0;
 
     /* if there's an RMC ready to run, run it */
-    while (!runqueue.empty()) {
+    while (!runqueue.empty() && memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
         CoroRMC<int> *rmc = runqueue.front();
         runqueue.pop();
 

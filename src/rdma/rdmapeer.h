@@ -12,13 +12,6 @@
 
 class RDMAPeer {
 protected:
-    const int CQ_NUM_CQE = 16;
-    const int TIMEOUT_MS = 5;
-    const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 16;
-    const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 13;
-    const int QP_ATTRS_MAX_SGE_ELEMS = 1;
-    const int QP_ATTRS_MAX_INLINE_DATA = 256;
-
     rdma_cm_id *id;
     ibv_qp *qp;
     ibv_qp_ex *qpx;
@@ -40,7 +33,14 @@ protected:
     void handle_conn_established(rdma_cm_id *cm_id);
 
 public:
-    static const size_t MAX_UNSIGNALED_SENDS = 13;
+    static const int CQ_NUM_CQE = 64;
+    static const int TIMEOUT_MS = 5;
+    static const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 64;
+    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = QP_ATTRS_MAX_OUTSTAND_SEND_WRS;
+    static const int QP_ATTRS_MAX_SGE_ELEMS = 1;
+    static const int QP_ATTRS_MAX_INLINE_DATA = 256;
+    static const int MAX_UNSIGNALED_SENDS = 64;
+    static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
     RDMAPeer() : connected(false), unsignaled_sends(0) { }
     virtual ~RDMAPeer() { }
@@ -132,12 +132,18 @@ inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lke
 
     if (signaled)
         qpx->wr_flags = IBV_SEND_SIGNALED;
+    else
+        qpx->wr_flags = 0;
 
     ibv_wr_send(qpx);
-    ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len); /* TODO: should this be inline? */
+
+    if (len < QP_ATTRS_MAX_INLINE_DATA)
+        ibv_wr_set_inline_data(qpx, laddr, len);
+    else
+        ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
 
     if ((ret = ibv_wr_complete(qpx)) != 0)
-        DIE("ibv_wr_complete returned=" << ret);
+        DIE("ibv_wr_complete failed=" << ret << "\n");
 
     this->unsignaled_sends = (this->unsignaled_sends + 1) % MAX_UNSIGNALED_SENDS;
     return signaled;
