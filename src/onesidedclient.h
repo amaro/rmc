@@ -40,6 +40,10 @@ public:
     int poll_reads_atmost(int max);
     char *get_rdma_buffer();
     void *get_remote_base_addr();
+    void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
+                    uint32_t offset, uint32_t len);
+    void start_batched_ops();
+    void end_batched_ops();
 };
 
 class HostMemoryAsyncRead {
@@ -84,7 +88,9 @@ inline void OneSidedClient::readhost(uint32_t offset, uint32_t size)
 {
     assert(onesready);
 
-    rclient.post_read(*rdma_mr, host_mr, offset, size);
+    start_batched_ops();
+    post_read(*rdma_mr, host_mr, offset, size);
+    end_batched_ops();
     rclient.poll_exactly(1, rclient.get_send_cq());
 }
 
@@ -92,7 +98,7 @@ inline void OneSidedClient::read_async(uint32_t offset, uint32_t size)
 {
     assert(onesready);
 
-    rclient.post_read(*rdma_mr, host_mr, offset, size);
+    post_read(*rdma_mr, host_mr, offset, size);
 }
 
 inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_t size) noexcept
@@ -117,6 +123,33 @@ inline char *OneSidedClient::get_rdma_buffer()
 inline void *OneSidedClient::get_remote_base_addr()
 {
     return host_mr.addr;
+}
+
+/* for now assumes the mapping from host memory to nic memory is 1:1; i.e.
+   regions are the same size.
+   so the offsets are taken the same way remotely and locally */
+inline void OneSidedClient::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
+                                uint32_t offset, uint32_t len)
+{
+    uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
+    uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
+
+    ibv_qp_ex *qpx = rclient.get_qpx();
+    qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
+    ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
+}
+
+inline void OneSidedClient::start_batched_ops()
+{
+    ibv_qp_ex *qpx = rclient.get_qpx();
+    ibv_wr_start(qpx);
+}
+
+inline void OneSidedClient::end_batched_ops()
+{
+    ibv_qp_ex *qpx = rclient.get_qpx();
+    TEST_NZ(ibv_wr_complete(qpx));
 }
 
 #endif

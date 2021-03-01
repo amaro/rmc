@@ -59,6 +59,7 @@ void RMCScheduler::schedule()
     static int req_idx = 0;
     static int reply_idx = 0;
 
+    ns.rclient.start_batched_ops();
     /* if there's an RMC ready to run, run it */
     while (!runqueue.empty() && memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
         CoroRMC<int> *rmc = runqueue.front();
@@ -74,6 +75,7 @@ void RMCScheduler::schedule()
             reply_idx = (reply_idx + 1) % ns.bsize;
         }
     }
+    ns.rclient.end_batched_ops();
 
     if (!this->recvd_disconnect) {
         int new_reqs = ns.rserver.poll_atmost(4, ns.rserver.get_recv_cq());

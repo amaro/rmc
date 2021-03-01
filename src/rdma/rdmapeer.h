@@ -51,8 +51,6 @@ public:
     /* posts an unsignaled 2-sided send,
        returns whether send_cqx should be polled */
     bool post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey);
-    void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
-                    uint32_t offset, uint32_t len) const;
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
     unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
@@ -60,6 +58,9 @@ public:
     virtual void disconnect();
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
+
+    /* TODO: only user of this is onesidedclient, which should inherit from this*/
+    ibv_qp_ex *get_qpx();
 };
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
@@ -149,20 +150,6 @@ inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lke
     return signaled;
 }
 
-/* for now assumes the mapping from host memory to nic memory is 1:1; i.e.
-   regions are the same size.
-   so the offsets are taken the same way remotely and locally */
-inline void RDMAPeer::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
-                                uint32_t offset, uint32_t len) const
-{
-    uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
-    uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
-    ibv_wr_start(qpx);
-    qpx->wr_flags = IBV_SEND_SIGNALED;
-    ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
-    ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
-    TEST_NZ(ibv_wr_complete(qpx));
-}
 
 /* data path */
 template<typename T>
@@ -193,6 +180,11 @@ inline ibv_cq_ex *RDMAPeer::get_send_cq()
 inline ibv_cq_ex *RDMAPeer::get_recv_cq()
 {
     return recv_cqx;
+}
+
+inline ibv_qp_ex *RDMAPeer::get_qpx()
+{
+    return this->qpx;
 }
 
 inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)

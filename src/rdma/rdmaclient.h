@@ -4,7 +4,6 @@
 #include "rdmapeer.h"
 
 class RDMAClient: public RDMAPeer {
-
     void handle_addr_resolved(rdma_cm_id *cm_id);
 
 public:
@@ -14,6 +13,7 @@ public:
        assumes caller is client. Blocks until connection established */
     void connect_to_server(const std::string &ip, const std::string &port);
     void disconnect();
+
 };
 
 inline void RDMAClient::disconnect()
