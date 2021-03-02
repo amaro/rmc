@@ -11,6 +11,7 @@
 #include "rmc.h"
 
 class RMCScheduler;
+class OneSidedClient;
 
 class NICServer {
     friend class RMCScheduler;

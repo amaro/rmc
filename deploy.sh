@@ -1,7 +1,7 @@
 #!/bin/bash
 CLIENT_ADDR=c8.millennium.berkeley.edu
-CLIENT_USER=amaro
-CLIENT_REMOTE_DIR=/home/amaro
+CLIENT_USER=william
+CLIENT_REMOTE_DIR=/home/william
 
 NICSERVER_ADDR=192.168.100.2
 NICSERVER_USER=root

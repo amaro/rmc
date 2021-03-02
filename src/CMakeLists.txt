@@ -13,11 +13,16 @@ target_compile_options(onesidedclient_obj PUBLIC "-fcoroutines")
 add_library(scheduler_obj OBJECT scheduler.cpp)
 target_compile_options(scheduler_obj PUBLIC "-fcoroutines")
 
+add_library(request_obj OBJECT request.cpp)
+target_compile_options(request_obj PUBLIC "-fcoroutines")
+
 # rmc client
 add_executable(client client.cpp
     $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:request_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_options(client PUBLIC "-fcoroutines")
 target_link_libraries(client mlx5 rdmacm ibverbs pthread)
 
 # hostserver
@@ -30,7 +35,7 @@ target_link_libraries(hostserver mlx5 rdmacm ibverbs pthread)
 # and for some reason it needs onesidedclient.cpp too (TODO)
 add_executable(nicserver nicserver.cpp
     $<TARGET_OBJECTS:scheduler_obj>
-    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:request_obj>
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmaserver_obj>
@@ -41,6 +46,7 @@ target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
 # no rmc client; i.e., a one sided client that connects to host server directly
 # without a nicserver
 add_executable(normc_client normc_client.cpp
+    $<TARGET_OBJECTS:request_obj>
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)

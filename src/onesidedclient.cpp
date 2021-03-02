@@ -13,3 +13,10 @@ void OneSidedClient::connect(const std::string &ip, const std::string &port)
     onesready = true;
     recv_rdma_mr();
 }
+
+/* called when await_ready() return false, so always */
+bool HostMemoryAsyncRead::await_suspend(std::coroutine_handle<> awaitingcoro) {
+    request_handler->post_read(offset, size);
+    return true; // suspend the coroutine
+}
+

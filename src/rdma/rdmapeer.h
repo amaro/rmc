@@ -51,6 +51,10 @@ public:
     /* posts an unsignaled 2-sided send,
        returns whether send_cqx should be polled */
     bool post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey);
+    void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,	
+                   uint32_t offset, uint32_t len) const;
+    void start_batched_ops();
+    void end_batched_ops();
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
     unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
@@ -150,6 +154,26 @@ inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lke
     return signaled;
 }
 
+inline void RDMAPeer::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
+                                uint32_t offset, uint32_t len) const
+{
+    uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
+    uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
+
+    qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
+    ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
+}
+
+inline void RDMAPeer::start_batched_ops()
+{
+	ibv_wr_start(qpx);
+}
+
+inline void RDMAPeer::end_batched_ops()
+{
+	TEST_NZ(ibv_wr_complete(qpx));
+}
 
 /* data path */
 template<typename T>

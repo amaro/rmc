@@ -9,6 +9,7 @@
 #include <queue>
 #include <rdma/rdma_cma.h>
 
+#include "request.h"
 #include "rmc.h"
 #include "nicserver.h"
 
@@ -82,6 +83,8 @@ private:
   std::coroutine_handle<promise_type> coroutine;
 };
 
+class ReadRequest;
+class RMCRequestHandler;
 class NICServer;
 
 /* one RMCScheduler per NIC core */
@@ -89,21 +92,28 @@ class RMCScheduler {
     NICServer &ns;
 
     std::unordered_map<RMCId, RMC> id_rmc_map;
+
     /* RMCs ready to be run */
-    std::queue<CoroRMC<int>*> runqueue;
+    std::queue<CoroRMC<int>*> run_queue;
+
     /* RMCs waiting for host memory accesses */
-    std::queue<CoroRMC<int>*> memqueue;
+    std::queue<CoroRMC<int>*> mem_queue;
+
+    /* RMC requests waiting to be sent to the host */
+    std::queue<std::pair<CoroRMC<int>*, ReadRequest>> buffer_queue;
+    
+    /* Handles new RDMA requests for RMCs */
+    RMCRequestHandler request_handler;
 
     size_t num_llnodes;
     /* true if we received a disconnect req, so we are waiting for rmcs to
        finish executing before disconnecting */
-    bool recvd_disconnect;
+    bool recvd_disconnect = false;
 
 public:
-    RMCScheduler(NICServer &nicserver) : ns(nicserver), recvd_disconnect(false) { }
+    RMCScheduler(NICServer &nicserver);
 
     /* RMC entry points */
-
     void run();
     void schedule();
     void set_num_llnodes(size_t num_nodes);
@@ -136,7 +146,7 @@ inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
 
 inline bool RMCScheduler::executing()
 {
-    return !runqueue.empty() || !memqueue.empty();
+    return !run_queue.empty() || !mem_queue.empty();
 }
 
 inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
