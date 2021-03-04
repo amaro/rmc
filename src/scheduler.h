@@ -94,13 +94,15 @@ class RMCScheduler {
     /* RMCs waiting for host memory accesses */
     std::queue<CoroRMC<int>*> memqueue;
 
+    std::queue<std::pair<uint32_t, uint32_t>> bufferqueue;
+
     size_t num_llnodes;
     /* true if we received a disconnect req, so we are waiting for rmcs to
        finish executing before disconnecting */
-    bool recvd_disconnect;
+    bool recvd_disconnect = false;
 
 public:
-    RMCScheduler(NICServer &nicserver) : ns(nicserver), recvd_disconnect(false) { }
+    RMCScheduler(NICServer &nicserver);
 
     /* RMC entry points */
 

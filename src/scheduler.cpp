@@ -1,4 +1,5 @@
 #include "scheduler.h"
+#include "nicserver.h"
 
 CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
     // getting a local buffer should be explicit here
@@ -10,6 +11,11 @@ CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
         uint32_t offset = (uintptr_t) node->next - base_addr;
         node = (LLNode *) co_await client.readfromcoro(offset, sizeof(LLNode)); // this should take node->next vaddr
     }
+}
+
+RMCScheduler::RMCScheduler(NICServer &nicserver) : ns(nicserver) {
+    ns.rclient.bufferqueue = &bufferqueue;
+    ns.rclient.memqueue = &memqueue;
 }
 
 void RMCScheduler::req_new_rmc(CmdRequest *req)
@@ -59,9 +65,30 @@ void RMCScheduler::schedule()
     static int req_idx = 0;
     static int reply_idx = 0;
 
-    ns.rclient.start_batched_ops();
+    bool start_batch = false;
+    if (!bufferqueue.empty() && memqueue.size() - bufferqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+        ns.rclient.start_batched_ops();
+        start_batch = true;
+
+        while (!bufferqueue.empty() && memqueue.size() - bufferqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+            auto offset_len_pair = bufferqueue.front();
+            bufferqueue.pop();
+            ns.rclient.post_read(offset_len_pair.first, offset_len_pair.second);
+        }
+    
+        if (memqueue.size() - bufferqueue.size() >= RDMAPeer::MAX_QP_INFLIGHT_READS) {
+            start_batch = false;
+            ns.rclient.end_batched_ops();
+        }
+    }
+
+    if (!start_batch && memqueue.size() - bufferqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+        start_batch = true;
+        ns.rclient.start_batched_ops();
+    }
+
     /* if there's an RMC ready to run, run it */
-    while (!runqueue.empty() && memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+    while (!runqueue.empty()) {
         CoroRMC<int> *rmc = runqueue.front();
         runqueue.pop();
 
@@ -75,7 +102,9 @@ void RMCScheduler::schedule()
             reply_idx = (reply_idx + 1) % ns.bsize;
         }
     }
-    ns.rclient.end_batched_ops();
+
+    if (start_batch)
+        ns.rclient.end_batched_ops();
 
     if (!this->recvd_disconnect) {
         int new_reqs = ns.rserver.poll_atmost(4, ns.rserver.get_recv_cq());
