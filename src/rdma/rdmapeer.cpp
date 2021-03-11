@@ -1,6 +1,6 @@
 #include "rdmapeer.h"
 
-void RDMAPeer::create_context(ibv_context *verbs)
+void RDMAPeer::create_pds_cqs(ibv_context *verbs)
 {
     ibv_cq_init_attr_ex cq_attrs_ex = {};
     cq_attrs_ex.cqe = CQ_NUM_CQE;
@@ -13,10 +13,21 @@ void RDMAPeer::create_context(ibv_context *verbs)
     TEST_Z(pd = ibv_alloc_pd(dev_ctx));
     TEST_Z(send_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
     TEST_Z(recv_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+
+    pds_cqs_created = true;
 }
 
-/* this->id must be the connected cm_id */
-void RDMAPeer::create_qps()
+void RDMAPeer::destroy_pds_cqs()
+{
+    assert(pds_cqs_created);
+    pds_cqs_created = false;
+
+    ibv_dealloc_pd(pd);
+    ibv_destroy_cq(ibv_cq_ex_to_cq(send_cqx));
+    ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cqx));
+}
+
+void RDMAPeer::create_qps(RDMAContext &ctx)
 {
     ibv_qp_init_attr_ex qp_attrs = {};
 
@@ -36,18 +47,17 @@ void RDMAPeer::create_qps()
 
     qp_attrs.send_ops_flags |= IBV_WR_SEND | IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
 
-    TEST_Z(this->qp = mlx5dv_create_qp(this->id->verbs, &qp_attrs, NULL));
-    this->id->qp = this->qp;
-    this->qpx = ibv_qp_to_qp_ex(this->qp);
+    TEST_Z(ctx.qp = mlx5dv_create_qp(ctx.id->verbs, &qp_attrs, NULL));
+    ctx.id->qp = ctx.qp;
+    ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
 }
 
-
-void RDMAPeer::connect_or_accept(bool connect)
+void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect)
 {
     ibv_device_attr attrs = {};
     rdma_conn_param cm_params = {};
 
-    ibv_query_device(this->id->verbs, &attrs);
+    ibv_query_device(ctx.id->verbs, &attrs);
 
     cm_params.responder_resources = attrs.max_qp_init_rd_atom;
     cm_params.initiator_depth = attrs.max_qp_rd_atom;
@@ -55,22 +65,38 @@ void RDMAPeer::connect_or_accept(bool connect)
     cm_params.rnr_retry_count = 1;
 
     if (connect)
-        TEST_NZ(rdma_connect(this->id, &cm_params));
+        TEST_NZ(rdma_connect(ctx.id, &cm_params));
     else
-        TEST_NZ(rdma_accept(this->id, &cm_params));
+        TEST_NZ(rdma_accept(ctx.id, &cm_params));
 }
 
-void RDMAPeer::disconnect()
+//void RDMAPeer::disconnect()
+//{
+//    assert(connected);
+//    connected = false;
+//
+//    rdma_disconnect(id);
+//    rdma_destroy_qp(id);
+//
+//
+//
+//    rdma_destroy_id(id);
+//}
+
+void RDMAPeer::dereg_mrs()
 {
-    assert(connected);
-    connected = false;
+    assert(!registered_mrs.empty());
 
-    rdma_disconnect(id);
-    rdma_destroy_qp(id);
+    LOG("dereg_mrs()");
+    for (ibv_mr *curr_mr: registered_mrs)
+        ibv_dereg_mr(curr_mr);
 
-    ibv_destroy_cq(ibv_cq_ex_to_cq(send_cqx));
-    ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cqx));
-    ibv_dealloc_pd(pd);
+    registered_mrs.clear();
+}
 
-    rdma_destroy_id(id);
+void RDMAPeer::handle_conn_established(RDMAContext &ctx)
+{
+    assert(!ctx.connected);
+    LOG("connection established");
+    ctx.connected = true;
 }

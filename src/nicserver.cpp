@@ -5,7 +5,7 @@
 void NICServer::connect(int port)
 {
     assert(!nsready);
-    rserver.connect_events(port);
+    rserver.connect_from_client(port);
 
     /* nic writes incoming requests */
     req_buf_mr = rserver.register_mr(&req_buf[0], sizeof(CmdRequest)*bsize, IBV_ACCESS_LOCAL_WRITE);

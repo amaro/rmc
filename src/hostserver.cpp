@@ -6,7 +6,7 @@ void HostServer::connect_and_block(int port)
     assert(!hsready);
 
     /* accept connection */
-    rserver.connect_events(port);
+    rserver.connect_from_client(port);
 
     /* register mrs */
     rdma_mr = rserver.register_mr(rdma_buffer, RDMA_BUFF_SIZE,

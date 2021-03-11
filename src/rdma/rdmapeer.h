@@ -2,6 +2,7 @@
 #define RDMA_PEER_H
 
 #include <list>
+#include <vector>
 #include <cassert>
 
 #include <netdb.h>
@@ -10,27 +11,49 @@
 #include <infiniband/mlx5dv.h>
 #include "utils/utils.h"
 
+/* For now, RDMAContexts are used to implement support of multiple qps */
+struct RDMAContext {
+    bool connected = false;
+    rdma_cm_id *id = nullptr;
+    ibv_qp *qp = nullptr;
+    ibv_qp_ex *qpx = nullptr;
+    rdma_event_channel *event_channel = nullptr;
+
+    void disconnect() {
+        assert(ctx.connected);
+        connected = false;
+
+        ibv_destroy_qp(qp);
+        rdma_destroy_id(id);
+        rdma_destroy_event_channel(event_channel);
+    }
+};
+
 class RDMAPeer {
 protected:
-    rdma_cm_id *id;
-    ibv_qp *qp;
-    ibv_qp_ex *qpx;
+    //rdma_cm_id *id;
+    std::vector<RDMAContext> contexts;
+    //ibv_qp *qp;
+    //ibv_qp_ex *qpx;
     ibv_context *dev_ctx;
     ibv_pd *pd;
     ibv_cq_ex *send_cqx;
     ibv_cq_ex *recv_cqx;
-    rdma_event_channel *event_channel;
+    //rdma_event_channel *event_channel;
 
-    bool connected;
-    size_t unsignaled_sends;
+    //bool connected;
+    bool pds_cqs_created;
+    unsigned int unsignaled_sends;
+    unsigned int num_qps;
 
     std::list<ibv_mr *> registered_mrs;
 
-    void create_context(ibv_context *verbs);
-    void create_qps();
-    void connect_or_accept(bool connect);
+    void create_pds_cqs(ibv_context *verbs);
+    void destroy_pds_cqs();
+    void create_qps(RDMAContext &ctx);
+    void connect_or_accept(RDMAContext &ctx, bool connect);
     void dereg_mrs();
-    void handle_conn_established(rdma_cm_id *cm_id);
+    void handle_conn_established(RDMAContext &ctx);
 
 public:
     static const int CQ_NUM_CQE = 64;
@@ -42,25 +65,28 @@ public:
     static const int MAX_UNSIGNALED_SENDS = 64;
     static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
-    RDMAPeer() : connected(false), unsignaled_sends(0) { }
+    RDMAPeer() :
+        pds_cqs_created(false), unsignaled_sends(0), num_qps(1) { }
+
     virtual ~RDMAPeer() { }
 
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
-    void post_recv(void *laddr, uint32_t len, uint32_t lkey) const;
-    void post_send(void *laddr, uint32_t len, uint32_t lkey) const;
+    void post_recv(const RDMAContext &ctx, void *laddr,
+                    uint32_t len, uint32_t lkey) const;
+    void post_send(const RDMAContext &ctx, void *laddr,
+                    uint32_t len, uint32_t lkey) const;
     /* posts an unsignaled 2-sided send,
        returns whether send_cqx should be polled */
-    bool post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey);
+    bool post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
+                            uint32_t len, uint32_t lkey);
     template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
     unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
     unsigned int poll_atmost(unsigned int max, ibv_cq_ex *cq);
-    virtual void disconnect();
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
 
-    /* TODO: only user of this is onesidedclient, which should inherit from this*/
-    ibv_qp_ex *get_qpx();
+    const RDMAContext &get_context(unsigned int idx);
 };
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
@@ -73,9 +99,9 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
     return mr;
 }
 
-inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
+inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
+                                uint32_t len, uint32_t lkey) const
 {
-
     ibv_sge sge = {
         .addr = (uintptr_t) laddr,
         .length = len,
@@ -89,39 +115,22 @@ inline void RDMAPeer::post_recv(void *laddr, uint32_t len, uint32_t lkey) const
     wr.sg_list = &sge;
     wr.num_sge = 1;
 
-    TEST_NZ(ibv_post_recv(this->qp, &wr, &bad_wr));
+    TEST_NZ(ibv_post_recv(ctx.qp, &wr, &bad_wr));
 }
 
-inline void RDMAPeer::post_send(void *laddr, uint32_t len, uint32_t lkey) const
+inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr, uint32_t len,
+                                uint32_t lkey) const
 {
-    ibv_wr_start(qpx);
-    qpx->wr_flags = IBV_SEND_SIGNALED;
-    ibv_wr_send(qpx);
+    ibv_wr_start(ctx.qpx);
+    ctx.qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_send(ctx.qpx);
     //ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
-    ibv_wr_set_inline_data(qpx, laddr, len);
-    TEST_NZ(ibv_wr_complete(qpx));
+    ibv_wr_set_inline_data(ctx.qpx, laddr, len);
+    TEST_NZ(ibv_wr_complete(ctx.qpx));
 }
 
-inline void RDMAPeer::dereg_mrs()
-{
-    assert(connected);
-    assert(!registered_mrs.empty());
-
-    LOG("dereg_mrs()");
-    for (ibv_mr *curr_mr: registered_mrs)
-        ibv_dereg_mr(curr_mr);
-
-    registered_mrs.clear();
-}
-
-inline void RDMAPeer::handle_conn_established(rdma_cm_id *cm_id)
-{
-    assert(!connected);
-    LOG("connection established");
-    connected = true;
-}
-
-inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lkey)
+inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, uint32_t len,
+                                         uint32_t lkey)
 {
     bool signaled = false;
     int ret;
@@ -129,21 +138,21 @@ inline bool RDMAPeer::post_2s_send_unsig(void *laddr, uint32_t len, uint32_t lke
     if (this->unsignaled_sends + 1 == MAX_UNSIGNALED_SENDS)
         signaled = true;
 
-    ibv_wr_start(qpx);
+    ibv_wr_start(ctx.qpx);
 
     if (signaled)
-        qpx->wr_flags = IBV_SEND_SIGNALED;
+        ctx.qpx->wr_flags = IBV_SEND_SIGNALED;
     else
-        qpx->wr_flags = 0;
+        ctx.qpx->wr_flags = 0;
 
-    ibv_wr_send(qpx);
+    ibv_wr_send(ctx.qpx);
 
     if (len < QP_ATTRS_MAX_INLINE_DATA)
-        ibv_wr_set_inline_data(qpx, laddr, len);
+        ibv_wr_set_inline_data(ctx.qpx, laddr, len);
     else
-        ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
+        ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t) laddr, len);
 
-    if ((ret = ibv_wr_complete(qpx)) != 0)
+    if ((ret = ibv_wr_complete(ctx.qpx)) != 0)
         DIE("ibv_wr_complete failed=" << ret << "\n");
 
     this->unsignaled_sends = (this->unsignaled_sends + 1) % MAX_UNSIGNALED_SENDS;
@@ -182,9 +191,9 @@ inline ibv_cq_ex *RDMAPeer::get_recv_cq()
     return recv_cqx;
 }
 
-inline ibv_qp_ex *RDMAPeer::get_qpx()
+inline const RDMAContext &RDMAPeer::get_context(unsigned int idx)
 {
-    return this->qpx;
+    return contexts[idx];
 }
 
 inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)

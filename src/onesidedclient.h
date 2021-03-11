@@ -76,7 +76,8 @@ inline void OneSidedClient::recv_rdma_mr()
 {
     assert(onesready);
 
-    rclient.post_recv(req_buf.get(), sizeof(CmdRequest), req_buf_mr->lkey);
+    rclient.post_recv(rclient.get_context(0), req_buf.get(),
+                        sizeof(CmdRequest), req_buf_mr->lkey);
     rclient.poll_exactly(1, rclient.get_recv_cq());
 
     assert(req_buf->type == SET_RDMA_MR);
@@ -129,12 +130,12 @@ inline void *OneSidedClient::get_remote_base_addr()
    regions are the same size.
    so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
-                                uint32_t offset, uint32_t len)
+                                      uint32_t offset, uint32_t len)
 {
     uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
     uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
 
-    ibv_qp_ex *qpx = rclient.get_qpx();
+    ibv_qp_ex *qpx = rclient.get_context(0).qpx;
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
     ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
@@ -142,14 +143,12 @@ inline void OneSidedClient::post_read(const ibv_mr &local_mr, const ibv_mr &remo
 
 inline void OneSidedClient::start_batched_ops()
 {
-    ibv_qp_ex *qpx = rclient.get_qpx();
-    ibv_wr_start(qpx);
+    ibv_wr_start(rclient.get_context(0).qpx);
 }
 
 inline void OneSidedClient::end_batched_ops()
 {
-    ibv_qp_ex *qpx = rclient.get_qpx();
-    TEST_NZ(ibv_wr_complete(qpx));
+    TEST_NZ(ibv_wr_complete(rclient.get_context(0).qpx));
 }
 
 #endif

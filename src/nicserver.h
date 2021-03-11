@@ -62,19 +62,22 @@ public:
 inline void NICServer::post_recv_req(CmdRequest *req)
 {
     assert(nsready);
-    rserver.post_recv(req, sizeof(CmdRequest), req_buf_mr->lkey);
+    rserver.post_recv(rserver.get_context(0), req, sizeof(CmdRequest),
+                        req_buf_mr->lkey);
 }
 
 inline void NICServer::post_send_reply(CmdReply *reply)
 {
     assert(nsready);
-    rserver.post_send(reply, sizeof(CmdReply), reply_buf_mr->lkey);
+    rserver.post_send(rserver.get_context(0), reply, sizeof(CmdReply),
+                        reply_buf_mr->lkey);
 }
 
 inline void NICServer::post_send_uns_reply(CmdReply *reply)
 {
     assert(nsready);
-    bool poll = rserver.post_2s_send_unsig(reply, sizeof(CmdReply), reply_buf_mr->lkey);
+    bool poll = rserver.post_2s_send_unsig(rserver.get_context(0), reply,
+                                            sizeof(CmdReply), reply_buf_mr->lkey);
     if (poll)
         rserver.poll_atleast(1, rserver.get_send_cq());
 }

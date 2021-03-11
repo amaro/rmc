@@ -1,37 +1,43 @@
 #include "rdmaserver.h"
 
-void RDMAServer::connect_events(int port)
+void RDMAServer::connect_from_client(int port)
 {
     sockaddr_in addr = {};
     rdma_cm_event *event = nullptr;
-    event_channel = nullptr;
+    rdma_cm_id *listener = nullptr;
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
 
-    TEST_Z(event_channel = rdma_create_event_channel());
-    TEST_NZ(rdma_create_id(event_channel, &listen_id, nullptr, RDMA_PS_TCP));
-    TEST_NZ(rdma_bind_addr(listen_id, (sockaddr *) &addr));
-    TEST_NZ(rdma_listen(listen_id, 1));
+    for (unsigned int qp = 0; qp < this->num_qps; ++qp) {
+        RDMAContext ctx;
 
-    LOG("listening on port: " << port);
+        TEST_Z(ctx.event_channel = rdma_create_event_channel());
+        TEST_NZ(rdma_create_id(ctx.event_channel, &listener, nullptr, RDMA_PS_TCP));
+        TEST_NZ(rdma_bind_addr(listener, (sockaddr *) &addr));
+        TEST_NZ(rdma_listen(listener, 1));
 
-    while (rdma_get_cm_event(event_channel, &event) == 0) {
-        bool should_break = false;
+        LOG("listening on port: " << port);
 
-        if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
-            handle_conn_request(event->id);
-        } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
-            handle_conn_established(event->id);
-            should_break = true;
-        } else {
-            die("unknown or unexpected event at connect_events().");
+        while (rdma_get_cm_event(ctx.event_channel, &event) == 0) {
+            bool should_break = false;
+
+            if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
+                handle_conn_request(ctx, event->id);
+            } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
+                handle_conn_established(ctx);
+                should_break = true;
+            } else {
+                die("unknown or unexpected event at connect_from_client().");
+            }
+
+            rdma_ack_cm_event(event);
+
+            if (should_break)
+                break;
         }
 
-		rdma_ack_cm_event(event);
-
-        if (should_break)
-            break;
+        contexts.push_back(ctx);
     }
 }
 
@@ -39,26 +45,38 @@ void RDMAServer::disconnect_events()
 {
     rdma_cm_event *event = nullptr;
 
-    while (rdma_get_cm_event(event_channel, &event) == 0) {
-        switch (event->event) {
-		case RDMA_CM_EVENT_DISCONNECTED:
-		    rdma_ack_cm_event(event);
-			disconnect();
-            return;
-		default:
-            die("unknown or unexpected event at disconnect_events().");
+    for (auto &ctx: contexts) {
+        while (rdma_get_cm_event(ctx.event_channel, &event) == 0) {
+            struct rdma_cm_event event_copy;
+
+            memcpy(&event_copy, event, sizeof(*event));
+            rdma_ack_cm_event(event);
+            event = &event_copy;
+
+            switch (event->event) {
+            case RDMA_CM_EVENT_DISCONNECTED:
+                ctx.disconnect();
+                return;
+            default:
+                die("unknown or unexpected event at disconnect_events().");
+            }
         }
     }
+
+    dereg_mrs();
+    destroy_pds_cqs();
 }
 
-void RDMAServer::handle_conn_request(rdma_cm_id *cm_id)
+void RDMAServer::handle_conn_request(RDMAContext &ctx, rdma_cm_id *cm_id)
 {
     assert(!connected);
     LOG("connect request");
 
-    create_context(cm_id->verbs);
-    this->id = cm_id;
-    create_qps();
+    if (!pds_cqs_created)
+        create_pds_cqs(cm_id->verbs);
 
-    connect_or_accept(false); // accept
+    ctx.id = cm_id;
+    create_qps(ctx);
+
+    connect_or_accept(ctx, false); // accept
 }

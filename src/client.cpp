@@ -131,7 +131,7 @@ void HostClient::last_cmd()
 void HostClient::disconnect()
 {
     assert(rmccready);
-    rclient.disconnect();
+    rclient.disconnect_all();
     rmccready = false;
 }
 
