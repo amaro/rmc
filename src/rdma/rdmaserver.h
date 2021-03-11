@@ -6,7 +6,7 @@
 
 class RDMAServer: public RDMAPeer {
 public:
-    RDMAServer() : RDMAPeer() { }
+    RDMAServer(unsigned int num_qps) : RDMAPeer(num_qps) { }
 
     /* server multi step connection establishment
        assumes caller is server. Blocks until connection

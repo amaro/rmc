@@ -1,18 +1,21 @@
 #include "rdmaclient.h"
 
-void RDMAClient::connect_to_server(const std::string &ip, const std::string &port)
+void RDMAClient::connect_to_server(const std::string &ip, const unsigned int &port)
 {
     addrinfo *addr = nullptr;
     rdma_cm_event *event = nullptr;
+    char port_str[256] = "";
 
-    TEST_NZ(getaddrinfo(ip.c_str(), port.c_str(), nullptr, &addr));
-
-    for (unsigned int qp = 0; qp < this->num_qps; ++qp) {
+    for (auto qp = 0u; qp < this->num_qps; ++qp) {
         RDMAContext ctx;
+        snprintf(port_str, sizeof port_str, "%u", port+qp);
 
+        TEST_NZ(getaddrinfo(ip.c_str(), port_str, nullptr, &addr));
         TEST_Z(ctx.event_channel = rdma_create_event_channel());
         TEST_NZ(rdma_create_id(ctx.event_channel, &ctx.id, nullptr, RDMA_PS_TCP));
         TEST_NZ(rdma_resolve_addr(ctx.id, nullptr, addr->ai_addr, TIMEOUT_MS));
+
+        freeaddrinfo(addr);
 
         while (rdma_get_cm_event(ctx.event_channel, &event) == 0) {
             rdma_cm_event event_copy;
@@ -37,8 +40,6 @@ void RDMAClient::connect_to_server(const std::string &ip, const std::string &por
 
         contexts.push_back(ctx);
     }
-
-    freeaddrinfo(addr);
 }
 
 void RDMAClient::handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id)

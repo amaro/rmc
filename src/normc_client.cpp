@@ -15,9 +15,9 @@ void print_durations(std::ofstream &stream, int bufsize, const std::vector<long 
         stream << d << "\n";
 }
 
-void benchmark(std::string server, std::string port, std::string ofile)
+void benchmark(std::string server, unsigned int port, std::string ofile)
 {
-    OneSidedClient client;
+    OneSidedClient client(1);
     std::vector<long long> durations(NUM_REPS);
     std::ofstream stream(ofile, std::ofstream::out);
 
@@ -61,7 +61,8 @@ int main(int argc, char* argv[])
         ("h,help", "Print usage")
     ;
 
-    std::string server, port, ofile;
+    std::string server, ofile;
+    unsigned int port;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -70,7 +71,7 @@ int main(int argc, char* argv[])
             die(opts.help());
 
         server = result["server"].as<std::string>();
-        port = result["port"].as<std::string>();
+        port = result["port"].as<int>();
         ofile = result["output"].as<std::string>();
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";

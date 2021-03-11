@@ -10,7 +10,7 @@
 const int NUM_REPS = 100;
 const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
-void HostClient::connect(const std::string &ip, const std::string &port)
+void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
     assert(!rmccready);
     rclient.connect_to_server(ip, port);
@@ -162,9 +162,9 @@ void print_stats(std::vector<long long> &durations, int maxinflight)
     std::cout << "median=" << median << "\n";
 }
 
-void benchmark(std::string server, std::string port, std::string ofile, int maxinflight)
+void benchmark(std::string server, unsigned int port, std::string ofile, int maxinflight)
 {
-    HostClient client(RDMAPeer::MAX_UNSIGNALED_SENDS);
+    HostClient client(RDMAPeer::MAX_UNSIGNALED_SENDS, 1);
     const char *prog = R"(void hello() { printf("hello world\n"); })";
     RMC rmc(prog);
     std::vector<long long> durations(NUM_REPS);
@@ -238,14 +238,14 @@ int main(int argc, char* argv[])
 
     opts.add_options()
         ("s,server", "nicserver address", cxxopts::value<std::string>())
-        ("p,port", "nicserver port", cxxopts::value<std::string>()->default_value("30000"))
+        ("p,port", "nicserver port", cxxopts::value<int>()->default_value("30000"))
         ("o,output", "output file", cxxopts::value<std::string>())
         ("m,maxinflight", "max num of reqs in flight", cxxopts::value<int>())
         ("h,help", "Print usage")
     ;
 
-    std::string server, port, ofile;
-    int maxinflight;
+    std::string server, ofile;
+    unsigned int maxinflight, port;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -254,7 +254,7 @@ int main(int argc, char* argv[])
             die(opts.help());
 
         server = result["server"].as<std::string>();
-        port = result["port"].as<std::string>();
+        port = result["port"].as<int>();
         maxinflight = result["maxinflight"].as<int>();
         ofile = result["output"].as<std::string>();
     } catch (const std::exception &e) {

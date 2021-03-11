@@ -1,6 +1,6 @@
 #include "onesidedclient.h"
 
-void OneSidedClient::connect(const std::string &ip, const std::string &port)
+void OneSidedClient::connect(const std::string &ip, const unsigned int &port)
 {
     assert(!onesready);
     rclient.connect_to_server(ip, port);

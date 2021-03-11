@@ -7,10 +7,11 @@ void RDMAServer::connect_from_client(int port)
     rdma_cm_id *listener = nullptr;
 
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
 
-    for (unsigned int qp = 0; qp < this->num_qps; ++qp) {
+    for (auto qp = 0u; qp < this->num_qps; ++qp) {
         RDMAContext ctx;
+
+        addr.sin_port = htons(port + qp);
 
         TEST_Z(ctx.event_channel = rdma_create_event_channel());
         TEST_NZ(rdma_create_id(ctx.event_channel, &listener, nullptr, RDMA_PS_TCP));

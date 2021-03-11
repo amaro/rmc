@@ -46,9 +46,9 @@ void HostServer::init_rdma_buffer()
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2)
-        die("usage: server <port>");
+    if (argc != 3)
+        die("usage: server <port> <numqps>");
 
-    HostServer server;
+    HostServer server(atoi(argv[2]));
     server.connect_and_block(atoi(argv[1]));
 }

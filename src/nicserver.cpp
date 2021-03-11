@@ -2,7 +2,7 @@
 #include "nicserver.h"
 #include "utils/utils.h"
 
-void NICServer::connect(int port)
+void NICServer::connect(const unsigned int &port)
 {
     assert(!nsready);
     rserver.connect_from_client(port);
@@ -42,13 +42,13 @@ void NICServer::disconnect()
 }
 
 void NICServer::start(RMCScheduler &sched, const std::string &hostaddr,
-                        const std::string &hostport, const std::string &clientport)
+                        const unsigned int &hostport, const unsigned int &clientport)
 {
     LOG("connecting to hostserver.");
     rclient.connect(hostaddr, hostport);
 
     LOG("waiting for hostclient to connect.");
-    this->connect(std::stoi(clientport));
+    this->connect(clientport);
     this->init(sched);
 }
 
@@ -58,14 +58,15 @@ int main(int argc, char* argv[])
 
     opts.add_options()
         ("hostaddr", "Host server address to connect to", cxxopts::value<std::string>())
-        ("hostport", "Host server port", cxxopts::value<std::string>()->default_value("30001"))
-        ("clientport", "Host client port to listen to", cxxopts::value<std::string>()->default_value("30000"))
+        ("hostport", "Host server port", cxxopts::value<int>()->default_value("30001"))
+        ("numqps", "Number of RC qps to hostserver", cxxopts::value<int>())
+        ("clientport", "Host client port to listen to", cxxopts::value<int>()->default_value("30000"))
         ("llnodes", "Number of linked list nodes to traverse", cxxopts::value<int>()->default_value("8"))
         ("h,help", "Print usage")
     ;
 
-    std::string hostaddr, hostport, clientport;
-    unsigned int llnodes;
+    std::string hostaddr;
+    unsigned int hostport, clientport, llnodes, numqps;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -74,8 +75,9 @@ int main(int argc, char* argv[])
             die(opts.help());
 
         hostaddr = result["hostaddr"].as<std::string>();
-        hostport = result["hostport"].as<std::string>();
-        clientport = result["clientport"].as<std::string>();
+        hostport = result["hostport"].as<int>();
+        numqps = result["numqps"].as<int>();
+        clientport = result["clientport"].as<int>();
         llnodes = result["llnodes"].as<int>();
 
         auto max_nodes = HostServer::RDMA_BUFF_SIZE / sizeof(struct LLNode);
@@ -87,8 +89,8 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    OneSidedClient rclient;
-    RDMAServer rserver;
+    OneSidedClient rclient(numqps);
+    RDMAServer rserver(1);
     NICServer nicserver(rclient, rserver, RDMAPeer::MAX_UNSIGNALED_SENDS);
 
     RMCScheduler sched(nicserver);

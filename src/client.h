@@ -25,7 +25,8 @@ class HostClient {
     void disconnect();
 
 public:
-    HostClient(size_t b) : rmccready(false), bsize(b) {
+    HostClient(size_t b, unsigned int num_qps) :
+            rmccready(false), bsize(b), rclient(num_qps) {
         assert(bsize > 0);
         req_buf.reserve(bsize);
         reply_buf.reserve(bsize);
@@ -36,7 +37,7 @@ public:
         }
     }
 
-    void connect(const std::string &ip, const std::string &port);
+    void connect(const std::string &ip, const unsigned int &port);
 
     /* 1. post recv for id
        2. send rmc to server; wait for 1.

@@ -31,7 +31,6 @@ struct RDMAContext {
 
 class RDMAPeer {
 protected:
-    //rdma_cm_id *id;
     std::vector<RDMAContext> contexts;
     //ibv_qp *qp;
     //ibv_qp_ex *qpx;
@@ -65,8 +64,8 @@ public:
     static const int MAX_UNSIGNALED_SENDS = 64;
     static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
-    RDMAPeer() :
-        pds_cqs_created(false), unsignaled_sends(0), num_qps(1) { }
+    RDMAPeer(unsigned int num_qps) :
+        pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps) { }
 
     virtual ~RDMAPeer() { }
 

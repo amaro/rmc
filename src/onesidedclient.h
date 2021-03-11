@@ -18,11 +18,11 @@ class OneSidedClient {
     std::unique_ptr<CmdRequest> req_buf;
     char *rdma_buffer;
 
-    void disconnect(); //TODO: how is disconnect triggered?
+    void disconnect(); //TODO: do we need this?
     void recv_rdma_mr();
 
 public:
-    OneSidedClient() : onesready(false) {
+    OneSidedClient(unsigned int num_qps) : rclient(num_qps), onesready(false) {
         rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
                                     HostServer::RDMA_BUFF_SIZE));
         req_buf = std::make_unique<CmdRequest>();
@@ -32,7 +32,7 @@ public:
         free(rdma_buffer);
     }
 
-    void connect(const std::string &ip, const std::string &port);
+    void connect(const std::string &ip, const unsigned int &port);
     void readhost(uint32_t offset, uint32_t size);
     void read_async(uint32_t offset, uint32_t size);
     HostMemoryAsyncRead readfromcoro(uint32_t offset, uint32_t size) noexcept;
