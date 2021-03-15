@@ -1,5 +1,6 @@
 #include "utils/cxxopts.h"
 #include "nicserver.h"
+#include "scheduler.h"
 #include "utils/utils.h"
 
 void NICServer::connect(const unsigned int &port)
@@ -45,7 +46,7 @@ void NICServer::start(RMCScheduler &sched, const std::string &hostaddr,
                         const unsigned int &hostport, const unsigned int &clientport)
 {
     LOG("connecting to hostserver.");
-    rclient.connect(hostaddr, hostport);
+    onesidedclient.connect(hostaddr, hostport);
 
     LOG("waiting for hostclient to connect.");
     this->connect(clientport);
@@ -89,9 +90,9 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    OneSidedClient rclient(numqps);
+    OneSidedClient onesidedclient(numqps);
     RDMAServer rserver(1);
-    NICServer nicserver(rclient, rserver, RDMAPeer::MAX_UNSIGNALED_SENDS);
+    NICServer nicserver(onesidedclient, rserver, RDMAPeer::MAX_UNSIGNALED_SENDS);
 
     RMCScheduler sched(nicserver);
     sched.set_num_llnodes(llnodes);

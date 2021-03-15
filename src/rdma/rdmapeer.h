@@ -3,6 +3,7 @@
 
 #include <list>
 #include <vector>
+#include <queue>
 #include <cassert>
 
 #include <netdb.h>
@@ -11,20 +12,29 @@
 #include <infiniband/mlx5dv.h>
 #include "utils/utils.h"
 
+template <typename T> class CoroRMC;
+
 /* For now, RDMAContexts are used to implement support of multiple qps */
 struct RDMAContext {
-    bool connected = false;
-    rdma_cm_id *id = nullptr;
-    ibv_qp *qp = nullptr;
-    ibv_qp_ex *qpx = nullptr;
-    rdma_event_channel *event_channel = nullptr;
+    unsigned int ctx_id; /* TODO: rename to id */
+    bool connected;
+    std::queue<CoroRMC<int> *> memqueue;
+
+    rdma_cm_id *cm_id;
+    ibv_qp *qp;
+    ibv_qp_ex *qpx;
+    rdma_event_channel *event_channel;
+
+    RDMAContext(unsigned int ctx_id) :
+        ctx_id(ctx_id), connected(false), cm_id(nullptr), qp(nullptr),
+        qpx(nullptr), event_channel(nullptr) { }
 
     void disconnect() {
-        assert(ctx.connected);
+        assert(connected);
         connected = false;
 
         ibv_destroy_qp(qp);
-        rdma_destroy_id(id);
+        rdma_destroy_id(cm_id);
         rdma_destroy_event_channel(event_channel);
     }
 };
@@ -32,15 +42,11 @@ struct RDMAContext {
 class RDMAPeer {
 protected:
     std::vector<RDMAContext> contexts;
-    //ibv_qp *qp;
-    //ibv_qp_ex *qpx;
     ibv_context *dev_ctx;
     ibv_pd *pd;
     ibv_cq_ex *send_cqx;
     ibv_cq_ex *recv_cqx;
-    //rdma_event_channel *event_channel;
 
-    //bool connected;
     bool pds_cqs_created;
     unsigned int unsignaled_sends;
     unsigned int num_qps;
@@ -78,14 +84,17 @@ public:
        returns whether send_cqx should be polled */
     bool post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
                             uint32_t len, uint32_t lkey);
-    template<typename T> void blocking_poll_one(T&& func, ibv_cq_ex *cq) const;
     unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
-    unsigned int poll_atmost(unsigned int max, ibv_cq_ex *cq);
+
+    template<typename T>
+    unsigned int poll_atmost(unsigned int max, ibv_cq_ex *cq, T&& comp_func);
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
 
-    const RDMAContext &get_context(unsigned int idx);
+    std::vector<RDMAContext> &get_contexts();
+    const RDMAContext &get_ctrl_ctx();
+    unsigned int get_num_qps();
 };
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
@@ -158,28 +167,6 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, ui
     return signaled;
 }
 
-
-/* data path */
-template<typename T>
-inline void RDMAPeer::blocking_poll_one(T&& func, ibv_cq_ex *cq) const
-{
-    int ret;
-    struct ibv_poll_cq_attr cq_attr = {};
-
-    while ((ret = ibv_start_poll(cq, &cq_attr)) != 0) {
-        if (ret == ENOENT)
-            continue;
-        else
-            die("error in ibv_start_poll()\n");
-    }
-
-    if (cq->status != IBV_WC_SUCCESS)
-        LOG("cq->status =" << cq->status);
-
-    func();
-    ibv_end_poll(cq);
-}
-
 inline ibv_cq_ex *RDMAPeer::get_send_cq()
 {
     return send_cqx;
@@ -190,12 +177,25 @@ inline ibv_cq_ex *RDMAPeer::get_recv_cq()
     return recv_cqx;
 }
 
-inline const RDMAContext &RDMAPeer::get_context(unsigned int idx)
+inline std::vector<RDMAContext> &RDMAPeer::get_contexts()
 {
-    return contexts[idx];
+    return contexts;
 }
 
-inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
+/* used for send/recvs. we could have an independent qp only for these ops
+   but probably not worth the code */
+inline const RDMAContext &RDMAPeer::get_ctrl_ctx()
+{
+    return contexts[0];
+}
+
+inline unsigned int RDMAPeer::get_num_qps()
+{
+    return num_qps;
+}
+
+template<typename T>
+inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq, T&& comp_func)
 {
     int ret;
     unsigned int polled = 0;
@@ -222,6 +222,10 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq)
 
         if (cq->status != IBV_WC_SUCCESS)
             DIE("cqe->status=" << cq->status);
+
+        /* the post-completion function takes wr_id,
+         * (which for now is the ctx_id) */
+        comp_func(cq->wr_id);
 
         polled++;
     } while (polled < max);

@@ -20,7 +20,7 @@ void RMCScheduler::req_new_rmc(CmdRequest *req)
 
     //size_t arg = std::stoull(callreq.data);
     static int id = 0;
-    CoroRMC<int> *rmc = new auto(rmc_test(ns.rclient, num_llnodes));
+    CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
     rmc->id = id++;
     runqueue.push(rmc);
 }
@@ -55,44 +55,22 @@ void RMCScheduler::run()
 
 void RMCScheduler::schedule()
 {
-    //auto search = id_rmc_map.find(id); unused
-    static int req_idx = 0;
-    static int reply_idx = 0;
-
-    ns.rclient.start_batched_ops();
+    RDMAContext &ctx = get_next_context();
+    ns.onesidedclient.start_batched_ops(&ctx);
     /* if there's an RMC ready to run, run it */
-    while (!runqueue.empty() && memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+    while (!runqueue.empty() && ctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
         CoroRMC<int> *rmc = runqueue.front();
         runqueue.pop();
 
         /* if RMC is not done running, add it to memqueue.
            if done, send a reply back to client */
-        if (!rmc->resume()) {
-            memqueue.push(rmc);
-        } else {
-            CmdReply *reply = ns.get_reply(reply_idx);
-            ns.post_send_uns_reply(reply);
-            reply_idx = (reply_idx + 1) % ns.bsize;
-        }
+        if (!rmc->resume())
+            ctx.memqueue.push(rmc);
+        else
+            reply_client();
     }
-    ns.rclient.end_batched_ops();
+    ns.onesidedclient.end_batched_ops();
 
-    if (!this->recvd_disconnect) {
-        int new_reqs = ns.rserver.poll_atmost(4, ns.rserver.get_recv_cq());
-        for (int i = 0; i < new_reqs; ++i) {
-            this->dispatch_new_req(ns.get_req(req_idx));
-            ns.post_recv_req(ns.get_req(req_idx));
-            req_idx = (req_idx + 1) % ns.bsize;
-        }
-    }
-
-    /* if there are RMCs waiting for their host mem accesses to finish,
-       poll their qp */
-    if (!memqueue.empty()) {
-        int completed = ns.rclient.poll_reads_atmost(4);
-        for (int i = 0; i < completed; ++i) {
-            runqueue.push(memqueue.front());
-            memqueue.pop();
-        }
-    }
+    check_new_reqs_client();
+    poll_comps_host();
 }

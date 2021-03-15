@@ -7,13 +7,13 @@ void RDMAClient::connect_to_server(const std::string &ip, const unsigned int &po
     char port_str[256] = "";
 
     for (auto qp = 0u; qp < this->num_qps; ++qp) {
-        RDMAContext ctx;
+        RDMAContext ctx(qp);
         snprintf(port_str, sizeof port_str, "%u", port+qp);
 
         TEST_NZ(getaddrinfo(ip.c_str(), port_str, nullptr, &addr));
         TEST_Z(ctx.event_channel = rdma_create_event_channel());
-        TEST_NZ(rdma_create_id(ctx.event_channel, &ctx.id, nullptr, RDMA_PS_TCP));
-        TEST_NZ(rdma_resolve_addr(ctx.id, nullptr, addr->ai_addr, TIMEOUT_MS));
+        TEST_NZ(rdma_create_id(ctx.event_channel, &ctx.cm_id, nullptr, RDMA_PS_TCP));
+        TEST_NZ(rdma_resolve_addr(ctx.cm_id, nullptr, addr->ai_addr, TIMEOUT_MS));
 
         freeaddrinfo(addr);
 
@@ -44,13 +44,13 @@ void RDMAClient::connect_to_server(const std::string &ip, const unsigned int &po
 
 void RDMAClient::handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id)
 {
-    assert(!connected);
+    assert(!ctx.connected);
     LOG("address resolved");
 
     if (!pds_cqs_created)
         create_pds_cqs(cm_id->verbs);
 
-    ctx.id = cm_id;
+    ctx.cm_id = cm_id;
     create_qps(ctx);
 
     TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));

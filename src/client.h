@@ -60,7 +60,7 @@ inline void HostClient::post_recv_reply(CmdReply *reply)
 {
     assert(rmccready);
 
-    rclient.post_recv(rclient.get_context(0), reply, sizeof(CmdReply),
+    rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(CmdReply),
                         reply_buf_mr->lkey);
 }
 
@@ -68,7 +68,7 @@ inline void HostClient::post_send_req(CmdRequest *req)
 {
     assert(rmccready);
 
-    rclient.post_send(rclient.get_context(0), req, sizeof(CmdRequest),
+    rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(CmdRequest),
                         req_buf_mr->lkey);
 }
 
@@ -76,7 +76,7 @@ inline void HostClient::post_send_req_unsig(CmdRequest *req)
 {
     assert(rmccready);
 
-    bool poll = rclient.post_2s_send_unsig(rclient.get_context(0), req,
+    bool poll = rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
                                             sizeof(CmdRequest), req_buf_mr->lkey);
     if (poll)
         rclient.poll_atleast(1, rclient.get_send_cq());

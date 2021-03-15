@@ -12,7 +12,7 @@ build() {
 BUILD_DIR=$(realpath ./build_x86)
 CXX=g++-10
 CXXFLAGS="-march=native"
-EXECS="client hostserver normc_client"
+EXECS="client hostserver"
 build $1
 
 BUILD_DIR=$(realpath ./build_arm)

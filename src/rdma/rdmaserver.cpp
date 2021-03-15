@@ -9,7 +9,7 @@ void RDMAServer::connect_from_client(int port)
     addr.sin_family = AF_INET;
 
     for (auto qp = 0u; qp < this->num_qps; ++qp) {
-        RDMAContext ctx;
+        RDMAContext ctx(qp);
 
         addr.sin_port = htons(port + qp);
 
@@ -70,13 +70,13 @@ void RDMAServer::disconnect_events()
 
 void RDMAServer::handle_conn_request(RDMAContext &ctx, rdma_cm_id *cm_id)
 {
-    assert(!connected);
+    assert(!ctx.connected);
     LOG("connect request");
 
     if (!pds_cqs_created)
         create_pds_cqs(cm_id->verbs);
 
-    ctx.id = cm_id;
+    ctx.cm_id = cm_id;
     create_qps(ctx);
 
     connect_or_accept(ctx, false); // accept

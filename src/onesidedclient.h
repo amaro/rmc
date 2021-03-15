@@ -17,12 +17,14 @@ class OneSidedClient {
     ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
     std::unique_ptr<CmdRequest> req_buf;
     char *rdma_buffer;
+    const RDMAContext *current_ctx;
 
     void disconnect(); //TODO: do we need this?
     void recv_rdma_mr();
 
 public:
-    OneSidedClient(unsigned int num_qps) : rclient(num_qps), onesready(false) {
+    OneSidedClient(unsigned int num_qps) :
+            rclient(num_qps), onesready(false), current_ctx(nullptr) {
         rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
                                     HostServer::RDMA_BUFF_SIZE));
         req_buf = std::make_unique<CmdRequest>();
@@ -33,17 +35,16 @@ public:
     }
 
     void connect(const std::string &ip, const unsigned int &port);
-    void readhost(uint32_t offset, uint32_t size);
     void read_async(uint32_t offset, uint32_t size);
     HostMemoryAsyncRead readfromcoro(uint32_t offset, uint32_t size) noexcept;
     void writehost(uint64_t raddr, uint32_t size, void *localbuff);
-    int poll_reads_atmost(int max);
+    template<typename T> int poll_reads_atmost(int max, T&& comp_func);
     char *get_rdma_buffer();
     void *get_remote_base_addr();
-    void post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
-                    uint32_t offset, uint32_t len);
-    void start_batched_ops();
+    void *get_local_base_addr();
+    void start_batched_ops(const RDMAContext *ctx);
     void end_batched_ops();
+    RDMAClient &get_rclient();
 };
 
 class HostMemoryAsyncRead {
@@ -76,7 +77,7 @@ inline void OneSidedClient::recv_rdma_mr()
 {
     assert(onesready);
 
-    rclient.post_recv(rclient.get_context(0), req_buf.get(),
+    rclient.post_recv(rclient.get_ctrl_ctx(), req_buf.get(),
                         sizeof(CmdRequest), req_buf_mr->lkey);
     rclient.poll_exactly(1, rclient.get_recv_cq());
 
@@ -85,21 +86,32 @@ inline void OneSidedClient::recv_rdma_mr()
     LOG("received SET_RDMA_MR; rkey=" << host_mr.rkey);
 }
 
+/* TODO: deprecated.
 inline void OneSidedClient::readhost(uint32_t offset, uint32_t size)
 {
-    assert(onesready);
-
     start_batched_ops();
-    post_read(*rdma_mr, host_mr, offset, size);
+    read_async(offset, size);
     end_batched_ops();
     rclient.poll_exactly(1, rclient.get_send_cq());
 }
+*/
 
+/* assumes the mapping from host memory to nic memory is 1:1; i.e.
+   regions are the same size.
+   so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::read_async(uint32_t offset, uint32_t size)
 {
     assert(onesready);
+    assert(current_ctx != nullptr);
 
-    post_read(*rdma_mr, host_mr, offset, size);
+    uintptr_t remote_addr = reinterpret_cast<uintptr_t>(get_remote_base_addr()) + offset;
+    uintptr_t local_addr = reinterpret_cast<uintptr_t>(get_local_base_addr()) + offset;
+
+    ibv_qp_ex *qpx = current_ctx->qpx;
+    qpx->wr_id = current_ctx->ctx_id;
+    qpx->wr_flags = IBV_SEND_SIGNALED;
+    ibv_wr_rdma_read(qpx, host_mr.rkey, remote_addr);
+    ibv_wr_set_sge(qpx, rdma_mr->lkey, local_addr, size);
 }
 
 inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_t size) noexcept
@@ -109,11 +121,12 @@ inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_
     return HostMemoryAsyncRead{*this, offset, size};
 }
 
-inline int OneSidedClient::poll_reads_atmost(int max)
+template<typename T>
+inline int OneSidedClient::poll_reads_atmost(int max, T&& comp_func)
 {
     assert(onesready);
 
-    return rclient.poll_atmost(max, rclient.get_send_cq());
+    return rclient.poll_atmost(max, rclient.get_send_cq(), comp_func);
 }
 
 inline char *OneSidedClient::get_rdma_buffer()
@@ -126,29 +139,26 @@ inline void *OneSidedClient::get_remote_base_addr()
     return host_mr.addr;
 }
 
-/* for now assumes the mapping from host memory to nic memory is 1:1; i.e.
-   regions are the same size.
-   so the offsets are taken the same way remotely and locally */
-inline void OneSidedClient::post_read(const ibv_mr &local_mr, const ibv_mr &remote_mr,
-                                      uint32_t offset, uint32_t len)
+inline void *OneSidedClient::get_local_base_addr()
 {
-    uintptr_t raddr = reinterpret_cast<uintptr_t>(remote_mr.addr) + offset;
-    uintptr_t laddr = reinterpret_cast<uintptr_t>(local_mr.addr) + offset;
-
-    ibv_qp_ex *qpx = rclient.get_context(0).qpx;
-    qpx->wr_flags = IBV_SEND_SIGNALED;
-    ibv_wr_rdma_read(qpx, remote_mr.rkey, raddr);
-    ibv_wr_set_sge(qpx, local_mr.lkey, laddr, len);
+    return rdma_mr->addr;
 }
 
-inline void OneSidedClient::start_batched_ops()
+inline void OneSidedClient::start_batched_ops(const RDMAContext *ctx)
 {
-    ibv_wr_start(rclient.get_context(0).qpx);
+    current_ctx = ctx;
+    ibv_wr_start(current_ctx->qpx);
 }
 
 inline void OneSidedClient::end_batched_ops()
 {
-    TEST_NZ(ibv_wr_complete(rclient.get_context(0).qpx));
+    TEST_NZ(ibv_wr_complete(current_ctx->qpx));
+    current_ctx = nullptr;
+}
+
+inline RDMAClient &OneSidedClient::get_rclient()
+{
+    return rclient;
 }
 
 #endif

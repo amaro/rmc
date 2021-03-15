@@ -56,6 +56,8 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
     if (maxinflight > (int) RDMAPeer::MAX_UNSIGNALED_SENDS)
         die("max in flight > MAX_UNSIGNALED_SENDS");
 
+    auto noop = [](size_t) -> void {};
+
     time_point start = time_start();
     for (auto i = 0; i < total_reqs; i++) {
         /* send as many requests as we have credits for */
@@ -70,7 +72,7 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
         polled = 0;
         if (curr_inflight > 0) {
             if (curr_inflight < maxinflight)
-                polled = rclient.poll_atmost(maxinflight, rclient.get_recv_cq());
+                polled = rclient.poll_atmost(maxinflight, rclient.get_recv_cq(), noop);
             else
                 polled = rclient.poll_atleast(1, rclient.get_recv_cq());
         }

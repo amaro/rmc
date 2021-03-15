@@ -92,15 +92,17 @@ class RMCScheduler {
     /* RMCs ready to be run */
     std::queue<CoroRMC<int>*> runqueue;
     /* RMCs waiting for host memory accesses */
-    std::queue<CoroRMC<int>*> memqueue;
 
     size_t num_llnodes;
+    unsigned int req_idx;
+    unsigned int reply_idx;
     /* true if we received a disconnect req, so we are waiting for rmcs to
        finish executing before disconnecting */
     bool recvd_disconnect;
 
 public:
-    RMCScheduler(NICServer &nicserver) : ns(nicserver), recvd_disconnect(false) { }
+    RMCScheduler(NICServer &nicserver) :
+        ns(nicserver), req_idx(0), reply_idx(0), recvd_disconnect(false) { }
 
     /* RMC entry points */
 
@@ -114,6 +116,11 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
     void req_get_rmc_id(CmdRequest *req);
     void req_new_rmc(CmdRequest *req);
+    void reply_client();
+    void check_new_reqs_client();
+    void poll_comps_host();
+    RDMAContext &get_context(unsigned int id);
+    RDMAContext &get_next_context();
 };
 
 inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc)
@@ -134,9 +141,31 @@ inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
     num_llnodes = num_nodes;
 }
 
+inline RDMAContext &RMCScheduler::get_context(unsigned int id)
+{
+    return ns.onesidedclient.get_rclient().get_contexts()[id];
+}
+
+inline RDMAContext &RMCScheduler::get_next_context()
+{
+    static unsigned int id = 0;
+
+    RDMAContext &ctx = get_context(id);
+    id = (id + 1) % ns.onesidedclient.get_rclient().get_num_qps();
+    return ctx;
+}
+
 inline bool RMCScheduler::executing()
 {
-    return !runqueue.empty() || !memqueue.empty();
+    if (!runqueue.empty())
+        return true;
+
+    for (const auto &ctx: ns.onesidedclient.get_rclient().get_contexts()) {
+        if (!ctx.memqueue.empty())
+            return true;
+    }
+
+    return false;
 }
 
 inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
@@ -152,6 +181,42 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     default:
         DIE("unrecognized CmdRequest type");
     }
+}
+
+inline void RMCScheduler::reply_client()
+{
+    CmdReply *reply = ns.get_reply(this->reply_idx);
+    ns.post_send_uns_reply(reply);
+    this->reply_idx = (this->reply_idx + 1) % ns.bsize;
+}
+
+inline void RMCScheduler::check_new_reqs_client()
+{
+    int new_reqs;
+    CmdRequest *req;
+
+    auto noop = [](size_t) -> void {};
+
+    if (!this->recvd_disconnect) { /* TODO: likely? */
+        new_reqs = ns.rserver.poll_atmost(4, ns.rserver.get_recv_cq(), noop);
+        for (auto i = 0; i < new_reqs; ++i) {
+            req = ns.get_req(req_idx);
+            dispatch_new_req(req);
+            ns.post_recv_req(req);
+            req_idx = (req_idx + 1) % ns.bsize;
+        }
+    }
+}
+
+inline void RMCScheduler::poll_comps_host()
+{
+    auto add_to_runqueue = [this](size_t ctx_id) {
+        RDMAContext &ctx = this->get_context(ctx_id);
+        this->runqueue.push(ctx.memqueue.front());
+        ctx.memqueue.pop();
+    };
+
+    ns.onesidedclient.poll_reads_atmost(4, add_to_runqueue);
 }
 
 #endif

@@ -9,7 +9,7 @@ void RDMAPeer::create_pds_cqs(ibv_context *verbs)
     cq_attrs_ex.comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS;
     cq_attrs_ex.flags = IBV_CREATE_CQ_ATTR_SINGLE_THREADED;
 
-    dev_ctx = verbs;
+    dev_ctx = verbs; /* TODO: is this needed? */
     TEST_Z(pd = ibv_alloc_pd(dev_ctx));
     TEST_Z(send_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
     TEST_Z(recv_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
@@ -47,8 +47,8 @@ void RDMAPeer::create_qps(RDMAContext &ctx)
 
     qp_attrs.send_ops_flags |= IBV_WR_SEND | IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
 
-    TEST_Z(ctx.qp = mlx5dv_create_qp(ctx.id->verbs, &qp_attrs, NULL));
-    ctx.id->qp = ctx.qp;
+    TEST_Z(ctx.qp = mlx5dv_create_qp(ctx.cm_id->verbs, &qp_attrs, NULL));
+    ctx.cm_id->qp = ctx.qp;
     ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
 }
 
@@ -57,7 +57,7 @@ void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect)
     ibv_device_attr attrs = {};
     rdma_conn_param cm_params = {};
 
-    ibv_query_device(ctx.id->verbs, &attrs);
+    ibv_query_device(ctx.cm_id->verbs, &attrs);
 
     cm_params.responder_resources = attrs.max_qp_init_rd_atom;
     cm_params.initiator_depth = attrs.max_qp_rd_atom;
@@ -65,9 +65,9 @@ void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect)
     cm_params.rnr_retry_count = 1;
 
     if (connect)
-        TEST_NZ(rdma_connect(ctx.id, &cm_params));
+        TEST_NZ(rdma_connect(ctx.cm_id, &cm_params));
     else
-        TEST_NZ(rdma_accept(ctx.id, &cm_params));
+        TEST_NZ(rdma_accept(ctx.cm_id, &cm_params));
 }
 
 //void RDMAPeer::disconnect()
