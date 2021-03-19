@@ -34,4 +34,15 @@ inline void num_to_str(const T &data, char *dst, size_t count)
     std::strncpy(dst, str.c_str(), count);
 }
 
+inline long long get_cycles()
+{
+#if defined(__aarch64__)
+    long long virtual_timer_value;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
+    return virtual_timer_value;
+#else
+    return 0;
+#endif
+}
+
 #endif

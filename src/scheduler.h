@@ -1,7 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-/* #define PERF_STATS */
+#define PERF_STATS
 
 #include <coroutine>
 #include <cassert>
@@ -14,6 +14,8 @@
 
 #include "rmc.h"
 #include "nicserver.h"
+
+#include <inttypes.h>
 
 template <typename T = void> class CoroRMC {
 /*
@@ -106,6 +108,7 @@ class RMCScheduler {
 #ifdef PERF_STATS
     unsigned int debug_replies = 0;
     unsigned int debug_rmcexecs = 0;
+    std::vector<long long> debug_vec_cycles;
     std::vector<unsigned int> debug_num_reqs;
     std::vector<unsigned int> debug_vec_rmcexecs;
     std::vector<unsigned int> debug_vec_replies;
@@ -253,13 +256,13 @@ inline void RMCScheduler::poll_comps_host()
 inline void RMCScheduler::debug_capture_stats()
 {
 #ifdef PERF_STATS
-    unsigned int memq_size = 0;
-
+    debug_vec_cycles.push_back(get_cycles());
     debug_vec_replies.push_back(debug_replies);
     debug_replies = 0;
     debug_vec_rmcexecs.push_back(debug_rmcexecs);
     debug_rmcexecs = 0;
     debug_runq_size.push_back(runqueue.size());
+    unsigned int memq_size = 0;
     for (auto &ctx: ns.onesidedclient.get_rclient().get_contexts())
         memq_size += ctx.memqueue.size();
     debug_memq_size.push_back(memq_size);
