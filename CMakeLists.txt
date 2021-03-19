@@ -18,6 +18,6 @@ if(NOT CMAKE_BUILD_TYPE)
       "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel."
       FORCE)
 endif()
-
 message("***Build type is ${CMAKE_BUILD_TYPE}***")
+
 add_subdirectory(src)

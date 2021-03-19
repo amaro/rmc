@@ -45,32 +45,52 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req)
 
 void RMCScheduler::run()
 {
+    unsigned int num_qps = ns.onesidedclient.get_rclient().get_num_qps();
+
     while (ns.nsready) {
-        schedule();
+        schedule(num_qps);
 
         if (this->recvd_disconnect && !this->executing())
             return ns.disconnect();
+
+        debug_capture_stats();
     }
 }
 
-void RMCScheduler::schedule()
+void RMCScheduler::schedule(unsigned int num_qps)
 {
-    RDMAContext &ctx = get_next_context();
-    ns.onesidedclient.start_batched_ops(&ctx);
-    /* if there's an RMC ready to run, run it */
-    while (!runqueue.empty() && ctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-        CoroRMC<int> *rmc = runqueue.front();
-        runqueue.pop();
+    for (auto i = 0u; i < num_qps && !runqueue.empty(); ++i) {
+        RDMAContext &ctx = get_next_context();
 
-        /* if RMC is not done running, add it to memqueue.
-           if done, send a reply back to client */
-        if (!rmc->resume())
-            ctx.memqueue.push(rmc);
-        else
-            reply_client();
+        ns.onesidedclient.start_batched_ops(&ctx);
+        while (!runqueue.empty() && ctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+            CoroRMC<int> *rmc = runqueue.front();
+            runqueue.pop();
+
+            if (!rmc->resume())
+                ctx.memqueue.push(rmc);
+            else
+                reply_client();
+
+#ifdef PERF_STATS
+            debug_rmcexecs++;
+#endif
+        }
+        ns.onesidedclient.end_batched_ops();
     }
-    ns.onesidedclient.end_batched_ops();
 
     check_new_reqs_client();
     poll_comps_host();
+}
+
+void RMCScheduler::debug_print_stats()
+{
+#ifdef PERF_STATS
+    std::cout << "reqs,replies,runq_size,memq_size,execs,host_comps\n";
+    for (auto i = 0u; i < debug_num_reqs.size(); ++i) {
+        std::cout << debug_num_reqs[i] << "," << debug_vec_replies[i] << ","
+            << debug_runq_size[i] << "," << debug_memq_size[i] << ","
+            << debug_vec_rmcexecs[i] << "," << debug_host_comps[i] << "\n";
+    }
+#endif
 }

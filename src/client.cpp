@@ -188,6 +188,7 @@ void benchmark(std::string server, unsigned int port, std::string ofile, int max
         durations[rep] = duration;
     }
     LOG("benchmark end");
+    client.last_cmd();
 
     print_stats(durations, maxinflight);
 
@@ -201,8 +202,6 @@ void benchmark(std::string server, unsigned int port, std::string ofile, int max
 
     //    print_durations(stream, bufsize, durations);
     //}
-
-    client.last_cmd();
 }
 
 /* sends one req at a time */

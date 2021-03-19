@@ -31,6 +31,7 @@ void NICServer::init(RMCScheduler &sched)
         post_recv_req(get_req(i));
 
     sched.run();
+    sched.debug_print_stats();
 }
 
 void NICServer::disconnect()
