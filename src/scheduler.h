@@ -1,7 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-#define PERF_STATS
+/* #define PERF_STATS */
 
 #include <coroutine>
 #include <cassert>
