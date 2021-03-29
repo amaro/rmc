@@ -45,4 +45,24 @@ inline long long get_cycles()
 #endif
 }
 
+inline long long cycles_to_us(long long cycles, long long freq)
+{
+#if defined(__aarch64__)
+    return cycles * 1000000000 / freq;
+#else
+    return 0;
+#endif
+}
+
+inline long long get_freq()
+{
+#if defined(__aarch64__)
+    long long freq;
+    asm volatile("mrs %0, cntfrq_el0" : "=r" (freq));
+    return freq;
+#else
+    return 0;
+#endif
+}
+
 #endif

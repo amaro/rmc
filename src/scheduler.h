@@ -108,13 +108,16 @@ class RMCScheduler {
 #ifdef PERF_STATS
     unsigned int debug_replies = 0;
     unsigned int debug_rmcexecs = 0;
+    long long debug_cycles_newreqs = 0;
+    long long debug_cycles_replies = 0;
     std::vector<long long> debug_vec_cycles;
-    std::vector<unsigned int> debug_num_reqs;
+    std::vector<unsigned int> debug_vec_reqs;
+    std::vector<long long> debug_vec_cycles_reqs;
+    std::vector<long long> debug_vec_cycles_replies;
     std::vector<unsigned int> debug_vec_rmcexecs;
     std::vector<unsigned int> debug_vec_replies;
-    std::vector<unsigned int> debug_host_comps;
-    std::vector<unsigned int> debug_runq_size;
-    std::vector<unsigned int> debug_memq_size;
+    std::vector<unsigned int> debug_vec_hostcomps;
+    std::vector<unsigned int> debug_vec_memqsize;
 #endif
 
 public:
@@ -136,7 +139,7 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
     void req_get_rmc_id(CmdRequest *req);
     void req_new_rmc(CmdRequest *req);
-    void reply_client();
+    void req_done(CoroRMC<int> *rmc);
     void check_new_reqs_client();
     void poll_comps_host();
     RDMAContext &get_context(unsigned int id);
@@ -206,13 +209,20 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     }
 }
 
-inline void RMCScheduler::reply_client()
+inline void RMCScheduler::req_done(CoroRMC<int> *rmc)
 {
+#ifdef PERF_STATS
+    long long cycles = get_cycles();
+#endif
+
     CmdReply *reply = ns.get_reply(this->reply_idx);
     ns.post_send_uns_reply(reply);
     this->reply_idx = (this->reply_idx + 1) % ns.bsize;
+    delete rmc;
+
 #ifdef PERF_STATS
     debug_replies++;
+    debug_cycles_replies += get_cycles() - cycles;
 #endif
 }
 
@@ -221,6 +231,10 @@ inline void RMCScheduler::check_new_reqs_client()
     int new_reqs;
     CmdRequest *req;
 
+#ifdef PERF_STATS
+    long long cycles = get_cycles();
+#endif
+
     auto noop = [](size_t) -> void {};
 
     if (!this->recvd_disconnect) { /* TODO: likely? */
@@ -228,12 +242,15 @@ inline void RMCScheduler::check_new_reqs_client()
                                 ns.rserver.get_recv_cq(), noop);
         for (auto i = 0; i < new_reqs; ++i) {
             req = ns.get_req(req_idx);
+
             dispatch_new_req(req);
+
             ns.post_recv_req(req);
             req_idx = (req_idx + 1) % ns.bsize;
         }
 #ifdef PERF_STATS
-        debug_num_reqs.push_back(new_reqs);
+        debug_vec_reqs.push_back(new_reqs);
+        debug_cycles_newreqs += get_cycles() - cycles;
 #endif
     }
 }
@@ -249,7 +266,7 @@ inline void RMCScheduler::poll_comps_host()
     int comp = ns.onesidedclient.poll_reads_atmost(MAX_HOST_COMPS_ITER, add_to_runqueue);
     (void) comp;
 #ifdef PERF_STATS
-    debug_host_comps.push_back(comp);
+    debug_vec_hostcomps.push_back(comp);
 #endif
 }
 
@@ -257,15 +274,18 @@ inline void RMCScheduler::debug_capture_stats()
 {
 #ifdef PERF_STATS
     debug_vec_cycles.push_back(get_cycles());
+    debug_vec_cycles_reqs.push_back(debug_cycles_newreqs);
+    debug_cycles_newreqs = 0;
+    debug_vec_cycles_replies.push_back(debug_cycles_replies);
+    debug_cycles_replies = 0;
     debug_vec_replies.push_back(debug_replies);
     debug_replies = 0;
     debug_vec_rmcexecs.push_back(debug_rmcexecs);
     debug_rmcexecs = 0;
-    debug_runq_size.push_back(runqueue.size());
     unsigned int memq_size = 0;
     for (auto &ctx: ns.onesidedclient.get_rclient().get_contexts())
         memq_size += ctx.memqueue.size();
-    debug_memq_size.push_back(memq_size);
+    debug_vec_memqsize.push_back(memq_size);
 #endif
 }
 

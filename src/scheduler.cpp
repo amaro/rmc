@@ -70,7 +70,7 @@ void RMCScheduler::schedule(unsigned int num_qps)
             if (!rmc->resume())
                 ctx.memqueue.push(rmc);
             else
-                reply_client();
+                req_done(rmc);
 
 #ifdef PERF_STATS
             debug_rmcexecs++;
@@ -86,12 +86,12 @@ void RMCScheduler::schedule(unsigned int num_qps)
 void RMCScheduler::debug_print_stats()
 {
 #ifdef PERF_STATS
-    std::cout << "reqs,replies,runq_size,memq_size,execs,host_comps,cycle\n";
-    for (auto i = 0u; i < debug_num_reqs.size(); ++i) {
-        std::cout << debug_num_reqs[i] << "," << debug_vec_replies[i] << ","
-            << debug_runq_size[i] << "," << debug_memq_size[i] << ","
-            << debug_vec_rmcexecs[i] << "," << debug_host_comps[i] << ","
-            << debug_vec_cycles[i] << "\n";
+    std::cout << "reqs,replies,memq_size,execs,host_comps,cycle,cycle_reqs,cycle_replies\n";
+    for (auto i = 0u; i < debug_vec_reqs.size(); ++i) {
+        std::cout << debug_vec_reqs[i] << "," << debug_vec_replies[i] << ","
+            << debug_vec_memqsize[i] << "," << debug_vec_rmcexecs[i] << ","
+            << debug_vec_hostcomps[i] << "," << debug_vec_cycles[i] << ","
+            << debug_vec_cycles_reqs[i] << "," << debug_vec_cycles_replies[i] << "\n";
     }
 #endif
 }
