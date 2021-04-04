@@ -29,8 +29,8 @@ class NICServer {
     /* post an ibv recv for an incoming CmdRequest */
     void post_recv_req(CmdRequest *req);
     void post_send_reply(CmdReply *reply);
-    /* send an unsignaled reply back to client */
-    void post_send_uns_reply(CmdReply *reply);
+    /* send a batched reply to client */
+    void post_batched_send_reply(RDMAContext &ctx, CmdReply *reply);
 
     CmdRequest *get_req(size_t req_idx);
     CmdReply *get_reply(size_t req_idx);
@@ -72,13 +72,10 @@ inline void NICServer::post_send_reply(CmdReply *reply)
                         reply_buf_mr->lkey);
 }
 
-inline void NICServer::post_send_uns_reply(CmdReply *reply)
+inline void NICServer::post_batched_send_reply(RDMAContext &ctx, CmdReply *reply)
 {
     assert(nsready);
-    bool poll = rserver.post_2s_send_unsig(rserver.get_ctrl_ctx(), reply,
-                                            sizeof(CmdReply), reply_buf_mr->lkey);
-    if (poll)
-        rserver.poll_atleast(1, rserver.get_send_cq());
+    ctx.post_batched_send(reply, sizeof(CmdReply), reply_buf_mr->lkey);
 }
 
 inline CmdRequest *NICServer::get_req(size_t req_idx)

@@ -13,31 +13,7 @@
 #include "utils/utils.h"
 
 template <typename T> class CoroRMC;
-
-/* For now, RDMAContexts are used to implement support of multiple qps */
-struct RDMAContext {
-    unsigned int ctx_id; /* TODO: rename to id */
-    bool connected;
-    std::queue<CoroRMC<int> *> memqueue;
-
-    rdma_cm_id *cm_id;
-    ibv_qp *qp;
-    ibv_qp_ex *qpx;
-    rdma_event_channel *event_channel;
-
-    RDMAContext(unsigned int ctx_id) :
-        ctx_id(ctx_id), connected(false), cm_id(nullptr), qp(nullptr),
-        qpx(nullptr), event_channel(nullptr) { }
-
-    void disconnect() {
-        assert(connected);
-        connected = false;
-
-        ibv_destroy_qp(qp);
-        rdma_destroy_id(cm_id);
-        rdma_destroy_event_channel(event_channel);
-    }
-};
+struct RDMAContext;
 
 class RDMAPeer {
 protected:
@@ -61,17 +37,25 @@ protected:
     void handle_conn_established(RDMAContext &ctx);
 
 public:
-    static const int CQ_NUM_CQE = 64;
+    static const int CQ_NUM_CQE = 256;
     static const int TIMEOUT_MS = 5;
-    static const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 64;
-    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = QP_ATTRS_MAX_OUTSTAND_SEND_WRS;
+    static const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 256;
+    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 64;
     static const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     static const int QP_ATTRS_MAX_INLINE_DATA = 256;
     static const int MAX_UNSIGNALED_SENDS = 64;
     static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
+    RDMAContext *batch_ctx; /* TODO: this shouldn't be kept here, caller should maintain this */
+
     RDMAPeer(unsigned int num_qps) :
-        pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps) { }
+        pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps), batch_ctx(nullptr) {
+        if (CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_SEND_WRS ||
+            CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_RECV_WRS ||
+            CQ_NUM_CQE < MAX_UNSIGNALED_SENDS ||
+            MAX_UNSIGNALED_SENDS > QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
+            DIE("invalid config");
+    }
 
     virtual ~RDMAPeer() { }
 
@@ -84,7 +68,11 @@ public:
        returns whether send_cqx should be polled */
     bool post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
                             uint32_t len, uint32_t lkey);
-    unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq);
+    void post_batched_send(RDMAContext &ctx, void *laddr,
+                            uint32_t len, uint32_t lkey);
+
+    template<typename T>
+    unsigned int poll_atleast(unsigned int times, ibv_cq_ex *cq, T&& comp_func);
     void poll_exactly(unsigned int times, ibv_cq_ex *cq);
 
     template<typename T>
@@ -93,9 +81,91 @@ public:
     ibv_cq_ex *get_recv_cq();
 
     std::vector<RDMAContext> &get_contexts();
-    const RDMAContext &get_ctrl_ctx();
+    RDMAContext &get_ctrl_ctx();
     unsigned int get_num_qps();
+
+    void start_batched_ops(RDMAContext *ctx);
+    void end_batched_ops();
 };
+
+/* TODO: move this to own file */
+struct RDMAContext {
+    struct SendOp {
+        void *laddr;
+        unsigned int len;
+        unsigned int lkey;
+        bool signaled;
+        unsigned long wr_id;
+    };
+
+    void post_send(SendOp &sendop) {
+        if (sendop.signaled)
+            qpx->wr_flags = IBV_SEND_SIGNALED;
+        else
+            qpx->wr_flags = 0;
+
+        qpx->wr_id = sendop.wr_id;
+        ibv_wr_send(qpx);
+
+        if (sendop.len < RDMAPeer::QP_ATTRS_MAX_INLINE_DATA)
+            ibv_wr_set_inline_data(qpx, sendop.laddr, sendop.len);
+        else
+            ibv_wr_set_sge(qpx, sendop.lkey, (uintptr_t) sendop.laddr, sendop.len);
+
+        outstanding_sends++;
+    }
+
+public:
+    std::queue<CoroRMC<int> *> memqueue;
+    unsigned int ctx_id; /* TODO: rename to id */
+    bool connected;
+    unsigned int outstanding_sends;
+    unsigned int curr_batch_size;
+
+    rdma_cm_id *cm_id;
+    ibv_qp *qp;
+    ibv_qp_ex *qpx;
+    rdma_event_channel *event_channel;
+    SendOp buffered_send;
+
+    RDMAContext(unsigned int ctx_id) :
+        ctx_id{ctx_id}, connected{false}, outstanding_sends{0}, curr_batch_size{0},
+        cm_id{nullptr}, qp{nullptr}, qpx{nullptr}, event_channel{nullptr},
+        buffered_send{nullptr, 0, 0, false, 0} { }
+
+    void disconnect() {
+        assert(connected);
+        connected = false;
+
+        ibv_destroy_qp(qp);
+        rdma_destroy_id(cm_id);
+        rdma_destroy_event_channel(event_channel);
+    }
+
+    void post_batched_send(void *laddr, unsigned int len, unsigned int lkey) {
+        if(outstanding_sends >= RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
+            DIE("ctx.outstanding_sends=" << outstanding_sends);
+
+        /* if this is not the first WR within the batch, post the previously buffered send */
+        if (curr_batch_size > 0)
+            post_send(buffered_send);
+
+        buffered_send.laddr = laddr;
+        buffered_send.len = len;
+        buffered_send.lkey = lkey;
+        buffered_send.signaled = false;
+        buffered_send.wr_id = 0;
+        curr_batch_size++;
+    }
+
+    /* post the last send of a batch */
+    void end_batched_send() {
+        buffered_send.signaled = true;
+        buffered_send.wr_id = curr_batch_size;
+        post_send(buffered_send);
+    }
+};
+
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 {
@@ -184,7 +254,7 @@ inline std::vector<RDMAContext> &RDMAPeer::get_contexts()
 
 /* used for send/recvs. we could have an independent qp only for these ops
    but probably not worth the code */
-inline const RDMAContext &RDMAPeer::get_ctrl_ctx()
+inline RDMAContext &RDMAPeer::get_ctrl_ctx()
 {
     return contexts[0];
 }
@@ -224,7 +294,8 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq, T&& c
             DIE("cqe->status=" << cq->status);
 
         /* the post-completion function takes wr_id,
-         * (which for now is the ctx_id) */
+         * for reads, this is the ctx_id,
+         * for sends, this is the batch size */
         comp_func(cq->wr_id);
 
         polled++;
@@ -268,7 +339,9 @@ inline void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq)
     ibv_end_poll(cq);
 }
 
-inline unsigned int RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq)
+template<typename T>
+inline unsigned int RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq,
+                                            T&& comp_func)
 {
     int ret;
     unsigned int polled = 0;
@@ -284,6 +357,10 @@ inline unsigned int RDMAPeer::poll_atleast(unsigned int target, ibv_cq_ex *cq)
 read:
     if (cq->status != IBV_WC_SUCCESS)
         die("cq status is not success\n");
+
+    /* the post-completion function takes wr_id,
+     * for sends, this is the batch size */
+    comp_func(cq->wr_id);
 
     polled++;
 
@@ -303,6 +380,24 @@ next_poll:
 out:
     ibv_end_poll(cq);
     return polled;
+}
+
+inline void RDMAPeer::start_batched_ops(RDMAContext *ctx)
+{
+    batch_ctx = ctx;
+    ctx->curr_batch_size = 0;
+    ibv_wr_start(batch_ctx->qpx);
+}
+
+/* end batched ops (reads/writes/sends) */
+inline void RDMAPeer::end_batched_ops()
+{
+    /* if we are in the middle of a batched send, post the previously buffered send */
+    if (batch_ctx->curr_batch_size > 0)
+        batch_ctx->end_batched_send();
+
+    TEST_NZ(ibv_wr_complete(batch_ctx->qpx));
+    batch_ctx = nullptr;
 }
 
 #endif

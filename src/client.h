@@ -76,10 +76,11 @@ inline void HostClient::post_send_req_unsig(CmdRequest *req)
 {
     assert(rmccready);
 
+    auto noop = [](size_t) -> void {};
     bool poll = rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
                                             sizeof(CmdRequest), req_buf_mr->lkey);
     if (poll)
-        rclient.poll_atleast(1, rclient.get_send_cq());
+        rclient.poll_atleast(1, rclient.get_send_cq(), noop);
 }
 
 inline CmdRequest *HostClient::get_req(size_t req_idx)

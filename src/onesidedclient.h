@@ -17,14 +17,13 @@ class OneSidedClient {
     ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
     std::unique_ptr<CmdRequest> req_buf;
     char *rdma_buffer;
-    const RDMAContext *current_ctx;
 
     void disconnect(); //TODO: do we need this?
     void recv_rdma_mr();
 
 public:
     OneSidedClient(unsigned int num_qps) :
-            rclient(num_qps), onesready(false), current_ctx(nullptr) {
+            rclient(num_qps), onesready(false) {
         rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
                                     HostServer::RDMA_BUFF_SIZE));
         req_buf = std::make_unique<CmdRequest>();
@@ -42,8 +41,7 @@ public:
     char *get_rdma_buffer();
     void *get_remote_base_addr();
     void *get_local_base_addr();
-    void start_batched_ops(const RDMAContext *ctx);
-    void end_batched_ops();
+
     RDMAClient &get_rclient();
 };
 
@@ -86,29 +84,19 @@ inline void OneSidedClient::recv_rdma_mr()
     LOG("received SET_RDMA_MR; rkey=" << host_mr.rkey);
 }
 
-/* TODO: deprecated.
-inline void OneSidedClient::readhost(uint32_t offset, uint32_t size)
-{
-    start_batched_ops();
-    read_async(offset, size);
-    end_batched_ops();
-    rclient.poll_exactly(1, rclient.get_send_cq());
-}
-*/
-
 /* assumes the mapping from host memory to nic memory is 1:1; i.e.
    regions are the same size.
    so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::read_async(uint32_t offset, uint32_t size)
 {
     assert(onesready);
-    assert(current_ctx != nullptr);
+    assert(rclient.batch_ctx != nullptr);
 
     uintptr_t remote_addr = reinterpret_cast<uintptr_t>(get_remote_base_addr()) + offset;
     uintptr_t local_addr = reinterpret_cast<uintptr_t>(get_local_base_addr()) + offset;
 
-    ibv_qp_ex *qpx = current_ctx->qpx;
-    qpx->wr_id = current_ctx->ctx_id;
+    ibv_qp_ex *qpx = rclient.batch_ctx->qpx;
+    qpx->wr_id = rclient.batch_ctx->ctx_id;
     qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_rdma_read(qpx, host_mr.rkey, remote_addr);
     ibv_wr_set_sge(qpx, rdma_mr->lkey, local_addr, size);
@@ -144,17 +132,7 @@ inline void *OneSidedClient::get_local_base_addr()
     return rdma_mr->addr;
 }
 
-inline void OneSidedClient::start_batched_ops(const RDMAContext *ctx)
-{
-    current_ctx = ctx;
-    ibv_wr_start(current_ctx->qpx);
-}
 
-inline void OneSidedClient::end_batched_ops()
-{
-    TEST_NZ(ibv_wr_complete(current_ctx->qpx));
-    current_ctx = nullptr;
-}
 
 inline RDMAClient &OneSidedClient::get_rclient()
 {

@@ -74,7 +74,7 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
             if (curr_inflight < maxinflight)
                 polled = rclient.poll_atmost(maxinflight, rclient.get_recv_cq(), noop);
             else
-                polled = rclient.poll_atleast(1, rclient.get_recv_cq());
+                polled = rclient.poll_atleast(1, rclient.get_recv_cq(), noop);
         }
 
         curr_inflight -= polled;
@@ -178,7 +178,6 @@ void benchmark(std::string server, unsigned int port, std::string ofile, int max
     LOG("got id=" << id);
 
     // warm up
-    //const int &bufsize = BUFF_SIZES[0];
     LOG("warming up");
     client.call_rmc(duration, maxinflight);
 
@@ -191,47 +190,7 @@ void benchmark(std::string server, unsigned int port, std::string ofile, int max
     client.last_cmd();
 
     print_stats(durations, maxinflight);
-
-    // real thing
-    //for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
-    //    const int &bufsize = BUFF_SIZES[bufidx];
-    //    for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-    //        client.call_rmc(id, bufsize, duration);
-    //        durations[rep] = duration;
-    //    }
-
-    //    print_durations(stream, bufsize, durations);
-    //}
 }
-
-/* sends one req at a time */
-//void benchmark_one(std::string server, std::string port, std::string ofile)
-//{
-//    HostClient client(1);
-//    const char *prog = R"(void hello() { printf("hello world\n"); })"; // unused
-//    RMC rmc(prog);
-//    long long duration;
-//    std::vector<long long> durations(NUM_REPS);
-//    const int bufsize = 0; // unused
-//    std::ofstream stream(ofile, std::ofstream::out);
-//
-//    client.connect(server, port);
-//    RMCId id = client.get_rmc_id(rmc);
-//    LOG("got id=" << id);
-//
-//    /* warm up */
-//    for (int i = 0; i < 10; ++i) {
-//        client.call_one_rmc(id, bufsize, duration);
-//    }
-//
-//    for (int i = 0; i < NUM_REPS; ++i) {
-//        client.call_one_rmc(id, bufsize, duration);
-//        durations[i] = duration;
-//    }
-//
-//    client.last_cmd();
-//    print_durations(stream, bufsize, durations);
-//}
 
 int main(int argc, char* argv[])
 {

@@ -101,6 +101,7 @@ class RMCScheduler {
     size_t num_llnodes;
     unsigned int req_idx;
     unsigned int reply_idx;
+    bool pending_replies;
     /* true if we received a disconnect req, so we are waiting for rmcs to
        finish executing before disconnecting */
     bool recvd_disconnect;
@@ -125,12 +126,13 @@ public:
     static const int MAX_HOST_COMPS_ITER = 32;
 
     RMCScheduler(NICServer &nicserver) :
-        ns(nicserver), req_idx(0), reply_idx(0), recvd_disconnect(false) { }
+        ns(nicserver), req_idx(0), reply_idx(0), pending_replies(0),
+        recvd_disconnect(false) { }
 
     /* RMC entry points */
 
     void run();
-    void schedule(unsigned int num_qps);
+    void schedule(RDMAClient &rclient, unsigned int num_qps);
     void set_num_llnodes(size_t num_nodes);
     bool executing();
     void dispatch_new_req(CmdRequest *req);
@@ -139,11 +141,13 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
     void req_get_rmc_id(CmdRequest *req);
     void req_new_rmc(CmdRequest *req);
-    void req_done(CoroRMC<int> *rmc);
+    void add_reply(CoroRMC<int> *rmc);
+    void send_poll_replies();
     void check_new_reqs_client();
     void poll_comps_host();
-    RDMAContext &get_context(unsigned int id);
-    RDMAContext &get_next_context();
+    RDMAContext &get_server_context();
+    RDMAContext &get_client_context(unsigned int id);
+    RDMAContext &get_next_client_context();
 
     void debug_capture_stats();
     void debug_print_stats();
@@ -167,16 +171,21 @@ inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
     num_llnodes = num_nodes;
 }
 
-inline RDMAContext &RMCScheduler::get_context(unsigned int id)
+inline RDMAContext &RMCScheduler::get_server_context()
+{
+    return ns.rserver.get_ctrl_ctx();
+}
+
+inline RDMAContext &RMCScheduler::get_client_context(unsigned int id)
 {
     return ns.onesidedclient.get_rclient().get_contexts()[id];
 }
 
-inline RDMAContext &RMCScheduler::get_next_context()
+inline RDMAContext &RMCScheduler::get_next_client_context()
 {
     static unsigned int id = 0;
 
-    RDMAContext &ctx = get_context(id);
+    RDMAContext &ctx = get_client_context(id);
     id = (id + 1) % ns.onesidedclient.get_rclient().get_num_qps();
     return ctx;
 }
@@ -209,14 +218,20 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     }
 }
 
-inline void RMCScheduler::req_done(CoroRMC<int> *rmc)
+inline void RMCScheduler::add_reply(CoroRMC<int> *rmc)
 {
 #ifdef PERF_STATS
     long long cycles = get_cycles();
 #endif
 
+    RDMAContext &ctx = get_server_context();
+
+    if (!pending_replies)
+        ns.rserver.start_batched_ops(&ctx);
+
+    pending_replies = true;
     CmdReply *reply = ns.get_reply(this->reply_idx);
-    ns.post_send_uns_reply(reply);
+    ns.post_batched_send_reply(ctx, reply);
     this->reply_idx = (this->reply_idx + 1) % ns.bsize;
     delete rmc;
 
@@ -224,6 +239,26 @@ inline void RMCScheduler::req_done(CoroRMC<int> *rmc)
     debug_replies++;
     debug_cycles_replies += get_cycles() - cycles;
 #endif
+}
+
+inline void RMCScheduler::send_poll_replies()
+{
+    RDMAContext &server_ctx = get_server_context();
+    auto update_out_sends = [&](size_t batch_size) {
+        server_ctx.outstanding_sends -= batch_size;
+    };
+
+    if (pending_replies) {
+        /* finish the batch */
+        ns.rserver.end_batched_ops();
+        pending_replies = false;
+    }
+
+    if (server_ctx.outstanding_sends >= RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
+        DIE("error: server_ctx.outstanding_sends=" << server_ctx.outstanding_sends);
+
+    /* poll */
+    ns.rserver.poll_atmost(1, ns.rserver.get_send_cq(), update_out_sends);
 }
 
 inline void RMCScheduler::check_new_reqs_client()
@@ -242,9 +277,7 @@ inline void RMCScheduler::check_new_reqs_client()
                                 ns.rserver.get_recv_cq(), noop);
         for (auto i = 0; i < new_reqs; ++i) {
             req = ns.get_req(req_idx);
-
             dispatch_new_req(req);
-
             ns.post_recv_req(req);
             req_idx = (req_idx + 1) % ns.bsize;
         }
@@ -258,7 +291,7 @@ inline void RMCScheduler::check_new_reqs_client()
 inline void RMCScheduler::poll_comps_host()
 {
     auto add_to_runqueue = [this](size_t ctx_id) {
-        RDMAContext &ctx = this->get_context(ctx_id);
+        RDMAContext &ctx = this->get_client_context(ctx_id);
         this->runqueue.push(ctx.memqueue.front());
         ctx.memqueue.pop();
     };

@@ -45,10 +45,11 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req)
 
 void RMCScheduler::run()
 {
-    unsigned int num_qps = ns.onesidedclient.get_rclient().get_num_qps();
+    RDMAClient &rclient = ns.onesidedclient.get_rclient();
+    unsigned int num_qps = rclient.get_num_qps();
 
     while (ns.nsready) {
-        schedule(num_qps);
+        schedule(rclient, num_qps);
 
         if (this->recvd_disconnect && !this->executing())
             return ns.disconnect();
@@ -57,12 +58,12 @@ void RMCScheduler::run()
     }
 }
 
-void RMCScheduler::schedule(unsigned int num_qps)
+void RMCScheduler::schedule(RDMAClient &rclient, unsigned int num_qps)
 {
     for (auto i = 0u; i < num_qps && !runqueue.empty(); ++i) {
-        RDMAContext &ctx = get_next_context();
+        RDMAContext &ctx = get_next_client_context();
 
-        ns.onesidedclient.start_batched_ops(&ctx);
+        rclient.start_batched_ops(&ctx);
         while (!runqueue.empty() && ctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
             CoroRMC<int> *rmc = runqueue.front();
             runqueue.pop();
@@ -70,15 +71,16 @@ void RMCScheduler::schedule(unsigned int num_qps)
             if (!rmc->resume())
                 ctx.memqueue.push(rmc);
             else
-                req_done(rmc);
+                add_reply(rmc);
 
 #ifdef PERF_STATS
             debug_rmcexecs++;
 #endif
         }
-        ns.onesidedclient.end_batched_ops();
+        rclient.end_batched_ops();
     }
 
+    send_poll_replies();
     check_new_reqs_client();
     poll_comps_host();
 }
