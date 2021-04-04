@@ -40,10 +40,10 @@ public:
     static const int CQ_NUM_CQE = 256;
     static const int TIMEOUT_MS = 5;
     static const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 256;
-    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 64;
+    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 128;
     static const int QP_ATTRS_MAX_SGE_ELEMS = 1;
     static const int QP_ATTRS_MAX_INLINE_DATA = 256;
-    static const int MAX_UNSIGNALED_SENDS = 64;
+    static const int MAX_UNSIGNALED_SENDS = 128;
     static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
     RDMAContext *batch_ctx; /* TODO: this shouldn't be kept here, caller should maintain this */
@@ -53,6 +53,7 @@ public:
         if (CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_SEND_WRS ||
             CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_RECV_WRS ||
             CQ_NUM_CQE < MAX_UNSIGNALED_SENDS ||
+            MAX_UNSIGNALED_SENDS > QP_ATTRS_MAX_OUTSTAND_RECV_WRS ||
             MAX_UNSIGNALED_SENDS > QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
             DIE("invalid config");
     }
