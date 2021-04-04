@@ -12,19 +12,6 @@ CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
     }
 }
 
-void RMCScheduler::req_new_rmc(CmdRequest *req)
-{
-    assert(req->type == CmdType::CALL_RMC);
-    //CallReply &callreply = reply->reply.call;
-    //CallReq &callreq = req->request.call;
-
-    //size_t arg = std::stoull(callreq.data);
-    static int id = 0;
-    CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
-    rmc->id = id++;
-    runqueue.push(rmc);
-}
-
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
 void RMCScheduler::req_get_rmc_id(CmdRequest *req)
