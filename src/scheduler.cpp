@@ -30,6 +30,19 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req)
     ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
+void RMCScheduler::req_new_rmc(CmdRequest *req)
+{
+    assert(req->type == CmdType::CALL_RMC);
+    //CallReply &callreply = reply->reply.call;
+    //CallReq &callreq = req->request.call;
+
+    //size_t arg = std::stoull(callreq.data);
+    static int id = 0;
+    CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
+    rmc->id = id++;
+    runqueue.push(rmc);
+}
+
 void RMCScheduler::run()
 {
     RDMAClient &rclient = ns.onesidedclient.get_rclient();

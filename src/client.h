@@ -44,7 +44,8 @@ public:
        3. return id */
     RMCId get_rmc_id(const RMC &rmc);
 
-    int call_rmc(long long &duration, int maxinflight);
+    int do_maxinflight(long long &duration, int maxinflight);
+    int do_load(float load, std::vector<long long> &durations, unsigned int num_reqs);
     int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
     /* cmd to initiate disconnect */

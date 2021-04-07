@@ -1,5 +1,7 @@
 #include <fstream>
 #include <algorithm>
+#include <vector>
+#include <queue>
 #include <unistd.h>
 #include "utils/cxxopts.h"
 #include "client.h"
@@ -7,8 +9,9 @@
 #include "utils/utils.h"
 #include "utils/logger.h"
 
-const int NUM_REPS = 100;
+const int NUM_REPS = 1;
 const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
+const unsigned int LOAD_NUM_REQS = 10000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
@@ -44,7 +47,7 @@ RMCId HostClient::get_rmc_id(const RMC &rmc)
     return reply->reply.getid.id;
 }
 
-int HostClient::call_rmc(long long &duration, int maxinflight)
+int HostClient::do_maxinflight(long long &duration, int maxinflight)
 {
     assert(rmccready);
 
@@ -95,29 +98,59 @@ int HostClient::call_rmc(long long &duration, int maxinflight)
     return 0;
 }
 
-//int HostClient::call_one_rmc(const RMCId &id, const size_t arg,
-//                         long long &duration)
-//{
-//    assert(rmccready);
-//
-//    CmdRequest *req = get_req(0);
-//    post_recv_reply(get_reply(0));
-//    arm_call_req(req, id, arg);
-//
-//    time_point start = time_start();
-//    post_send_req_unsig(req);
-//    /* wait to receive 1 replies */
-//    rclient.poll_exactly(1, rclient.get_recv_cq());
-//    duration = time_end(start);
-//
-//    /* check CmdReply */
-//    CmdReply *reply = get_reply(0);
-//    (void) reply;
-//    assert(reply->type == CmdType::CALL_RMC);
-//    assert(reply->reply.call.status == 0);
-//
-//    return 0;
-//}
+int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int num_reqs)
+{
+    assert(rmccready);
+
+    unsigned int polled = 0;
+    unsigned int curr_inflight = 0;
+    unsigned int buf_idx = 0;
+    unsigned int rtt_idx = 0;
+    unsigned int maxinflight = RDMAPeer::MAX_UNSIGNALED_SENDS;
+    unsigned int max_concurrent = 0;
+    long long wait_in_nsec = load * 1000;
+    std::queue<time_point> start_times;
+
+    LOG("will issue " << num_reqs << " requests every " << wait_in_nsec << " nanoseconds");
+    auto noop = [](size_t) -> void {};
+    auto handle_replies = [&] () -> void {
+        for (auto reply = 0u; reply < polled; ++reply) {
+            rtts[rtt_idx++] = time_end(start_times.front());
+            start_times.pop();
+        }
+
+        curr_inflight -= polled;
+    };
+
+    for (auto i = 0u; i < num_reqs; i++) {
+        time_point start = time_start();
+
+        post_recv_reply(get_reply(buf_idx));
+        arm_call_req(get_req(buf_idx));
+        start_times.push(time_start());
+        post_send_req_unsig(get_req(buf_idx));
+        curr_inflight++;
+        buf_idx = (buf_idx + 1) % maxinflight;
+
+        max_concurrent = std::max(max_concurrent, curr_inflight);
+        if (curr_inflight > maxinflight)
+            DIE("curr_inflight=" << curr_inflight << " maxinflight=" << maxinflight);
+
+        /* wait */
+        while (time_end(start) < wait_in_nsec) {
+            polled = rclient.poll_atmost(curr_inflight, rclient.get_recv_cq(), noop);
+            handle_replies();
+        }
+    }
+
+    if (curr_inflight > 0) {
+        polled = rclient.poll_atleast(curr_inflight, rclient.get_recv_cq(), noop);
+        handle_replies();
+    }
+
+    LOG("max concurrent=" << max_concurrent);
+    return 0;
+}
 
 void HostClient::last_cmd()
 {
@@ -137,26 +170,41 @@ void HostClient::disconnect()
     rmccready = false;
 }
 
-void print_stats(std::vector<long long> &durations, int maxinflight)
+double get_avg(std::vector<long long> &durations)
 {
-    long long sum = 0;
     double avg = 0;
+    long long sum = 1;
+
+    for (long long &d: durations)
+        sum += d;
+
+    avg = sum / (double) durations.size();
+    return avg;
+}
+
+double get_median(const std::vector<long long> &durations)
+{
     double median = 0;
     size_t vecsize = 0;
 
     vecsize = durations.size();
-    std::sort(durations.begin(), durations.end());
-
-    /* avg */
-    for (long long &d: durations)
-        sum += d;
-    avg = sum / (double) vecsize;
-
-    /* median */
     if (durations.size() % 2 == 0)
         median = (durations[vecsize / 2] + durations[(vecsize / 2) - 1]) / (double) 2;
     else
         median = durations[vecsize / 2];
+
+    return median;
+}
+
+void print_stats_maxinflight(std::vector<long long> &durations, int maxinflight)
+{
+    double avg = 0;
+    double median = 0;
+
+    std::sort(durations.begin(), durations.end());
+
+    avg = get_avg(durations);
+    median = get_median(durations);
 
     std::cout << "NUM_REPS=" << NUM_REPS << "\n";
     std::cout << "max inflight=" << maxinflight << "\n";
@@ -164,32 +212,58 @@ void print_stats(std::vector<long long> &durations, int maxinflight)
     std::cout << "median=" << median << "\n";
 }
 
-void benchmark(std::string server, unsigned int port, std::string ofile, int maxinflight)
+void print_stats_load(std::vector<long long> &durations)
 {
-    HostClient client(RDMAPeer::MAX_UNSIGNALED_SENDS, 1);
+    double avg = 0;
+    double median = 0;
+
+    std::sort(durations.begin(), durations.end());
+    avg = get_avg(durations);
+    median = get_median(durations);
+
+    std::cout << "avg=" << std::fixed << avg << "\n";
+    std::cout << "median=" << median << "\n";
+}
+
+/* keeps maxinflight active requests at all times */
+void benchmark_maxinflight(HostClient &client, std::string ofile, int maxinflight)
+{
     const char *prog = R"(void hello() { printf("hello world\n"); })";
     RMC rmc(prog);
     std::vector<long long> durations(NUM_REPS);
     long long duration;
     std::ofstream stream(ofile, std::ofstream::out);
 
-    client.connect(server, port);
     RMCId id = client.get_rmc_id(rmc);
     LOG("got id=" << id);
 
     // warm up
-    LOG("warming up");
-    client.call_rmc(duration, maxinflight);
+    LOG("maxinflight: warming up");
+    client.do_maxinflight(duration, maxinflight);
 
-    LOG("benchmark start");
+    LOG("maxinflight: benchmark start");
     for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-        client.call_rmc(duration, maxinflight);
+        client.do_maxinflight(duration, maxinflight);
         durations[rep] = duration;
     }
-    LOG("benchmark end");
+    LOG("maxinflight: benchmark end");
     client.last_cmd();
 
-    print_stats(durations, maxinflight);
+    print_stats_maxinflight(durations, maxinflight);
+}
+
+void benchmark_load(HostClient &client, float load)
+{
+    std::vector<long long> rtts(LOAD_NUM_REQS);
+    LOG("load: warming up");
+    client.do_load(load, rtts, 100);
+
+    LOG("load: benchmark start");
+    client.do_load(load, rtts, LOAD_NUM_REQS);
+    LOG("load: benchmark end");
+    client.last_cmd();
+
+    print_stats_load(rtts);
 }
 
 int main(int argc, char* argv[])
@@ -200,12 +274,16 @@ int main(int argc, char* argv[])
         ("s,server", "nicserver address", cxxopts::value<std::string>())
         ("p,port", "nicserver port", cxxopts::value<int>()->default_value("30000"))
         ("o,output", "output file", cxxopts::value<std::string>())
-        ("m,maxinflight", "max num of reqs in flight", cxxopts::value<int>())
+        ("mode", "client mode, can be: maxinflight or load", cxxopts::value<std::string>())
+        ("m,maxinflight", "max num of reqs in flight (for mode=maxinflight)", cxxopts::value<int>()->default_value("0"))
+        ("l,load", "send 1 new req every these many microseconds (for mode=load)", cxxopts::value<float>()->default_value("0.0"))
         ("h,help", "Print usage")
     ;
 
-    std::string server, ofile;
-    unsigned int maxinflight, port;
+    std::string server, ofile, mode;
+    unsigned int port;
+    unsigned int maxinflight = {0};
+    float load = {0};
 
     try {
         auto result = opts.parse(argc, argv);
@@ -215,13 +293,29 @@ int main(int argc, char* argv[])
 
         server = result["server"].as<std::string>();
         port = result["port"].as<int>();
-        maxinflight = result["maxinflight"].as<int>();
         ofile = result["output"].as<std::string>();
+        mode = result["mode"].as<std::string>();
+        maxinflight = result["maxinflight"].as<int>();
+        load = result["load"].as<float>();
+
+        if (mode != "load" && mode != "maxinflight") {
+            std::cerr << "need to specify mode: load or maxinflight\n";
+            die(opts.help());
+        } else if (mode == "load" && load == 0) {
+            die("mode=load requires load > 0");
+        } else if (mode == "maxinflight" && maxinflight == 0) {
+            die("mode=maxinflight requires maxinflight > 0");
+        }
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";
         die(opts.help());
     }
 
-    benchmark(server, port, ofile, maxinflight);
-    //benchmark_one(server, port, ofile);
+    HostClient client(RDMAPeer::MAX_UNSIGNALED_SENDS, 1);
+    client.connect(server, port);
+
+    if (mode == "maxinflight")
+        benchmark_maxinflight(client, ofile, maxinflight);
+    else
+        benchmark_load(client, load);
 }

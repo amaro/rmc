@@ -218,19 +218,6 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     }
 }
 
-inline void RMCScheduler::req_new_rmc(CmdRequest *req)
-{
-    assert(req->type == CmdType::CALL_RMC);
-    //CallReply &callreply = reply->reply.call;
-    //CallReq &callreq = req->request.call;
-
-    //size_t arg = std::stoull(callreq.data);
-    static int id = 0;
-    CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
-    rmc->id = id++;
-    runqueue.push(rmc);
-}
-
 inline void RMCScheduler::add_reply(CoroRMC<int> *rmc)
 {
 #ifdef PERF_STATS
