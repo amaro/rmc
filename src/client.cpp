@@ -11,7 +11,7 @@
 
 const int NUM_REPS = 1;
 const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
-const unsigned int LOAD_NUM_REQS = 10000;
+const unsigned int LOAD_NUM_REQS = 1000000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
@@ -106,7 +106,7 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
     unsigned int curr_inflight = 0;
     unsigned int buf_idx = 0;
     unsigned int rtt_idx = 0;
-    unsigned int maxinflight = RDMAPeer::MAX_UNSIGNALED_SENDS;
+    unsigned int maxinflight = RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS - 1;
     unsigned int max_concurrent = 0;
     long long wait_in_nsec = load * 1000;
     std::queue<time_point> start_times;
@@ -122,8 +122,9 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
         curr_inflight -= polled;
     };
 
+    time_point next_send = time_start();
     for (auto i = 0u; i < num_reqs; i++) {
-        time_point start = time_start();
+        next_send += std::chrono::nanoseconds(wait_in_nsec);
 
         post_recv_reply(get_reply(buf_idx));
         arm_call_req(get_req(buf_idx));
@@ -133,14 +134,17 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
         buf_idx = (buf_idx + 1) % maxinflight;
 
         max_concurrent = std::max(max_concurrent, curr_inflight);
-        if (curr_inflight > maxinflight)
-            DIE("curr_inflight=" << curr_inflight << " maxinflight=" << maxinflight);
+        if (curr_inflight > maxinflight) {
+            LOG("curr_inflight=" << curr_inflight << " maxinflight=" << maxinflight);
+            break;
+        }
 
         /* wait */
-        while (time_end(start) < wait_in_nsec) {
+        do {
+            maybe_poll_sends();
             polled = rclient.poll_atmost(curr_inflight, rclient.get_recv_cq(), noop);
             handle_replies();
-        }
+        } while (time_start() < next_send);
     }
 
     if (curr_inflight > 0) {
@@ -217,12 +221,13 @@ void print_stats_load(std::vector<long long> &durations)
     double avg = 0;
     double median = 0;
 
-    std::sort(durations.begin(), durations.end());
-    avg = get_avg(durations);
-    median = get_median(durations);
+    auto d2 = std::vector<long long>(durations.begin() + 100000, durations.end());
+    std::sort(d2.begin(), d2.end());
+    avg = get_avg(d2);
+    median = get_median(d2);
 
-    std::cout << "avg=" << std::fixed << avg << "\n";
-    std::cout << "median=" << median << "\n";
+    std::cout << "avg (skipped first 100k)=" << std::fixed << avg << "\n";
+    std::cout << "median (skipped first 100k)=" << median << "\n";
 }
 
 /* keeps maxinflight active requests at all times */
@@ -311,7 +316,7 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    HostClient client(RDMAPeer::MAX_UNSIGNALED_SENDS, 1);
+    HostClient client(RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS, 1);
     client.connect(server, port);
 
     if (mode == "maxinflight")

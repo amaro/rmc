@@ -8,6 +8,7 @@
 class HostClient {
     bool rmccready;
     size_t bsize;
+    unsigned int pending_unsig_sends;
 
     RDMAClient rclient;
 
@@ -19,6 +20,7 @@ class HostClient {
 
     void post_recv_reply(CmdReply *reply);
     void post_send_req_unsig(CmdRequest *req);
+    void maybe_poll_sends();
     void post_send_req(CmdRequest *req);
     CmdRequest *get_req(size_t req_idx);
     CmdReply *get_reply(size_t rep_idx);
@@ -26,7 +28,7 @@ class HostClient {
 
 public:
     HostClient(size_t b, unsigned int num_qps) :
-            rmccready(false), bsize(b), rclient(num_qps) {
+            rmccready(false), bsize(b), pending_unsig_sends(0), rclient(num_qps) {
         assert(bsize > 0);
         req_buf.reserve(bsize);
         reply_buf.reserve(bsize);
@@ -77,11 +79,22 @@ inline void HostClient::post_send_req_unsig(CmdRequest *req)
 {
     assert(rmccready);
 
-    auto noop = [](size_t) -> void {};
-    bool poll = rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
-                                            sizeof(CmdRequest), req_buf_mr->lkey);
-    if (poll)
-        rclient.poll_atleast(1, rclient.get_send_cq(), noop);
+    rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
+                                     sizeof(CmdRequest), req_buf_mr->lkey);
+    pending_unsig_sends += 1;
+}
+
+/*
+if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
+    poll wait until we get 1 completion.
+*/
+inline void HostClient::maybe_poll_sends()
+{
+    static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
+    if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {
+        rclient.poll_atleast(1, rclient.get_send_cq(), [](size_t) -> void {});
+        pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
+    }
 }
 
 inline CmdRequest *HostClient::get_req(size_t req_idx)

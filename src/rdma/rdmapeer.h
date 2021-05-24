@@ -37,25 +37,22 @@ protected:
     void handle_conn_established(RDMAContext &ctx);
 
 public:
-    static const int CQ_NUM_CQE = 256;
-    static const int TIMEOUT_MS = 5;
-    static const int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 256;
-    static const int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 128;
-    static const int QP_ATTRS_MAX_SGE_ELEMS = 1;
-    static const int QP_ATTRS_MAX_INLINE_DATA = 256;
-    static const int MAX_UNSIGNALED_SENDS = 128;
-    static const int MAX_QP_INFLIGHT_READS = 16; // hw limited
+    static constexpr int CQ_NUM_CQE = 1024;
+    static constexpr int TIMEOUT_MS = 5;
+    static constexpr int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 1024;
+    static constexpr int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1024;
+    static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
+    static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
+    static constexpr int MAX_UNSIGNALED_SENDS = 256;
+    static constexpr int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
     RDMAContext *batch_ctx; /* TODO: this shouldn't be kept here, caller should maintain this */
 
     RDMAPeer(unsigned int num_qps) :
         pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps), batch_ctx(nullptr) {
-        if (CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_SEND_WRS ||
-            CQ_NUM_CQE < QP_ATTRS_MAX_OUTSTAND_RECV_WRS ||
-            CQ_NUM_CQE < MAX_UNSIGNALED_SENDS ||
-            MAX_UNSIGNALED_SENDS > QP_ATTRS_MAX_OUTSTAND_RECV_WRS ||
-            MAX_UNSIGNALED_SENDS > QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
-            DIE("invalid config");
+        static_assert(CQ_NUM_CQE == QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
+        static_assert(QP_ATTRS_MAX_OUTSTAND_SEND_WRS == QP_ATTRS_MAX_OUTSTAND_RECV_WRS);
+        static_assert(MAX_UNSIGNALED_SENDS < QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
     }
 
     virtual ~RDMAPeer() { }
@@ -181,6 +178,7 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions)
 inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
                                 uint32_t len, uint32_t lkey) const
 {
+    int err = 0;
     ibv_sge sge = {
         .addr = (uintptr_t) laddr,
         .length = len,
@@ -194,7 +192,8 @@ inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
     wr.sg_list = &sge;
     wr.num_sge = 1;
 
-    TEST_NZ(ibv_post_recv(ctx.qp, &wr, &bad_wr));
+    if ((err = ibv_post_recv(ctx.qp, &wr, &bad_wr)) != 0)
+        DIE("post_recv() returned " << err);
 }
 
 inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr, uint32_t len,
@@ -208,6 +207,9 @@ inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr, uint32_t le
     TEST_NZ(ibv_wr_complete(ctx.qpx));
 }
 
+/* returns whether the current posted send was signaled.
+   the caller must make sure that we only attempt polling the
+   signaled send after it has been posted */
 inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, uint32_t len,
                                          uint32_t lkey)
 {
