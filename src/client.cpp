@@ -9,9 +9,8 @@
 #include "utils/utils.h"
 #include "utils/logger.h"
 
-const int NUM_REPS = 1;
-const std::vector<int> BUFF_SIZES = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
-const unsigned int LOAD_NUM_REQS = 1000000;
+static constexpr int NUM_REPS = 1;
+static constexpr unsigned int LOAD_NUM_REQS = 1000000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
@@ -114,8 +113,9 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
     LOG("will issue " << num_reqs << " requests every " << wait_in_nsec << " nanoseconds");
     auto noop = [](size_t) -> void {};
     auto handle_replies = [&] () -> void {
+        time_point end = time_start();
         for (auto reply = 0u; reply < polled; ++reply) {
-            rtts[rtt_idx++] = time_end(start_times.front());
+            rtts[rtt_idx++] = time_end(start_times.front(), end);
             start_times.pop();
         }
 
@@ -124,12 +124,14 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
 
     time_point next_send = time_start();
     for (auto i = 0u; i < num_reqs; i++) {
+        time_point now;
         next_send += std::chrono::nanoseconds(wait_in_nsec);
 
         post_recv_reply(get_reply(buf_idx));
         arm_call_req(get_req(buf_idx));
-        start_times.push(time_start());
+        now = time_start();
         post_send_req_unsig(get_req(buf_idx));
+        start_times.push(now);
         curr_inflight++;
         buf_idx = (buf_idx + 1) % maxinflight;
 
@@ -142,8 +144,10 @@ int HostClient::do_load(float load, std::vector<long long> &rtts, unsigned int n
         /* wait */
         do {
             maybe_poll_sends();
-            polled = rclient.poll_atmost(curr_inflight, rclient.get_recv_cq(), noop);
-            handle_replies();
+            if (curr_inflight > 0) {
+                polled = rclient.poll_atmost(curr_inflight, rclient.get_recv_cq(), noop);
+                handle_replies();
+            }
         } while (time_start() < next_send);
     }
 
@@ -221,13 +225,18 @@ void print_stats_load(std::vector<long long> &durations)
     double avg = 0;
     double median = 0;
 
-    auto d2 = std::vector<long long>(durations.begin() + 100000, durations.end());
+    unsigned int remove = durations.size() * 0.1;
+    auto d2 = std::vector<long long>(durations.begin() + remove, durations.end());
     std::sort(d2.begin(), d2.end());
     avg = get_avg(d2);
     median = get_median(d2);
 
-    std::cout << "avg (skipped first 100k)=" << std::fixed << avg << "\n";
-    std::cout << "median (skipped first 100k)=" << median << "\n";
+    std::cout << "avg (skipped first " << remove << ")=" << std::fixed << avg << "\n";
+    std::cout << "median (skipped first " << remove << ")=" << median << "\n";
+
+    std::cout << "rtt\n";
+    for (long long &d: std::vector<long long>(durations.begin() + remove, durations.end()))
+        std::cout << d << "\n";
 }
 
 /* keeps maxinflight active requests at all times */
@@ -261,7 +270,7 @@ void benchmark_load(HostClient &client, float load)
 {
     std::vector<long long> rtts(LOAD_NUM_REQS);
     LOG("load: warming up");
-    client.do_load(load, rtts, 100);
+    client.do_load(load, rtts, 10);
 
     LOG("load: benchmark start");
     client.do_load(load, rtts, LOAD_NUM_REQS);

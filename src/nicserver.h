@@ -28,6 +28,8 @@ class NICServer {
 
     /* post an ibv recv for an incoming CmdRequest */
     void post_recv_req(CmdRequest *req);
+    void post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
+                                unsigned int num_reqs);
     void post_send_reply(CmdReply *reply);
     /* send a batched reply to client */
     void post_batched_send_reply(RDMAContext &ctx, CmdReply *reply);

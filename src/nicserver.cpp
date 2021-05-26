@@ -23,13 +23,14 @@ void NICServer::init(RMCScheduler &sched)
     assert(nsready);
 
     /* handle the initial rmc get id call */
-    post_recv_req(get_req(0));
+    post_batched_recv_req(rserver.get_ctrl_ctx(), 0, 1);
     rserver.poll_exactly(1, rserver.get_recv_cq());
     sched.dispatch_new_req(get_req(0));
 
-    for (size_t i = 0; i < bsize; ++i)
-        post_recv_req(get_req(i));
+    /* post the initial recvs */
+    post_batched_recv_req(rserver.get_ctrl_ctx(), 0, bsize);
 
+    sched.debug_allocate();
     sched.run();
     sched.debug_print_stats();
 }
@@ -52,6 +53,29 @@ void NICServer::start(RMCScheduler &sched, const std::string &hostaddr,
     LOG("waiting for hostclient to connect.");
     this->connect(clientport);
     this->init(sched);
+}
+
+void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
+                                      unsigned int num_reqs)
+{
+    assert(nsready);
+
+    unsigned int max_batch_size = RDMAContext::MAX_BATCHED_RECVS;
+    unsigned int num_batches = num_reqs / max_batch_size;
+    unsigned int batch_size = 0;
+
+    if (num_reqs % max_batch_size != 0)
+        num_batches++;
+
+    for (auto batch = 0u; batch < num_batches; ++batch) {
+        if (num_reqs > (batch + 1) * max_batch_size)
+            batch_size = max_batch_size;
+        else
+            batch_size = num_reqs - (batch * max_batch_size);
+
+        ctx.post_batched_recv(get_req(startidx + batch * max_batch_size),
+                              sizeof(CmdRequest), batch_size, req_buf_mr->lkey);
+    }
 }
 
 int main(int argc, char* argv[])

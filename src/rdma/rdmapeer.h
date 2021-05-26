@@ -96,6 +96,11 @@ struct RDMAContext {
         unsigned long wr_id;
     };
 
+    struct RecvOp {
+        ibv_recv_wr wr;
+        ibv_sge sge;
+    };
+
     void post_send(SendOp &sendop) {
         if (sendop.signaled)
             qpx->wr_flags = IBV_SEND_SIGNALED;
@@ -105,6 +110,8 @@ struct RDMAContext {
         qpx->wr_id = sendop.wr_id;
         ibv_wr_send(qpx);
 
+        /* TODO: explore changing this to set_sge so that the NIC
+          can do the reads from memory, as opposed to the CPU */
         if (sendop.len < RDMAPeer::QP_ATTRS_MAX_INLINE_DATA)
             ibv_wr_set_inline_data(qpx, sendop.laddr, sendop.len);
         else
@@ -115,6 +122,7 @@ struct RDMAContext {
 
 public:
     std::queue<CoroRMC<int> *> memqueue;
+    std::vector<RecvOp> recv_batch;
     unsigned int ctx_id; /* TODO: rename to id */
     bool connected;
     unsigned int outstanding_sends;
@@ -126,10 +134,17 @@ public:
     rdma_event_channel *event_channel;
     SendOp buffered_send;
 
+    static constexpr unsigned int MAX_BATCHED_RECVS = 16;
+
     RDMAContext(unsigned int ctx_id) :
         ctx_id{ctx_id}, connected{false}, outstanding_sends{0}, curr_batch_size{0},
         cm_id{nullptr}, qp{nullptr}, qpx{nullptr}, event_channel{nullptr},
-        buffered_send{nullptr, 0, 0, false, 0} { }
+        buffered_send{nullptr, 0, 0, false, 0} {
+
+        for (auto i = 0u; i < MAX_BATCHED_RECVS; ++i) {
+            recv_batch.push_back(RecvOp());
+        }
+    }
 
     void disconnect() {
         assert(connected);
@@ -161,6 +176,38 @@ public:
         buffered_send.signaled = true;
         buffered_send.wr_id = curr_batch_size;
         post_send(buffered_send);
+    }
+
+    /* arguments:
+           laddr is the starting local address
+           req_len is the individual recv request length in bytes
+           total_reqs is the total number of recv reqs that will be posted
+           lkey is the local key for the memory region the recv will access
+    */
+    void post_batched_recv(void *laddr, unsigned int req_len, unsigned int total_reqs,
+                           uint32_t lkey) {
+        ibv_recv_wr *bad_wr = nullptr;
+        int err = 0;
+
+        if (total_reqs > MAX_BATCHED_RECVS)
+            DIE("total_reqs > MAX_BATCHED_RECVS");
+
+        for (auto i = 0u; i < total_reqs; ++i) {
+            recv_batch[i].sge.addr = ((uintptr_t) laddr) + i * req_len;
+            recv_batch[i].sge.length = req_len;
+            recv_batch[i].sge.lkey = lkey;
+
+            recv_batch[i].wr.sg_list = &recv_batch[i].sge;
+            recv_batch[i].wr.num_sge = 1;
+
+            if (i == total_reqs - 1)
+                recv_batch[i].wr.next = nullptr;
+            else
+                recv_batch[i].wr.next = &recv_batch[i + 1].wr;
+        }
+
+        if ((err = ibv_post_recv(qp, &recv_batch[0].wr, &bad_wr)) != 0)
+            DIE("post_recv() returned " << err);
     }
 };
 

@@ -97,3 +97,17 @@ void RMCScheduler::debug_print_stats()
     }
 #endif
 }
+
+void RMCScheduler::debug_allocate()
+{
+#ifdef PERF_STATS
+    debug_vec_cycles.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_reqs.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_cycles_reqs.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_cycles_replies.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_rmcexecs.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_cycles_replies.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_hostcomps.reserve(DEBUG_VEC_RESERVE);
+    debug_vec_memqsize.reserve(DEBUG_VEC_RESERVE);
+#endif
+}
