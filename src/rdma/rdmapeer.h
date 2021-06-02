@@ -15,13 +15,46 @@
 template <typename T> class CoroRMC;
 struct RDMAContext;
 
+struct CompQueue {
+    ibv_cq_ex *cqx = nullptr;
+    bool poll_started = false;
+    unsigned int num_cqes_polled = 0;
+
+    int start_poll() {
+        assert(!poll_started);
+        struct ibv_poll_cq_attr cq_attr = {};
+
+        int ret = ibv_start_poll(cqx, &cq_attr);
+        switch (ret) {
+        case 0:
+        case ENOENT:
+            poll_started = true;
+            return ret;
+        default:
+            DIE("ibv_start_poll() returned=" << ret);
+            return -1;
+        }
+    }
+
+    void maybe_end_poll() {
+        if (!poll_started)
+            return;
+
+        if (num_cqes_polled > 8) {
+            ibv_end_poll(cqx);
+            num_cqes_polled = 0;
+            poll_started = false;
+        }
+    }
+};
+
 class RDMAPeer {
 protected:
     std::vector<RDMAContext> contexts;
     ibv_context *dev_ctx;
     ibv_pd *pd;
-    ibv_cq_ex *send_cqx;
-    ibv_cq_ex *recv_cqx;
+    CompQueue send_cq;
+    CompQueue recv_cq;
 
     bool pds_cqs_created;
     unsigned int unsignaled_sends;
@@ -75,8 +108,12 @@ public:
 
     template<typename T>
     unsigned int poll_atmost(unsigned int max, ibv_cq_ex *cq, T&& comp_func);
+    template<typename T>
+    unsigned int poll_batched_atmost(unsigned int max, CompQueue &comp_queue, T&& comp_func);
     ibv_cq_ex *get_send_cq();
     ibv_cq_ex *get_recv_cq();
+    CompQueue &get_send_compqueue();
+    CompQueue &get_recv_compqueue();
 
     std::vector<RDMAContext> &get_contexts();
     RDMAContext &get_ctrl_ctx();
@@ -289,12 +326,22 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, ui
 
 inline ibv_cq_ex *RDMAPeer::get_send_cq()
 {
-    return send_cqx;
+    return send_cq.cqx;
 }
 
 inline ibv_cq_ex *RDMAPeer::get_recv_cq()
 {
-    return recv_cqx;
+    return recv_cq.cqx;
+}
+
+inline CompQueue &RDMAPeer::get_send_compqueue()
+{
+    return send_cq;
+}
+
+inline CompQueue &RDMAPeer::get_recv_compqueue()
+{
+    return recv_cq;
 }
 
 inline std::vector<RDMAContext> &RDMAPeer::get_contexts()
@@ -353,6 +400,48 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq, T&& c
 
 end_poll:
     ibv_end_poll(cq);
+    assert(polled <= max);
+    return polled;
+}
+
+template<typename T>
+inline unsigned int RDMAPeer::poll_batched_atmost(unsigned int max, CompQueue &comp_queue, T&& comp_func)
+{
+    int ret;
+    unsigned int polled = 0;
+
+    assert(max > 0);
+
+    if (!comp_queue.poll_started) {
+        ret = comp_queue.start_poll();
+        if (ret == ENOENT)  // no comp available
+            goto end_poll;
+        else                // comp available, read it
+            goto read;
+    }
+
+    do {
+        ret = ibv_next_poll(comp_queue.cqx);
+        if (ret == ENOENT)
+            goto end_poll;
+        else if (ret != 0)
+            DIE("ibv_next_poll() returned " << ret);
+
+read:
+        if (comp_queue.cqx->status != IBV_WC_SUCCESS)
+            DIE("cqe->status=" << comp_queue.cqx->status);
+
+        /* the post-completion function takes wr_id,
+         * for reads, this is the ctx_id,
+         * for sends, this is the batch size */
+        comp_func(comp_queue.cqx->wr_id);
+
+        polled++;
+    } while (polled < max);
+
+end_poll:
+    comp_queue.num_cqes_polled += polled;
+    comp_queue.maybe_end_poll();
     assert(polled <= max);
     return polled;
 }

@@ -11,8 +11,8 @@ void RDMAPeer::create_pds_cqs(ibv_context *verbs)
 
     dev_ctx = verbs; /* TODO: is this needed? */
     TEST_Z(pd = ibv_alloc_pd(dev_ctx));
-    TEST_Z(send_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
-    TEST_Z(recv_cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+    TEST_Z(send_cq.cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+    TEST_Z(recv_cq.cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
 
     pds_cqs_created = true;
 }
@@ -23,16 +23,16 @@ void RDMAPeer::destroy_pds_cqs()
     pds_cqs_created = false;
 
     ibv_dealloc_pd(pd);
-    ibv_destroy_cq(ibv_cq_ex_to_cq(send_cqx));
-    ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cqx));
+    ibv_destroy_cq(ibv_cq_ex_to_cq(send_cq.cqx));
+    ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cq.cqx));
 }
 
 void RDMAPeer::create_qps(RDMAContext &ctx)
 {
     ibv_qp_init_attr_ex qp_attrs = {};
 
-    qp_attrs.send_cq = ibv_cq_ex_to_cq(send_cqx);
-    qp_attrs.recv_cq = ibv_cq_ex_to_cq(recv_cqx);
+    qp_attrs.send_cq = ibv_cq_ex_to_cq(send_cq.cqx);
+    qp_attrs.recv_cq = ibv_cq_ex_to_cq(recv_cq.cqx);
     qp_attrs.qp_type = IBV_QPT_RC;
     qp_attrs.sq_sig_all = 0;
     qp_attrs.pd = this->pd;
