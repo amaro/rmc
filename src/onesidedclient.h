@@ -114,7 +114,7 @@ inline int OneSidedClient::poll_reads_atmost(int max, T&& comp_func)
 {
     assert(onesready);
 
-    return rclient.poll_batched_atmost(max, rclient.get_send_compqueue(), comp_func);
+    return rclient.poll_atmost(max, rclient.get_send_cq(), comp_func);
 }
 
 inline char *OneSidedClient::get_rdma_buffer()

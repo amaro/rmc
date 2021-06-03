@@ -12,10 +12,11 @@
 #include <vector>
 #include <rdma/rdma_cma.h>
 
-#include "rmc.h"
-#include "nicserver.h"
-
 #include <inttypes.h>
+
+#include "rmc.h"
+#include "allocator.h"
+#include "nicserver.h"
 
 template <typename T = void> class CoroRMC {
 /*
@@ -28,6 +29,15 @@ public:
 
   /* must have this name */
   struct promise_type {
+    void *operator new(size_t size) {
+      if (size != 128)
+        DIE("promise size is not 128, it is=" << size);
+
+      return RMCAllocator::get_promise();
+    }
+    void operator delete(void * p) {
+        RMCAllocator::delete_promise(p);
+    }
     promise_type() noexcept {};
     ~promise_type() = default;
 
@@ -61,6 +71,15 @@ public:
     coroutine = oth.coroutine;
     oth.coroutine = nullptr;
     return *this;
+  }
+  void *operator new(size_t size) {
+    if (size != 16)
+      DIE("promise size is not 16, it is=" << size);
+
+    return RMCAllocator::get_rmc();
+  }
+  void operator delete(void * p) {
+      RMCAllocator::delete_rmc(p);
   }
   CoroRMC(const CoroRMC &) = delete;
   CoroRMC &operator=(const CoroRMC &) = delete;
@@ -263,7 +282,7 @@ inline void RMCScheduler::send_poll_replies()
         DIE("error: server_ctx.outstanding_sends=" << server_ctx.outstanding_sends);
 
     /* poll */
-    ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(), update_out_sends);
+    ns.rserver.poll_atmost(1, ns.rserver.get_send_cq(), update_out_sends);
 }
 
 inline void RMCScheduler::check_new_reqs_client()
@@ -280,7 +299,7 @@ inline void RMCScheduler::check_new_reqs_client()
     if (this->recvd_disconnect)
         return;
 
-    new_reqs = ns.rserver.poll_batched_atmost(MAX_NEW_REQS_PER_ITER, ns.rserver.get_recv_compqueue(),
+    new_reqs = ns.rserver.poll_atmost(MAX_NEW_REQS_PER_ITER, ns.rserver.get_recv_cq(),
                                         noop);
 #ifdef PERF_STATS
     if (!debug_start && new_reqs > 0)

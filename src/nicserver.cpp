@@ -1,6 +1,7 @@
 #include "utils/cxxopts.h"
 #include "nicserver.h"
 #include "scheduler.h"
+#include "allocator.h"
 #include "utils/utils.h"
 
 void NICServer::connect(const unsigned int &port)
@@ -117,10 +118,13 @@ int main(int argc, char* argv[])
 
     OneSidedClient onesidedclient(numqps);
     RDMAServer rserver(1);
-    NICServer nicserver(onesidedclient, rserver, RDMAPeer::MAX_UNSIGNALED_SENDS);
+    NICServer nicserver(onesidedclient, rserver, RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
 
+    RMCAllocator::init();
     RMCScheduler sched(nicserver);
     sched.set_num_llnodes(llnodes);
 
     nicserver.start(sched, hostaddr, hostport, clientport);
+    RMCAllocator::release();
+    LOG("bye.");
 }
