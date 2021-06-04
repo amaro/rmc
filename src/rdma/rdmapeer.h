@@ -40,7 +40,7 @@ struct CompQueue {
         if (!poll_started)
             return;
 
-        if (num_cqes_polled > 8) {
+        if (num_cqes_polled > 16) {
             ibv_end_poll(cqx);
             num_cqes_polled = 0;
             poll_started = false;

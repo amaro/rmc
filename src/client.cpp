@@ -10,7 +10,7 @@
 #include "utils/logger.h"
 
 static constexpr int NUM_REPS = 1;
-static constexpr unsigned int LOAD_NUM_REQS = 50000;
+static constexpr unsigned int LOAD_NUM_REQS = 1000000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {

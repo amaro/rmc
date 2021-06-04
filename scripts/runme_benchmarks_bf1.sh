@@ -13,14 +13,3 @@ for i in /proc/irq/*/smp_affinity; do
 done
 
 echo -1 > /proc/sys/kernel/sched_rt_runtime_us
-
-for (( c=2; c<=15; c++ ))
-do
-	echo 0 > /sys/devices/system/cpu/cpu$c/online
-done
-
-for (( c=2; c<=15; c++ ))
-do
-	echo 1 > /sys/devices/system/cpu/cpu$c/online
-done
-setcap cap_sys_nice=ep nicserver
