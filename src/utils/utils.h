@@ -70,4 +70,11 @@ inline long long get_freq()
 #endif
 }
 
+template<typename T>
+inline void inc_with_wraparound(T &ref, const T &maxvalue)
+{
+    if (++ref >= maxvalue)
+        ref = 0;
+}
+
 #endif

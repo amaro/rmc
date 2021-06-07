@@ -2,6 +2,7 @@
 #define RMC_CLIENT_H
 
 #include <algorithm>
+#include <cstdint>
 #include "rdma/rdmaclient.h"
 #include "rmc.h"
 
@@ -9,6 +10,9 @@ class HostClient {
     bool rmccready;
     size_t bsize;
     unsigned int pending_unsig_sends;
+    uint32_t req_idx;
+    uint32_t rep_idx;
+    uint32_t inflight;
 
     RDMAClient rclient;
 
@@ -25,10 +29,15 @@ class HostClient {
     CmdRequest *get_req(size_t req_idx);
     CmdReply *get_reply(size_t rep_idx);
     void disconnect();
+    constexpr uint32_t get_max_inflight();
+    time_point load_send_request(std::queue<time_point> &start_times);
+    void load_handle_reps(std::queue<time_point> &start_times, std::vector<uint32_t> &rtts,
+                            uint32_t polled, uint32_t &rtt_idx);
 
 public:
     HostClient(size_t b, unsigned int num_qps) :
-            rmccready(false), bsize(b), pending_unsig_sends(0), rclient(num_qps) {
+            rmccready(false), bsize(b), pending_unsig_sends(0), req_idx(0), rep_idx(0),
+            inflight(0), rclient(num_qps) {
         assert(bsize > 0);
         req_buf.reserve(bsize);
         reply_buf.reserve(bsize);
@@ -47,14 +56,14 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
 
     int do_maxinflight(long long &duration, int maxinflight);
-    int do_load(float load, std::vector<long long> &durations, unsigned int num_reqs);
+    int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs);
     int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
+    void load_send_req();
 
     /* cmd to initiate disconnect */
     void last_cmd();
 
     void parse_rmc_reply(CmdReply *reply) const;
-    //void arm_call_req(CmdRequest *req, const RMCId &id, const size_t arg);
     void arm_call_req(CmdRequest *req);
 };
 
@@ -120,6 +129,11 @@ inline void HostClient::arm_call_req(CmdRequest *req)
     //CallReq *callreq = &req->request.call;
     //callreq->id = id;
     //num_to_str<size_t>(arg, callreq->data, MAX_RMC_ARG_LEN);
+}
+
+constexpr uint32_t HostClient::get_max_inflight()
+{
+    return RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS - 1;
 }
 
 #endif

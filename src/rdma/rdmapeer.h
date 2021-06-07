@@ -320,7 +320,8 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, ui
     if ((ret = ibv_wr_complete(ctx.qpx)) != 0)
         DIE("ibv_wr_complete failed=" << ret << "\n");
 
-    this->unsignaled_sends = (this->unsignaled_sends + 1) % MAX_UNSIGNALED_SENDS;
+    if (++this->unsignaled_sends >= MAX_UNSIGNALED_SENDS)
+        this->unsignaled_sends = 0;
     return signaled;
 }
 
