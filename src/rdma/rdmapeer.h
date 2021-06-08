@@ -93,6 +93,8 @@ public:
     ibv_mr *register_mr(void *addr, size_t len, int permissions);
     void post_recv(const RDMAContext &ctx, void *laddr,
                     uint32_t len, uint32_t lkey) const;
+    void post_batched_recv(RDMAContext &ctx, ibv_mr *mr, uint32_t startidx,
+                        uint32_t per_buf_bytes, uint32_t num_bufs) const;
     void post_send(const RDMAContext &ctx, void *laddr,
                     uint32_t len, uint32_t lkey) const;
     /* posts an unsignaled 2-sided send,
@@ -171,7 +173,7 @@ public:
     rdma_event_channel *event_channel;
     SendOp buffered_send;
 
-    static constexpr unsigned int MAX_BATCHED_RECVS = 16;
+    static constexpr uint32_t MAX_BATCHED_RECVS = 16;
 
     RDMAContext(unsigned int ctx_id) :
         ctx_id{ctx_id}, connected{false}, outstanding_sends{0}, curr_batch_size{0},
@@ -221,7 +223,7 @@ public:
            total_reqs is the total number of recv reqs that will be posted
            lkey is the local key for the memory region the recv will access
     */
-    void post_batched_recv(void *laddr, unsigned int req_len, unsigned int total_reqs,
+    void post_batched_recv(uintptr_t laddr, uint32_t req_len, uint32_t total_reqs,
                            uint32_t lkey) {
         ibv_recv_wr *bad_wr = nullptr;
         int err = 0;
@@ -278,6 +280,29 @@ inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
 
     if ((err = ibv_post_recv(ctx.qp, &wr, &bad_wr)) != 0)
         DIE("post_recv() returned " << err);
+}
+
+inline void RDMAPeer::post_batched_recv(RDMAContext &ctx, ibv_mr *mr,
+                                    uint32_t startidx, uint32_t per_buf_bytes,
+                                    uint32_t num_bufs) const
+{
+    uint32_t max_batch_size = RDMAContext::MAX_BATCHED_RECVS;
+    uint32_t num_batches = num_bufs / max_batch_size;
+    uint32_t batch_size = 0;
+    uintptr_t base_addr = (uintptr_t) mr->addr + (startidx * per_buf_bytes);
+
+    if (num_bufs % max_batch_size != 0)
+        num_batches++;
+
+    for (auto batch = 0u; batch < num_batches; ++batch) {
+        if (num_bufs > (batch + 1) * max_batch_size)
+            batch_size = max_batch_size;
+        else
+            batch_size = num_bufs - (batch * max_batch_size);
+
+        ctx.post_batched_recv(base_addr + (batch * max_batch_size * per_buf_bytes),
+                              per_buf_bytes, batch_size, mr->lkey);
+    }
 }
 
 inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr, uint32_t len,
