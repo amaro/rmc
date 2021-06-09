@@ -102,13 +102,17 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_re
     assert(rmccready);
 
     uint32_t rtt_idx = 0;
-    uint32_t max_concurrent = 0;
+    uint32_t current_max = 0;
     uint32_t late = 0;
-    uint64_t wait_in_nsec = load * 1000;
+    const uint64_t wait_in_nsec = load * 1000;
+    const auto maxinflight = get_max_inflight();
     std::queue<time_point> start_times;
 
     LOG("will issue " << num_reqs << " requests every " << wait_in_nsec << " nanoseconds");
-    auto noop = [](size_t) -> void {};
+    constexpr auto noop = [](size_t) -> void {};
+
+    for (auto i = 0u; i < maxinflight; i++)
+        arm_call_req(get_req(i));
 
     time_point next_send = time_start();
     for (auto i = 0u; i < num_reqs; i++) {
@@ -117,9 +121,9 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_re
         if (load_send_request(start_times) > next_send)
             late++;
 
-        max_concurrent = std::max(max_concurrent, this->inflight);
-        if (this->inflight > get_max_inflight()) {
-            LOG("curr_inflight=" << this->inflight << " maxinflight=" << get_max_inflight());
+        current_max = std::max(current_max, this->inflight);
+        if (this->inflight > maxinflight) {
+            LOG("curr_inflight=" << this->inflight << " maxinflight=" << maxinflight);
             break;
         }
 
@@ -139,7 +143,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_re
         load_handle_reps(start_times, rtts, polled, rtt_idx);
     }
 
-    LOG("max concurrent=" << max_concurrent);
+    LOG("max concurrent=" << current_max);
     LOG("late=" << late);
     return 0;
 }
@@ -149,7 +153,6 @@ time_point HostClient::load_send_request(std::queue<time_point> &start_times)
     time_point submitted;
 
     post_recv_reply(get_reply(this->req_idx));
-    arm_call_req(get_req(this->req_idx));
     submitted = time_start();
     post_send_req_unsig(get_req(this->req_idx));
     start_times.push(submitted);
@@ -163,6 +166,9 @@ void HostClient::load_handle_reps(std::queue<time_point> &start_times,
                                   std::vector<uint32_t> &rtts, uint32_t polled,
                                   uint32_t &rtt_idx)
 {
+    if (polled == 0)
+        return;
+
     time_point end = time_start();
 
     for (auto reply = 0u; reply < polled; ++reply) {
@@ -282,8 +288,13 @@ void benchmark_maxinflight(HostClient &client, std::string ofile, int maxinfligh
 void benchmark_load(HostClient &client, float load)
 {
     std::vector<uint32_t> rtts(LOAD_NUM_REQS);
+    const uint32_t max = client.get_max_inflight();
+
+    LOG("get_max_inflight()=" << max);
+
+
     LOG("load: warming up");
-    client.do_load(load, rtts, 10);
+    client.do_load(load, rtts, max);
 
     LOG("load: benchmark start");
     client.do_load(load, rtts, LOAD_NUM_REQS);
