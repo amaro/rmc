@@ -46,10 +46,9 @@ void RMCScheduler::req_new_rmc(CmdRequest *req)
 void RMCScheduler::run()
 {
     RDMAClient &rclient = ns.onesidedclient.get_rclient();
-    unsigned int num_qps = rclient.get_num_qps();
 
     while (ns.nsready) {
-        schedule(rclient, num_qps);
+        schedule(rclient);
 
         if (this->recvd_disconnect && !this->executing())
             return ns.disconnect();
@@ -58,8 +57,10 @@ void RMCScheduler::run()
     }
 }
 
-void RMCScheduler::schedule(RDMAClient &rclient, unsigned int num_qps)
+void RMCScheduler::schedule(RDMAClient &rclient)
 {
+    RDMAContext &server_ctx = get_server_context();
+
     for (auto i = 0u; i < num_qps && !runqueue.empty(); ++i) {
         RDMAContext &ctx = get_next_client_context();
 
@@ -71,7 +72,7 @@ void RMCScheduler::schedule(RDMAClient &rclient, unsigned int num_qps)
             if (!rmc->resume())
                 ctx.memqueue.push(rmc);
             else
-                add_reply(rmc);
+                add_reply(rmc, server_ctx);
 
 #ifdef PERF_STATS
             debug_rmcexecs++;
@@ -80,8 +81,8 @@ void RMCScheduler::schedule(RDMAClient &rclient, unsigned int num_qps)
         rclient.end_batched_ops();
     }
 
-    send_poll_replies();
-    check_new_reqs_client();
+    send_poll_replies(server_ctx);
+    check_new_reqs_client(server_ctx);
     poll_comps_host();
 }
 

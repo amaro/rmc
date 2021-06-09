@@ -109,7 +109,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_re
     std::queue<time_point> start_times;
 
     LOG("will issue " << num_reqs << " requests every " << wait_in_nsec << " nanoseconds");
-    constexpr auto noop = [](size_t) -> void {};
+    auto noop = [](size_t) constexpr -> void {};
 
     for (auto i = 0u; i < maxinflight; i++)
         arm_call_req(get_req(i));

@@ -108,6 +108,7 @@ int main(int argc, char* argv[])
     RMCAllocator::init();
     RMCScheduler sched(nicserver);
     sched.set_num_llnodes(llnodes);
+    sched.set_num_qps(numqps);
 
     nicserver.start(sched, hostaddr, hostport, clientport);
     RMCAllocator::release();

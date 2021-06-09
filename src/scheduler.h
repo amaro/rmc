@@ -118,12 +118,22 @@ class RMCScheduler {
     /* RMCs waiting for host memory accesses */
 
     size_t num_llnodes;
+    uint16_t num_qps;
     unsigned int req_idx;
-    unsigned int reply_idx;
+    uint32_t reply_idx;
     bool pending_replies;
     /* true if we received a disconnect req, so we are waiting for rmcs to
        finish executing before disconnecting */
     bool recvd_disconnect;
+
+    RMCId get_rmc_id(const RMC &rmc);
+    void req_get_rmc_id(CmdRequest *req);
+    void req_new_rmc(CmdRequest *req);
+    void add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx);
+    void send_poll_replies(RDMAContext &server_ctx);
+    void check_new_reqs_client(RDMAContext &server_ctx);
+    void poll_comps_host();
+    bool executing();
 
 #ifdef PERF_STATS
     bool debug_start = false;
@@ -147,25 +157,17 @@ public:
     static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
     RMCScheduler(NICServer &nicserver) :
-        ns(nicserver), req_idx(0), reply_idx(0), pending_replies(0),
+        ns(nicserver), num_qps(0), req_idx(0), reply_idx(0), pending_replies(0),
         recvd_disconnect(false) { }
 
     /* RMC entry points */
 
     void run();
-    void schedule(RDMAClient &rclient, unsigned int num_qps);
+    void schedule(RDMAClient &rclient);
     void set_num_llnodes(size_t num_nodes);
-    bool executing();
+    void set_num_qps(uint16_t num_qps);
     void dispatch_new_req(CmdRequest *req);
 
-    /* RMC entry points */
-    RMCId get_rmc_id(const RMC &rmc);
-    void req_get_rmc_id(CmdRequest *req);
-    void req_new_rmc(CmdRequest *req);
-    void add_reply(CoroRMC<int> *rmc);
-    void send_poll_replies();
-    void check_new_reqs_client();
-    void poll_comps_host();
     RDMAContext &get_server_context();
     RDMAContext &get_client_context(unsigned int id);
     RDMAContext &get_next_client_context();
@@ -193,6 +195,11 @@ inline void RMCScheduler::set_num_llnodes(size_t num_nodes)
     num_llnodes = num_nodes;
 }
 
+inline void RMCScheduler::set_num_qps(uint16_t num_qps)
+{
+    this->num_qps = num_qps;
+}
+
 inline RDMAContext &RMCScheduler::get_server_context()
 {
     return ns.rserver.get_ctrl_ctx();
@@ -205,11 +212,10 @@ inline RDMAContext &RMCScheduler::get_client_context(unsigned int id)
 
 inline RDMAContext &RMCScheduler::get_next_client_context()
 {
-    static unsigned int id = 0;
+    static uint16_t id = 0;
 
     RDMAContext &ctx = get_client_context(id);
-    if (++id >= ns.onesidedclient.get_rclient().get_num_qps())
-        id = 0;
+    inc_with_wraparound(id, num_qps);
     return ctx;
 }
 
@@ -241,22 +247,19 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     }
 }
 
-inline void RMCScheduler::add_reply(CoroRMC<int> *rmc)
+inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
 {
 #ifdef PERF_STATS
     long long cycles = get_cycles();
 #endif
 
-    RDMAContext &ctx = get_server_context();
-
     if (!pending_replies)
-        ns.rserver.start_batched_ops(&ctx);
+        ns.rserver.start_batched_ops(&server_ctx);
 
     pending_replies = true;
     CmdReply *reply = ns.get_reply(this->reply_idx);
-    ns.post_batched_send_reply(ctx, reply);
-    if (++this->reply_idx >= ns.bsize)
-        this->reply_idx = 0;
+    ns.post_batched_send_reply(server_ctx, reply);
+    inc_with_wraparound(this->reply_idx, ns.bsize);
     delete rmc;
 
 #ifdef PERF_STATS
@@ -265,9 +268,8 @@ inline void RMCScheduler::add_reply(CoroRMC<int> *rmc)
 #endif
 }
 
-inline void RMCScheduler::send_poll_replies()
+inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx)
 {
-    RDMAContext &server_ctx = get_server_context();
     auto update_out_sends = [&](size_t batch_size) {
         server_ctx.outstanding_sends -= batch_size;
     };
@@ -285,7 +287,7 @@ inline void RMCScheduler::send_poll_replies()
     ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(), update_out_sends);
 }
 
-inline void RMCScheduler::check_new_reqs_client()
+inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
 {
     int new_reqs;
     CmdRequest *req;
@@ -294,29 +296,26 @@ inline void RMCScheduler::check_new_reqs_client()
     long long cycles = get_cycles();
 #endif
 
-    auto noop = [](size_t) -> void {};
-
     if (this->recvd_disconnect)
         return;
 
+    auto noop = [](size_t) constexpr -> void {};
     new_reqs = ns.rserver.poll_batched_atmost(MAX_NEW_REQS_PER_ITER, ns.rserver.get_recv_compqueue(),
                                         noop);
 #ifdef PERF_STATS
     if (!debug_start && new_reqs > 0)
         debug_start = true;
 #endif
-    auto prev_req_idx = req_idx;
+    auto prev_req_idx = this->req_idx;
     for (auto i = 0; i < new_reqs; ++i) {
-        req = ns.get_req(req_idx);
+        req = ns.get_req(this->req_idx);
         dispatch_new_req(req);
-        if (++req_idx >= ns.bsize)
-            req_idx = 0;
+        inc_with_wraparound(this->req_idx, ns.bsize);
     }
 
     /* if true, it means we've wrapped around the req buffers.
        so issue two calls, one for the remaining of the buffer, and another one
        for the wrapped around reqs */
-    RDMAContext &server_ctx = get_server_context();
     if (new_reqs + prev_req_idx > ns.bsize) {
         ns.post_batched_recv_req(server_ctx, prev_req_idx, ns.bsize - prev_req_idx);
         ns.post_batched_recv_req(server_ctx, 0, new_reqs - (ns.bsize - prev_req_idx));

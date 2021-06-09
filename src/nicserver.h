@@ -18,7 +18,7 @@ class NICServer {
     RDMAServer &rserver;
 
     bool nsready;
-    size_t bsize;
+    uint32_t bsize;
 
     /* communication with client */
     std::vector<CmdRequest> req_buf;
