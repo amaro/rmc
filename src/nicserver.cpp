@@ -1,4 +1,5 @@
-#include "utils/cxxopts.h"
+#include <unistd.h>
+
 #include "nicserver.h"
 #include "scheduler.h"
 #include "allocator.h"
@@ -66,39 +67,50 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
 
 int main(int argc, char* argv[])
 {
-    cxxopts::Options opts("nicserver", "NIC Server");
+    char *hostaddr = nullptr;
+    uint32_t hostport, clientport, llnodes, numqps;
+    int c;
 
-    opts.add_options()
-        ("hostaddr", "Host server address to connect to", cxxopts::value<std::string>())
-        ("hostport", "Host server port", cxxopts::value<int>()->default_value("30001"))
-        ("numqps", "Number of RC qps to hostserver", cxxopts::value<int>())
-        ("clientport", "Host client port to listen to", cxxopts::value<int>()->default_value("30000"))
-        ("llnodes", "Number of linked list nodes to traverse", cxxopts::value<int>()->default_value("8"))
-        ("h,help", "Print usage")
-    ;
+    opterr = 0;
+    clientport = 30000;
+    hostport = 30001;
+    llnodes = 0;
+    numqps = 0;
 
-    std::string hostaddr;
-    unsigned int hostport, clientport, llnodes, numqps;
+    /* server address, num queue pairs, number of ll nodes */
+    while ((c = getopt(argc, argv, "s:q:n:")) != -1) {
+        switch (c) {
+            case 's':
+                hostaddr = optarg;
+                break;
+            case 'q':
+                numqps = atoi(optarg);
+                break;
+            case 'n':
+                llnodes = atoi(optarg);
+                break;
+            case '?':
+            default:
+                std::cerr << "Usage: -s hostaddr -q numqps -n numnodes\n";
+                return 1;
+        }
+    }
 
-    try {
-        auto result = opts.parse(argc, argv);
+    std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << " llnodes=" << llnodes << "\n";
 
-        if (result.count("help"))
-            die(opts.help());
+    if (llnodes == 0) {
+        std::cerr << "Need to specify number of nodes with -n\n";
+        return 1;
+    }
 
-        hostaddr = result["hostaddr"].as<std::string>();
-        hostport = result["hostport"].as<int>();
-        numqps = result["numqps"].as<int>();
-        clientport = result["clientport"].as<int>();
-        llnodes = result["llnodes"].as<int>();
+    if (numqps == 0) {
+        std::cerr << "Need to specify number of qps with -q\n";
+        return 1;
+    }
 
-        auto max_nodes = HostServer::RDMA_BUFF_SIZE / sizeof(struct LLNode);
-        if (llnodes > max_nodes)
-            throw std::runtime_error("llnodes > max_nodes");
-
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << "\n";
-        die(opts.help());
+    if (strcmp(hostaddr, "") == 0) {
+        std::cerr << "Need to specify number of qps with -q\n";
+        return 1;
     }
 
     OneSidedClient onesidedclient(numqps);

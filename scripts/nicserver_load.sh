@@ -7,4 +7,4 @@ if [[ $# -ne 2 ]]; then
 fi
 
 sudo MLX5_SCATTER_TO_CQE=1 MLX5_SINGLE_THREADED=1 MLX5_POST_SEND_PREFER_BF=1 \
-    taskset -c 15 chrt -f 99 ./nicserver --hostaddr 10.10.0.1 --hostport 30001 --llnodes $2 --numqps $1
+    taskset -c 15 chrt -f 99 ./nicserver -s 10.10.0.1 -n $2 -q $1
