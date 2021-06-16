@@ -57,7 +57,7 @@ protected:
     CompQueue recv_cq;
 
     bool pds_cqs_created;
-    unsigned int unsignaled_sends;
+    uint32_t unsignaled_sends;
     unsigned int num_qps;
 
     std::list<ibv_mr *> registered_mrs;
@@ -76,7 +76,7 @@ public:
     static constexpr int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1024;
     static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
     static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
-    static constexpr int MAX_UNSIGNALED_SENDS = 256;
+    static constexpr uint32_t MAX_UNSIGNALED_SENDS = 256;
     static constexpr int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
     RDMAContext *batch_ctx; /* TODO: this shouldn't be kept here, caller should maintain this */
@@ -149,12 +149,7 @@ struct RDMAContext {
         qpx->wr_id = sendop.wr_id;
         ibv_wr_send(qpx);
 
-        /* TODO: explore changing this to set_sge so that the NIC
-          can do the reads from memory, as opposed to the CPU */
-        if (sendop.len < RDMAPeer::QP_ATTRS_MAX_INLINE_DATA)
-            ibv_wr_set_inline_data(qpx, sendop.laddr, sendop.len);
-        else
-            ibv_wr_set_sge(qpx, sendop.lkey, (uintptr_t) sendop.laddr, sendop.len);
+        ibv_wr_set_sge(qpx, sendop.lkey, (uintptr_t) sendop.laddr, sendop.len);
 
         outstanding_sends++;
     }
@@ -311,8 +306,7 @@ inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr, uint32_t le
     ibv_wr_start(ctx.qpx);
     ctx.qpx->wr_flags = IBV_SEND_SIGNALED;
     ibv_wr_send(ctx.qpx);
-    //ibv_wr_set_sge(qpx, lkey, (uintptr_t) laddr, len);
-    ibv_wr_set_inline_data(ctx.qpx, laddr, len);
+    ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t) laddr, len);
     TEST_NZ(ibv_wr_complete(ctx.qpx));
 }
 
@@ -336,17 +330,12 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr, ui
         ctx.qpx->wr_flags = 0;
 
     ibv_wr_send(ctx.qpx);
-
-    if (len < QP_ATTRS_MAX_INLINE_DATA)
-        ibv_wr_set_inline_data(ctx.qpx, laddr, len);
-    else
-        ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t) laddr, len);
+    ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t) laddr, len);
 
     if ((ret = ibv_wr_complete(ctx.qpx)) != 0)
         DIE("ibv_wr_complete failed=" << ret << "\n");
 
-    if (++this->unsignaled_sends >= MAX_UNSIGNALED_SENDS)
-        this->unsignaled_sends = 0;
+    inc_with_wraparound(this->unsignaled_sends, MAX_UNSIGNALED_SENDS);
     return signaled;
 }
 

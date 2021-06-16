@@ -213,6 +213,10 @@ inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
     auto noop = [](size_t) constexpr -> void {};
     new_reqs = ns.rserver.poll_batched_atmost(MAX_NEW_REQS_PER_ITER, ns.rserver.get_recv_compqueue(),
                                         noop);
+
+    if (new_reqs == 0)
+        return;
+
 #ifdef PERF_STATS
     if (!debug_start && new_reqs > 0)
         debug_start = true;
@@ -244,7 +248,7 @@ inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
 
 inline void RMCScheduler::poll_comps_host()
 {
-    auto add_to_runqueue = [this](size_t ctx_id) {
+    static auto add_to_runqueue = [this](size_t ctx_id) {
         RDMAContext &ctx = this->get_client_context(ctx_id);
         this->runqueue.push(ctx.memqueue.front());
         ctx.memqueue.pop();
