@@ -95,11 +95,8 @@ inline void OneSidedClient::read_async(uint32_t offset, uint32_t size)
     uintptr_t remote_addr = reinterpret_cast<uintptr_t>(get_remote_base_addr()) + offset;
     uintptr_t local_addr = reinterpret_cast<uintptr_t>(get_local_base_addr()) + offset;
 
-    ibv_qp_ex *qpx = rclient.batch_ctx->qpx;
-    qpx->wr_id = rclient.batch_ctx->ctx_id;
-    qpx->wr_flags = IBV_SEND_SIGNALED;
-    ibv_wr_rdma_read(qpx, host_mr.rkey, remote_addr);
-    ibv_wr_set_sge(qpx, rdma_mr->lkey, local_addr, size);
+    RDMAContext *ctx = rclient.batch_ctx;
+    ctx->post_batched_read(remote_addr, local_addr, size, host_mr.rkey, rdma_mr->lkey);
 }
 
 inline HostMemoryAsyncRead OneSidedClient::readfromcoro(uint32_t offset, uint32_t size) noexcept
@@ -131,8 +128,6 @@ inline void *OneSidedClient::get_local_base_addr()
 {
     return rdma_mr->addr;
 }
-
-
 
 inline RDMAClient &OneSidedClient::get_rclient()
 {

@@ -63,8 +63,7 @@ class RMCScheduler {
 #endif
 
 public:
-    static constexpr int MAX_NEW_REQS_PER_ITER = 16;
-    static constexpr int MAX_HOST_COMPS_ITER = 16;
+    static constexpr int MAX_NEW_REQS_PER_ITER = 32;
     static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
     RMCScheduler(NICServer &nicserver) :
@@ -181,7 +180,7 @@ inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
 
 inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx)
 {
-    auto update_out_sends = [&](size_t batch_size) {
+    static auto update_out_sends = [&](size_t batch_size) {
         server_ctx.outstanding_sends -= batch_size;
     };
 
@@ -190,9 +189,6 @@ inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx)
         ns.rserver.end_batched_ops();
         pending_replies = false;
     }
-
-    if (server_ctx.outstanding_sends >= RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
-        DIE("error: server_ctx.outstanding_sends=" << server_ctx.outstanding_sends);
 
     /* poll */
     ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(), update_out_sends);
@@ -248,13 +244,17 @@ inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
 
 inline void RMCScheduler::poll_comps_host()
 {
-    static auto add_to_runqueue = [this](size_t ctx_id) {
+    static auto add_to_runqueue = [this](size_t val) {
+        uint32_t ctx_id = val >> 32;
+        uint32_t batch_size = val & 0xFFFFFFFF;
         RDMAContext &ctx = this->get_client_context(ctx_id);
-        this->runqueue.push(ctx.memqueue.front());
-        ctx.memqueue.pop();
+        for (auto i = 0u; i < batch_size; ++i) {
+            this->runqueue.push(ctx.memqueue.front());
+            ctx.memqueue.pop();
+        }
     };
 
-    int comp = ns.onesidedclient.poll_reads_atmost(MAX_HOST_COMPS_ITER, add_to_runqueue);
+    int comp = ns.onesidedclient.poll_reads_atmost(8, add_to_runqueue);
     (void) comp;
 #ifdef PERF_STATS
     if (debug_start)

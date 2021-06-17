@@ -43,6 +43,8 @@ public:
         assert(bsize > 0);
         req_buf.reserve(bsize);
         reply_buf.reserve(bsize);
+        LOG("sizeof(CmdRequest())=" << sizeof(CmdRequest));
+        LOG("sizeof(CmdReply())=" << sizeof(CmdReply));
 
         for (size_t i = 0; i < bsize; ++i) {
             req_buf.push_back(CmdRequest());

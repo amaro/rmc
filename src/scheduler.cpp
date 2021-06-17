@@ -59,7 +59,7 @@ void RMCScheduler::run()
 
 void RMCScheduler::schedule(RDMAClient &rclient)
 {
-    RDMAContext &server_ctx = get_server_context();
+    static RDMAContext &server_ctx = get_server_context();
 
     for (auto i = 0u; i < num_qps && !runqueue.empty(); ++i) {
         RDMAContext &ctx = get_next_client_context();

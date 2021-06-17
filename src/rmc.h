@@ -2,7 +2,7 @@
 #define RMC_H
 
 /* to store the actual rmc being queried */
-static const unsigned MAX_RMC_PROG_LEN = 256;
+static const unsigned MAX_RMC_PROG_LEN = 56;
 /* rmc arguments */
 static const unsigned MAX_RMC_ARG_LEN = 16;
 /* to store RMC reply results */
@@ -63,7 +63,11 @@ struct CmdReply {
 
 struct LLNode {
     void *next;
-    uint64_t data[7];
+    uint64_t data;
 };
+
+static_assert(sizeof(CmdRequest) == 64);
+static_assert(sizeof(CmdReply) == 32);
+static_assert(sizeof(LLNode) == 16);
 
 #endif
