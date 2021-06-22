@@ -30,32 +30,30 @@ public:
         ~promise_type() = default;
 
         void *operator new(size_t size) {
-          if (size != 128)
-            DIE("promise size is not 128, it is=" << size);
+            if (size != 128)
+                DIE("promise size is not 128, it is=" << size);
 
-          return RMCAllocator::get_promise();
+            return RMCAllocator::get_promise();
         }
 
         void operator delete(void * p) {
             RMCAllocator::delete_promise(p);
         }
 
+        /* suspend coroutine on creation */
         auto initial_suspend() { return std::suspend_always{}; }
 
-        auto final_suspend() { return std::suspend_always{}; }
+        /* don't suspend after coroutine ends */
+        auto final_suspend() { return std::suspend_never{}; }
 
+        /* must return the object that wraps promise_type */
         auto get_return_object() noexcept {
-          return CoroRMC{std::coroutine_handle<promise_type>::from_promise(*this)};
+            return CoroRMC{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
 
-        auto return_void() { return std::suspend_never{}; }
+        void return_void() { }
 
-        auto yield_value(const value_type value) noexcept {
-          current_value = value;
-          return std::suspend_always{};
-        }
-
-        void unhandled_exception() noexcept { std::exit(1); }
+        void unhandled_exception() noexcept { std::terminate(); }
 
         value_type current_value;
     };
@@ -73,10 +71,7 @@ public:
     /* copy assignment op */
     CoroRMC &operator=(const CoroRMC &) = delete;
 
-    ~CoroRMC() {
-        if (coroutine)
-            coroutine.destroy();
-    }
+    ~CoroRMC() { }
 
     void *operator new(size_t size) {
         if (size != 16)
@@ -84,6 +79,7 @@ public:
 
         return RMCAllocator::get_rmc();
     }
+
     void operator delete(void * p) {
         RMCAllocator::delete_rmc(p);
     }

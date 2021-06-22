@@ -54,8 +54,10 @@ public:
     HostMemoryAsyncRead(OneSidedClient &c, uint32_t o, uint32_t s) :
             client(c), offset(o), size(s) { }
 
-    /* always suspend when we co_await HostMemoryAsyncRead */
-    bool await_ready() const noexcept { return false; }
+    /* this means, yes, call await_suspend() */
+    constexpr bool await_ready() const noexcept {
+        return false;
+    }
 
     /* called when await_ready() return false, so always */
     auto await_suspend(std::coroutine_handle<> awaitingcoro) {
