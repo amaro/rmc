@@ -30,8 +30,8 @@ public:
         ~promise_type() = default;
 
         void *operator new(size_t size) {
-            if (size != 128)
-                DIE("promise size is not 128, it is=" << size);
+            if (size != 112)
+                DIE("promise size is not 112, it is=" << size);
 
             return RMCAllocator::get_promise();
         }

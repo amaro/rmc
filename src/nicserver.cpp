@@ -68,7 +68,7 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
 int main(int argc, char* argv[])
 {
     char *hostaddr = nullptr;
-    uint32_t hostport, clientport, llnodes, numqps;
+    int32_t hostport, clientport, llnodes, numqps;
     int c;
 
     opterr = 0;
@@ -103,6 +103,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    /* by pass error checking */
+    if (llnodes == -1)
+        llnodes = 0;
+
     if (numqps == 0) {
         std::cerr << "Need to specify number of qps with -q\n";
         return 1;
@@ -112,6 +116,8 @@ int main(int argc, char* argv[])
         std::cerr << "Need to specify number of qps with -q\n";
         return 1;
     }
+
+    LOG("timer freq=" << get_freq());
 
     OneSidedClient onesidedclient(numqps);
     RDMAServer rserver(1);

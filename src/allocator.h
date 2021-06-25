@@ -5,9 +5,9 @@
 #define ALLOCATOR_H
 
 namespace RMCAllocator {
-    /* 128 bytes */
+    /* 112 bytes */
     struct PromiseAllocNode {
-        uint64_t pad[16];
+        uint64_t pad[14];
     };
 
     /* 16 bytes */
@@ -21,7 +21,7 @@ namespace RMCAllocator {
     inline std::forward_list<RMCAllocNode *> rmc_list;
 
     inline void init() {
-        static_assert(sizeof(PromiseAllocNode) == 128);
+        static_assert(sizeof(PromiseAllocNode) == 112);
         static_assert(sizeof(RMCAllocNode) == 16);
 
         for (auto i = 0u; i < NUM_NODES; ++i) {

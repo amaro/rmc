@@ -1,17 +1,20 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-// #define PERF_STATS
+/* #define PERF_STATS */
 
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
 #include <unordered_map>
-#include <queue>
+#include <deque>
 #include <vector>
 #include <rdma/rdma_cma.h>
-
 #include <inttypes.h>
+
+#ifdef PERF_STATS
+#include <numeric>
+#endif
 
 #include "corormc.h"
 #include "rmc.h"
@@ -25,7 +28,7 @@ class RMCScheduler {
 
     std::unordered_map<RMCId, RMC> id_rmc_map;
     /* RMCs ready to be run */
-    std::queue<CoroRMC<int>*> runqueue;
+    std::deque<CoroRMC<int>*> runqueue;
     /* RMCs waiting for host memory accesses */
 
     size_t num_llnodes;
@@ -48,18 +51,25 @@ class RMCScheduler {
 
 #ifdef PERF_STATS
     bool debug_start = false;
-    unsigned int debug_replies = 0;
-    unsigned int debug_rmcexecs = 0;
+    uint16_t debug_reqs = 0;
+    uint16_t debug_replies = 0;
+    uint16_t debug_rmcexecs = 0;
+    uint16_t debug_hostcomps = 0;
+    long long debug_cycles = 0;
     long long debug_cycles_newreqs = 0;
     long long debug_cycles_replies = 0;
+    long long debug_cycles_execs = 0;
+    long long debug_cycles_hostcomps = 0;
     std::vector<long long> debug_vec_cycles;
-    std::vector<unsigned int> debug_vec_reqs;
     std::vector<long long> debug_vec_cycles_reqs;
     std::vector<long long> debug_vec_cycles_replies;
-    std::vector<unsigned int> debug_vec_rmcexecs;
-    std::vector<unsigned int> debug_vec_replies;
-    std::vector<unsigned int> debug_vec_hostcomps;
-    std::vector<unsigned int> debug_vec_memqsize;
+    std::vector<long long> debug_vec_cycles_execs;
+    std::vector<long long> debug_vec_cycles_hostcomps;
+    std::vector<uint16_t> debug_vec_reqs;
+    std::vector<uint16_t> debug_vec_rmcexecs;
+    std::vector<uint16_t> debug_vec_replies;
+    std::vector<uint16_t> debug_vec_memqsize;
+    std::vector<uint16_t> debug_vec_hostcomps;
 #endif
 
 public:
@@ -151,6 +161,9 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
         return req_new_rmc(req);
     case CmdType::LAST_CMD:
         this->recvd_disconnect = true;
+#ifdef PERF_STATS
+        debug_start = false;
+#endif
         return;
     default:
         DIE("unrecognized CmdRequest type");
@@ -180,6 +193,9 @@ inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
 
 inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx)
 {
+#ifdef PERF_STATS
+    long long cycles = get_cycles();
+#endif
     static auto update_out_sends = [&](size_t batch_size) {
         server_ctx.outstanding_sends -= batch_size;
     };
@@ -192,6 +208,10 @@ inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx)
 
     /* poll */
     ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(), update_out_sends);
+
+#ifdef PERF_STATS
+    debug_cycles_replies += get_cycles() - cycles;
+#endif
 }
 
 inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
@@ -210,55 +230,54 @@ inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx)
     new_reqs = ns.rserver.poll_batched_atmost(MAX_NEW_REQS_PER_ITER, ns.rserver.get_recv_compqueue(),
                                         noop);
 
-    if (new_reqs == 0)
-        return;
-
 #ifdef PERF_STATS
     if (!debug_start && new_reqs > 0)
         debug_start = true;
 #endif
-    auto prev_req_idx = this->req_idx;
-    for (auto i = 0; i < new_reqs; ++i) {
-        req = ns.get_req(this->req_idx);
-        dispatch_new_req(req);
-        inc_with_wraparound(this->req_idx, ns.bsize);
-    }
+    if (new_reqs > 0) {
+        auto prev_req_idx = this->req_idx;
+        for (auto i = 0; i < new_reqs; ++i) {
+            req = ns.get_req(this->req_idx);
+            dispatch_new_req(req);
+            inc_with_wraparound(this->req_idx, ns.bsize);
+        }
 
-    /* if true, it means we've wrapped around the req buffers.
-       so issue two calls, one for the remaining of the buffer, and another one
-       for the wrapped around reqs */
-    if (new_reqs + prev_req_idx > ns.bsize) {
-        ns.post_batched_recv_req(server_ctx, prev_req_idx, ns.bsize - prev_req_idx);
-        ns.post_batched_recv_req(server_ctx, 0, new_reqs - (ns.bsize - prev_req_idx));
-    } else {
-        ns.post_batched_recv_req(server_ctx, prev_req_idx, new_reqs);
+        /* if true, it means we've wrapped around the req buffers.
+           so issue two calls, one for the remaining of the buffer, and another one
+           for the wrapped around reqs */
+        if (new_reqs + prev_req_idx > ns.bsize) {
+            ns.post_batched_recv_req(server_ctx, prev_req_idx, ns.bsize - prev_req_idx);
+            ns.post_batched_recv_req(server_ctx, 0, new_reqs - (ns.bsize - prev_req_idx));
+        } else {
+            ns.post_batched_recv_req(server_ctx, prev_req_idx, new_reqs);
+        }
     }
-
 #ifdef PERF_STATS
-    if (debug_start) {
-        debug_vec_reqs.push_back(new_reqs);
-        debug_cycles_newreqs += get_cycles() - cycles;
-    }
+    debug_reqs = new_reqs;
+    debug_cycles_newreqs = get_cycles() - cycles;
 #endif
 }
 
 inline void RMCScheduler::poll_comps_host()
 {
+#ifdef PERF_STATS
+    long long cycles = get_cycles();
+#endif
     static auto add_to_runqueue = [this](size_t val) {
         uint32_t ctx_id = val >> 32;
         uint32_t batch_size = val & 0xFFFFFFFF;
         RDMAContext &ctx = this->get_client_context(ctx_id);
         for (auto i = 0u; i < batch_size; ++i) {
-            this->runqueue.push(ctx.memqueue.front());
+            this->runqueue.push_front(ctx.memqueue.front());
             ctx.memqueue.pop();
         }
     };
 
-    int comp = ns.onesidedclient.poll_reads_atmost(8, add_to_runqueue);
-    (void) comp;
+    int comps = ns.onesidedclient.poll_reads_atmost(8, add_to_runqueue);
+    (void) comps;
 #ifdef PERF_STATS
-    if (debug_start)
-        debug_vec_hostcomps.push_back(comp);
+    debug_cycles_hostcomps = get_cycles() - cycles;
+    debug_hostcomps = comps;
 #endif
 }
 
@@ -268,19 +287,36 @@ inline void RMCScheduler::debug_capture_stats()
     if (!debug_start)
         return;
 
-    debug_vec_cycles.push_back(get_cycles());
+    debug_vec_cycles.push_back(debug_cycles);
+    debug_vec_cycles_execs.push_back(debug_cycles_execs);
     debug_vec_cycles_reqs.push_back(debug_cycles_newreqs);
-    debug_cycles_newreqs = 0;
     debug_vec_cycles_replies.push_back(debug_cycles_replies);
-    debug_cycles_replies = 0;
+    debug_vec_cycles_hostcomps.push_back(debug_cycles_hostcomps);
+    debug_vec_reqs.push_back(debug_reqs);
     debug_vec_replies.push_back(debug_replies);
-    debug_replies = 0;
     debug_vec_rmcexecs.push_back(debug_rmcexecs);
-    debug_rmcexecs = 0;
+    debug_vec_hostcomps.push_back(debug_hostcomps);
+
     unsigned int memq_size = 0;
     for (auto &ctx: ns.onesidedclient.get_rclient().get_contexts())
         memq_size += ctx.memqueue.size();
     debug_vec_memqsize.push_back(memq_size);
+
+    debug_cycles = 0;
+    debug_cycles_execs = 0;
+    debug_cycles_newreqs = 0;
+    debug_cycles_replies = 0;
+    debug_cycles_hostcomps = 0;
+    debug_reqs = 0;
+    debug_replies = 0;
+    debug_rmcexecs = 0;
+    debug_hostcomps = 0;
+
+    if (debug_vec_cycles.size() == DEBUG_VEC_RESERVE) {
+        LOG("debug vector full, terminating");
+        debug_print_stats();
+        std::terminate();
+    }
 #endif
 }
 
