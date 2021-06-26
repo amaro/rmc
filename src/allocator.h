@@ -1,8 +1,10 @@
-#include <forward_list>
-#include <utils/utils.h>
-
 #ifndef ALLOCATOR_H
 #define ALLOCATOR_H
+
+#include <forward_list>
+
+#include "utils/utils.h"
+#include "rdma/rdmapeer.h"
 
 namespace RMCAllocator {
     /* 112 bytes */
@@ -15,7 +17,7 @@ namespace RMCAllocator {
         uint64_t pad[2];
     };
 
-    static constexpr size_t NUM_NODES = 1024;
+    static constexpr size_t NUM_NODES = RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS;
 
     inline std::forward_list<PromiseAllocNode *> promise_list;
     inline std::forward_list<RMCAllocNode *> rmc_list;

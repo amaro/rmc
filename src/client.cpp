@@ -19,7 +19,7 @@ void HostClient::connect(const std::string &ip, const unsigned int &port)
 
     req_buf_mr = rclient.register_mr(&req_buf[0], sizeof(CmdRequest)*bsize, 0);
     reply_buf_mr = rclient.register_mr(&reply_buf[0], sizeof(CmdReply)*bsize,
-                                        IBV_ACCESS_LOCAL_WRITE);
+                                        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
     rmccready = true;
 }
 

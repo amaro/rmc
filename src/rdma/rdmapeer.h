@@ -73,7 +73,7 @@ public:
     static constexpr int CQ_NUM_CQE = 1024;
     static constexpr int TIMEOUT_MS = 5;
     static constexpr int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 1024;
-    static constexpr int QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1024;
+    static constexpr uint32_t QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1024;
     static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
     static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
     static constexpr uint32_t MAX_UNSIGNALED_SENDS = 256;

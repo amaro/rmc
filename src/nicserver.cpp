@@ -11,7 +11,8 @@ void NICServer::connect(const unsigned int &port)
     rserver.connect_from_client(port);
 
     /* nic writes incoming requests */
-    req_buf_mr = rserver.register_mr(&req_buf[0], sizeof(CmdRequest)*bsize, IBV_ACCESS_LOCAL_WRITE);
+    req_buf_mr = rserver.register_mr(&req_buf[0], sizeof(CmdRequest)*bsize,
+                            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
     /* cpu writes outgoing replies */
     reply_buf_mr = rserver.register_mr(&reply_buf[0], sizeof(CmdReply)*bsize, 0);
 
