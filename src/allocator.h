@@ -17,7 +17,7 @@ namespace RMCAllocator {
         uint64_t pad[2];
     };
 
-    static constexpr size_t NUM_NODES = RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS;
+    static constexpr size_t NUM_NODES = QP_MAX_2SIDED_WRS;
 
     inline std::forward_list<PromiseAllocNode *> promise_list;
     inline std::forward_list<RMCAllocNode *> rmc_list;

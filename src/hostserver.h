@@ -26,7 +26,7 @@ public:
     const static long RDMA_BUFF_SIZE = 1 << 26;
     const static int PAGE_SIZE = 4096;
 
-    HostServer(unsigned int num_qps) : rserver(num_qps), hsready(false) {
+    HostServer(unsigned int num_qps) : rserver(num_qps, true), hsready(false) {
         init_rdma_buffer();
         req_buf = std::make_unique<CmdRequest>();
     }

@@ -23,7 +23,7 @@ class OneSidedClient {
 
 public:
     OneSidedClient(unsigned int num_qps) :
-            rclient(num_qps), onesready(false) {
+            rclient(num_qps, true), onesready(false) {
         rdma_buffer = static_cast<char *>(aligned_alloc(HostServer::PAGE_SIZE,
                                     HostServer::RDMA_BUFF_SIZE));
         req_buf = std::make_unique<CmdRequest>();

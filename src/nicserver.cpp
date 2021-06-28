@@ -121,8 +121,8 @@ int main(int argc, char* argv[])
     LOG("timer freq=" << get_freq());
 
     OneSidedClient onesidedclient(numqps);
-    RDMAServer rserver(1);
-    NICServer nicserver(onesidedclient, rserver, RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
+    RDMAServer rserver(1, false);
+    NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
 
     RMCAllocator::init();
     RMCScheduler sched(nicserver);

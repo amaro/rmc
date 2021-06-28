@@ -1,9 +1,12 @@
 #include "rdmapeer.h"
 
-void RDMAPeer::create_pds_cqs(ibv_context *verbs)
+void RDMAPeer::create_pds_cqs(ibv_context *verbs, bool onesided)
 {
     ibv_cq_init_attr_ex cq_attrs_ex = {};
-    cq_attrs_ex.cqe = CQ_NUM_CQE;
+    if (onesided)
+        cq_attrs_ex.cqe = QP_MAX_1SIDED_WRS;
+    else
+        cq_attrs_ex.cqe = QP_MAX_2SIDED_WRS;
     cq_attrs_ex.comp_vector = 0;
     //cq_attrs_ex.wc_flags = IBV_WC_EX_WITH_BYTE_LEN;
     cq_attrs_ex.comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS;
@@ -15,6 +18,8 @@ void RDMAPeer::create_pds_cqs(ibv_context *verbs)
     TEST_Z(recv_cq.cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
 
     pds_cqs_created = true;
+
+    LOG("created pds and cqs; onesided=" << onesided);
 }
 
 void RDMAPeer::destroy_pds_cqs()
@@ -27,7 +32,7 @@ void RDMAPeer::destroy_pds_cqs()
     ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cq.cqx));
 }
 
-void RDMAPeer::create_qps(RDMAContext &ctx)
+void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided)
 {
     ibv_qp_init_attr_ex qp_attrs = {};
 
@@ -39,17 +44,27 @@ void RDMAPeer::create_qps(RDMAContext &ctx)
     /* identified valid fields? */
     qp_attrs.comp_mask |= IBV_QP_INIT_ATTR_SEND_OPS_FLAGS | IBV_QP_INIT_ATTR_PD;
 
-    qp_attrs.cap.max_send_wr = QP_ATTRS_MAX_OUTSTAND_SEND_WRS;
-    qp_attrs.cap.max_recv_wr = QP_ATTRS_MAX_OUTSTAND_RECV_WRS;
+    if (onesided) {
+        qp_attrs.cap.max_send_wr = QP_MAX_1SIDED_WRS;
+        qp_attrs.cap.max_recv_wr = 1;
+    } else {
+        qp_attrs.cap.max_send_wr = QP_MAX_2SIDED_WRS;
+        qp_attrs.cap.max_recv_wr = QP_MAX_2SIDED_WRS;
+    }
     qp_attrs.cap.max_send_sge = QP_ATTRS_MAX_SGE_ELEMS;
     qp_attrs.cap.max_recv_sge = QP_ATTRS_MAX_SGE_ELEMS;
     qp_attrs.cap.max_inline_data = QP_ATTRS_MAX_INLINE_DATA;
 
-    qp_attrs.send_ops_flags |= IBV_WR_SEND | IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
+    if (onesided)
+        qp_attrs.send_ops_flags |= IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
+    else
+        qp_attrs.send_ops_flags |= IBV_WR_SEND;
 
     TEST_Z(ctx.qp = mlx5dv_create_qp(ctx.cm_id->verbs, &qp_attrs, NULL));
     ctx.cm_id->qp = ctx.qp;
     ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
+
+    LOG("created qps; onesided=" << onesided);
 }
 
 void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect)

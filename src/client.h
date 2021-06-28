@@ -39,7 +39,7 @@ class HostClient {
 public:
     HostClient(size_t b, unsigned int num_qps) :
             rmccready(false), bsize(b), pending_unsig_sends(0), req_idx(0),
-            inflight(0), rclient(num_qps) {
+            inflight(0), rclient(num_qps, false) {
         assert(bsize > 0);
         req_buf.reserve(bsize);
         reply_buf.reserve(bsize);
@@ -101,7 +101,7 @@ if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
 */
 inline void HostClient::maybe_poll_sends()
 {
-    static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
+    static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
     if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {
         rclient.poll_atleast(1, rclient.get_send_cq(), [](size_t) -> void {});
         pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
@@ -135,7 +135,7 @@ inline void HostClient::arm_call_req(CmdRequest *req)
 
 constexpr uint32_t HostClient::get_max_inflight()
 {
-    return RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS - 1;
+    return QP_MAX_2SIDED_WRS - 1;
 }
 
 #endif

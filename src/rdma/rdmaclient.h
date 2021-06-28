@@ -4,10 +4,12 @@
 #include "rdmapeer.h"
 
 class RDMAClient: public RDMAPeer {
+    bool onesided;
     void handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id);
 
 public:
-    RDMAClient(unsigned int num_qps) : RDMAPeer(num_qps) { }
+    RDMAClient(unsigned int num_qps, bool onesided) :
+        RDMAPeer(num_qps), onesided(onesided) { }
 
     /* client multi step connection establishment,
        assumes caller is client. Blocks until connection established */

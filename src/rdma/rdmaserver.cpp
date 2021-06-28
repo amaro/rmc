@@ -38,7 +38,7 @@ void RDMAServer::connect_from_client(int port)
                 break;
         }
 
-        contexts.push_back(ctx);
+        contexts.push_back(std::move(ctx));
     }
 }
 
@@ -74,10 +74,10 @@ void RDMAServer::handle_conn_request(RDMAContext &ctx, rdma_cm_id *cm_id)
     LOG("connect request");
 
     if (!pds_cqs_created)
-        create_pds_cqs(cm_id->verbs);
+        create_pds_cqs(cm_id->verbs, onesided);
 
     ctx.cm_id = cm_id;
-    create_qps(ctx);
+    create_qps(ctx, onesided);
 
     connect_or_accept(ctx, false); // accept
 }

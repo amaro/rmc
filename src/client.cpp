@@ -349,7 +349,7 @@ int main(int argc, char* argv[])
         die(opts.help());
     }
 
-    HostClient client(RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS, 1);
+    HostClient client(QP_MAX_2SIDED_WRS, 1);
     client.connect(server, port);
 
     if (mode == "maxinflight")

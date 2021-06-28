@@ -5,8 +5,10 @@
 #include "rdmapeer.h"
 
 class RDMAServer: public RDMAPeer {
+    bool onesided;
 public:
-    RDMAServer(unsigned int num_qps) : RDMAPeer(num_qps) { }
+    RDMAServer(unsigned int num_qps, bool onesided) :
+        RDMAPeer(num_qps), onesided(onesided) { }
 
     /* server multi step connection establishment
        assumes caller is server. Blocks until connection

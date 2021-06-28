@@ -48,10 +48,10 @@ void RDMAClient::handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id)
     LOG("address resolved");
 
     if (!pds_cqs_created)
-        create_pds_cqs(cm_id->verbs);
+        create_pds_cqs(cm_id->verbs, onesided);
 
     ctx.cm_id = cm_id;
-    create_qps(ctx);
+    create_qps(ctx, onesided);
 
     TEST_NZ(rdma_resolve_route(cm_id, TIMEOUT_MS));
 }

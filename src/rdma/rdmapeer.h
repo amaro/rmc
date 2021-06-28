@@ -15,6 +15,9 @@
 template <typename T> class CoroRMC;
 struct RDMAContext;
 
+static constexpr int QP_MAX_2SIDED_WRS = 4096;
+static constexpr int QP_MAX_1SIDED_WRS = 128;
+
 struct CompQueue {
     ibv_cq_ex *cqx = nullptr;
     bool poll_started = false;
@@ -62,18 +65,15 @@ protected:
 
     std::list<ibv_mr *> registered_mrs;
 
-    void create_pds_cqs(ibv_context *verbs);
+    void create_pds_cqs(ibv_context *verbs, bool onesided);
     void destroy_pds_cqs();
-    void create_qps(RDMAContext &ctx);
+    void create_qps(RDMAContext &ctx, bool onesided);
     void connect_or_accept(RDMAContext &ctx, bool connect);
     void dereg_mrs();
     void handle_conn_established(RDMAContext &ctx);
 
 public:
-    static constexpr int CQ_NUM_CQE = 1024;
     static constexpr int TIMEOUT_MS = 5;
-    static constexpr int QP_ATTRS_MAX_OUTSTAND_SEND_WRS = 1024;
-    static constexpr uint32_t QP_ATTRS_MAX_OUTSTAND_RECV_WRS = 1024;
     static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
     static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
     static constexpr uint32_t MAX_UNSIGNALED_SENDS = 256;
@@ -83,9 +83,7 @@ public:
 
     RDMAPeer(unsigned int num_qps) :
         pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps), batch_ctx(nullptr) {
-        static_assert(CQ_NUM_CQE == QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
-        static_assert(QP_ATTRS_MAX_OUTSTAND_SEND_WRS == QP_ATTRS_MAX_OUTSTAND_RECV_WRS);
-        static_assert(MAX_UNSIGNALED_SENDS < QP_ATTRS_MAX_OUTSTAND_SEND_WRS);
+        static_assert(MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
     }
 
     virtual ~RDMAPeer() { }
@@ -221,7 +219,7 @@ public:
     }
 
     void post_batched_send(void *laddr, unsigned int len, unsigned int lkey) {
-        if(outstanding_sends >= RDMAPeer::QP_ATTRS_MAX_OUTSTAND_SEND_WRS)
+        if(outstanding_sends >= QP_MAX_2SIDED_WRS)
             DIE("ctx.outstanding_sends=" << outstanding_sends);
 
         /* if this is not the first WR within the batch, post the previously buffered send */
