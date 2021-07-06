@@ -1,7 +1,7 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-/* #define PERF_STATS */
+//#define PERF_STATS
 
 #include <cassert>
 #include <cstdlib>
@@ -60,6 +60,8 @@ class RMCScheduler {
     long long debug_cycles_replies = 0;
     long long debug_cycles_execs = 0;
     long long debug_cycles_hostcomps = 0;
+    long long debug_cycles_newcoros = 0;
+    long long debug_cycles_delcoros = 0;
     std::vector<long long> debug_vec_cycles;
     std::vector<long long> debug_vec_cycles_reqs;
     std::vector<long long> debug_vec_cycles_replies;
@@ -74,13 +76,15 @@ class RMCScheduler {
 
 public:
     static constexpr int MAX_NEW_REQS_PER_ITER = 32;
+    /* decreasing MAX_HOSTMEM_BATCH_SIZE increases latency because
+    there's more involvement from CPU to issue more batches and more host comps */
+    static constexpr int MAX_HOSTMEM_BATCH_SIZE = 8;
+    static constexpr int MAX_HOSTMEM_POLL = 4;
     static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
     RMCScheduler(NICServer &nicserver) :
         ns(nicserver), num_qps(0), req_idx(0), reply_idx(0), pending_replies(0),
         recvd_disconnect(false) { }
-
-    /* RMC entry points */
 
     void run();
     void schedule(RDMAClient &rclient);
@@ -134,6 +138,9 @@ inline RDMAContext &RMCScheduler::get_next_client_context()
 {
     static uint16_t id = 0;
 
+    if (num_qps == 1)
+        return get_client_context(0);
+
     RDMAContext &ctx = get_client_context(id);
     inc_with_wraparound(id, num_qps);
     return ctx;
@@ -183,11 +190,15 @@ inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
     CmdReply *reply = ns.get_reply(this->reply_idx);
     ns.post_batched_send_reply(server_ctx, reply);
     inc_with_wraparound(this->reply_idx, ns.bsize);
-    delete rmc;
-
 #ifdef PERF_STATS
+    long long cycles_coros = get_cycles();
+#endif
+    delete rmc;
+#ifdef PERF_STATS
+    long long cycles_end = get_cycles();
+    debug_cycles_newcoros += cycles_end - cycles_coros;
     debug_replies++;
-    debug_cycles_replies += get_cycles() - cycles;
+    debug_cycles_replies += cycles_end - cycles;
 #endif
 }
 
@@ -273,7 +284,8 @@ inline void RMCScheduler::poll_comps_host()
         }
     };
 
-    int comps = ns.onesidedclient.poll_reads_atmost(8, add_to_runqueue);
+    /* poll up to MAX_HOSTMEM_BATCH_SIZE * MAX_HOSTMEM_POLL cqes */
+    int comps = ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
     (void) comps;
 #ifdef PERF_STATS
     debug_cycles_hostcomps = get_cycles() - cycles;

@@ -40,7 +40,13 @@ void RMCScheduler::req_new_rmc(CmdRequest *req)
 
     //size_t arg = std::stoull(callreq.data);
     static int id = 0;
+#ifdef PERF_STATS
+    long long cycles_coros = get_cycles();
+#endif
     CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
+#ifdef PERF_STATS
+    debug_cycles_delcoros += get_cycles() - cycles_coros;
+#endif
     rmc->id = id++;
     runqueue.push_back(rmc);
 }
@@ -64,27 +70,37 @@ void RMCScheduler::schedule(RDMAClient &rclient)
 #ifdef PERF_STATS
     long long exec_start = get_cycles();
 #endif
-
     static RDMAContext &server_ctx = get_server_context();
 
-    for (auto i = 0u; i < num_qps && !runqueue.empty(); ++i) {
-        RDMAContext &ctx = get_next_client_context();
+    RDMAContext &clientctx = get_next_client_context();
+    bool batch_started = false;
 
-        rclient.start_batched_ops(&ctx);
-        while (!runqueue.empty() && ctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-            CoroRMC<int> *rmc = runqueue.front();
-            runqueue.pop_front();
+    while (!runqueue.empty() && clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+        if (!batch_started) {
+            rclient.start_batched_ops(&clientctx);
+            batch_started = true;
+        }
 
-            if (!rmc->resume())
-                ctx.memqueue.push(rmc);
-            else
-                add_reply(rmc, server_ctx);
+        CoroRMC<int> *rmc = runqueue.front();
+        runqueue.pop_front();
+
+        if (!rmc->resume())
+            clientctx.memqueue.push(rmc);
+        else
+            add_reply(rmc, server_ctx);
 
 #ifdef PERF_STATS
-            debug_rmcexecs++;
+        debug_rmcexecs++;
 #endif
+        if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+            rclient.end_batched_ops();
+            batch_started = false;
         }
+    }
+
+    if (batch_started) {
         rclient.end_batched_ops();
+        batch_started = false;
     }
 
     send_poll_replies(server_ctx);
@@ -124,6 +140,8 @@ void RMCScheduler::debug_print_stats()
     std::cout << "total reqs=" << std::accumulate(debug_vec_reqs.begin(), debug_vec_reqs.end(), 0) << "\n";
     std::cout << "total replies=" << std::accumulate(debug_vec_replies.begin(), debug_vec_replies.end(), 0) << "\n";
     std::cout << "total execs=" << std::accumulate(debug_vec_rmcexecs.begin(), debug_vec_rmcexecs.end(), 0) << "\n";
+    std::cout << "total cycles new coros =" << debug_cycles_newcoros << " (substract from total cycles req)\n";
+    std::cout << "total cycles del coros =" << debug_cycles_delcoros << " (substract from total cycles replies)\n";
 #endif
 }
 
