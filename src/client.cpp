@@ -3,6 +3,8 @@
 #include <vector>
 #include <queue>
 #include <unistd.h>
+#include <emmintrin.h>
+
 #include "utils/cxxopts.h"
 #include "client.h"
 #include "rmc.h"
@@ -10,7 +12,7 @@
 #include "utils/logger.h"
 
 static constexpr int NUM_REPS = 1;
-static constexpr uint32_t LOAD_NUM_REQS = 1000000;
+static constexpr uint32_t LOAD_NUM_REQS = 100000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
@@ -97,7 +99,7 @@ int HostClient::do_maxinflight(long long &duration, int maxinflight)
     return 0;
 }
 
-int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_reqs)
+int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_reqs, long long freq)
 {
     assert(rmccready);
 
@@ -105,74 +107,92 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_re
     uint32_t current_max = 0;
     uint32_t late = 0;
     const uint64_t wait_in_nsec = load * 1000;
+    const long long wait_in_cycles = ns_to_cycles(wait_in_nsec, freq);
     const auto maxinflight = get_max_inflight();
-    std::queue<time_point> start_times;
+    long long max_late_cycles = 0;
+    std::queue<long long> start_times;
+    static auto noop = [](size_t) constexpr -> void {};
+    long long sent_at = 0;
+    ibv_cq_ex *recv_cq = rclient.get_recv_cq();
+    ibv_cq_ex *send_cq = rclient.get_send_cq();
 
     LOG("will issue " << num_reqs << " requests every " << wait_in_nsec << " nanoseconds");
-    auto noop = [](size_t) constexpr -> void {};
+    LOG("or every " << wait_in_cycles << " cycles");
 
     for (auto i = 0u; i < maxinflight; i++)
         arm_call_req(get_req(i));
 
-    time_point next_send = time_start();
+    long long next_send = get_cycles();
     for (auto i = 0u; i < num_reqs; i++) {
-        next_send += std::chrono::nanoseconds(wait_in_nsec);
+        next_send += wait_in_cycles;
+        sent_at = load_send_request(start_times);
 
-        if (load_send_request(start_times) > next_send)
+        if (sent_at > next_send) {
             late++;
+            max_late_cycles = std::max(sent_at - next_send, max_late_cycles);
+        }
 
         current_max = std::max(current_max, this->inflight);
         if (this->inflight > maxinflight) {
-            LOG("curr_inflight=" << this->inflight << " maxinflight=" << maxinflight);
+            std::cout << "curr_inflight=" << this->inflight << " maxinflight=" << maxinflight << "\n";
             break;
         }
 
+        /* poll */
+        maybe_poll_sends(send_cq);
+        if (this->inflight > 0) {
+            const uint32_t polled = rclient.poll_atmost(this->inflight, recv_cq, noop);
+            load_handle_reps(start_times, rtts, polled, rtt_idx);
+        }
+
         /* wait */
-        do {
-            maybe_poll_sends();
+        while (get_cycles() < next_send) {
             if (this->inflight > 0) {
-                uint32_t polled = rclient.poll_atmost(this->inflight, rclient.get_recv_cq(), noop);
+                const uint32_t polled = rclient.poll_atmost(1, recv_cq, noop);
                 load_handle_reps(start_times, rtts, polled, rtt_idx);
             }
-        } while (time_start() < next_send);
+
+            _mm_pause();
+        }
     }
 
-    maybe_poll_sends();
+    maybe_poll_sends(send_cq);
     if (this->inflight > 0) {
-        uint32_t polled = rclient.poll_atleast(this->inflight, rclient.get_recv_cq(), noop);
+        const uint32_t polled = rclient.poll_atleast(this->inflight, recv_cq, noop);
         load_handle_reps(start_times, rtts, polled, rtt_idx);
     }
 
     LOG("max concurrent=" << current_max);
     LOG("late=" << late);
+    LOG("max late ns=" << cycles_to_ns(max_late_cycles, freq));
     return 0;
 }
 
-time_point HostClient::load_send_request(std::queue<time_point> &start_times)
+long long HostClient::load_send_request(std::queue<long long> &start_times)
 {
-    time_point submitted;
+    long long cycles_submitted;
 
     post_recv_reply(get_reply(this->req_idx));
-    submitted = time_start();
     post_send_req_unsig(get_req(this->req_idx));
-    start_times.push(submitted);
+    cycles_submitted = get_cycles();
+    start_times.push(cycles_submitted);
     this->inflight++;
     inc_with_wraparound(this->req_idx, get_max_inflight());
 
-    return submitted;
+    return cycles_submitted;
 }
 
-void HostClient::load_handle_reps(std::queue<time_point> &start_times,
+void HostClient::load_handle_reps(std::queue<long long> &start_times,
                                   std::vector<uint32_t> &rtts, uint32_t polled,
                                   uint32_t &rtt_idx)
 {
     if (polled == 0)
         return;
 
-    time_point end = time_start();
+    long long end = get_cycles();
 
     for (auto reply = 0u; reply < polled; ++reply) {
-        rtts[rtt_idx++] = time_end(start_times.front(), end);
+        rtts[rtt_idx++] = end - start_times.front();
         start_times.pop();
     }
 
@@ -239,10 +259,13 @@ void print_stats_maxinflight(std::vector<long long> &durations, int maxinflight)
     std::cout << "median=" << median << "\n";
 }
 
-void print_stats_load(std::vector<uint32_t> &durations)
+void print_stats_load(std::vector<uint32_t> &durations, long long freq)
 {
     double avg = 0;
     double median = 0;
+
+    for (auto &d: durations)
+        d = cycles_to_ns(d, freq);
 
     unsigned int remove = durations.size() * 0.1;
     auto d2 = std::vector<long long>(durations.begin() + remove, durations.end());
@@ -254,7 +277,7 @@ void print_stats_load(std::vector<uint32_t> &durations)
     std::cout << "median (skipped first " << remove << ")=" << median << "\n";
 
     std::cout << "rtt\n";
-    for (long long &d: std::vector<long long>(durations.begin() + remove, durations.end()))
+    for (const auto &d: std::vector<long long>(durations.begin() + remove, durations.end()))
         std::cout << d << "\n";
 }
 
@@ -289,19 +312,20 @@ void benchmark_load(HostClient &client, float load)
 {
     std::vector<uint32_t> rtts(LOAD_NUM_REQS);
     const uint32_t max = client.get_max_inflight();
+    const long long freq = get_freq();
 
     LOG("get_max_inflight()=" << max);
-
+    LOG("rdtsc freq=" << freq);
 
     LOG("load: warming up");
-    client.do_load(load, rtts, max);
+    client.do_load(load, rtts, max, freq);
 
     LOG("load: benchmark start");
-    client.do_load(load, rtts, LOAD_NUM_REQS);
+    client.do_load(load, rtts, LOAD_NUM_REQS, freq);
     LOG("load: benchmark end");
     client.last_cmd();
 
-    print_stats_load(rtts);
+    print_stats_load(rtts, freq);
 }
 
 int main(int argc, char* argv[])

@@ -22,7 +22,7 @@ inline long long time_end(const time_point &start, const time_point &end)
 
 inline long long time_end(const time_point &start)
 {
-    time_point end = std::chrono::steady_clock::now();
+    const time_point end = std::chrono::steady_clock::now();
     return time_end(start, end);
 }
 
@@ -35,7 +35,7 @@ inline void die(const std::string& msg)
 template <typename T>
 inline void num_to_str(const T &data, char *dst, size_t count)
 {
-    std::string str = std::to_string(data);
+    const std::string str = std::to_string(data);
     std::strncpy(dst, str.c_str(), count);
 }
 
@@ -46,17 +46,22 @@ inline long long get_cycles()
     asm volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
     return virtual_timer_value;
 #else
-    return 0;
+    uint64_t rax;
+    uint64_t rdx;
+    asm volatile("rdtsc" : "=a"(rax), "=d"(rdx));
+    return static_cast<long long>((rdx << 32) | rax);
 #endif
 }
 
-inline long long cycles_to_us(long long cycles, long long freq)
+inline long long cycles_to_ns(long long cycles, long long freq)
 {
-#if defined(__aarch64__)
     return cycles * 1000000000 / freq;
-#else
-    return 0;
-#endif
+}
+
+inline long long ns_to_cycles(long long ns, long long freq)
+{
+    double cycles = ns * freq * 0.000000001;
+    return static_cast<long long> (cycles);
 }
 
 inline long long get_freq()
@@ -66,7 +71,22 @@ inline long long get_freq()
     asm volatile("mrs %0, cntfrq_el0" : "=r" (freq));
     return freq;
 #else
-    return 0;
+    /* from https://github.com/erpc-io/eRPC/blob/master/src/util/timer.h */
+    time_point start = time_start();
+    const uint64_t rdtsc_start = get_cycles();
+
+    // Do not change this loop! The hardcoded value below depends on this loop
+    // and prevents it from being optimized out.
+    uint64_t sum = 5;
+    for (uint64_t i = 0; i < 1000000; i++) {
+        sum += i + (sum + i) * (i % sum);
+    }
+    TEST_Z(sum == 13580802877818827968ull);
+
+    const uint64_t rdtsc_cycles = get_cycles() - rdtsc_start;
+    const long long time_ns = time_end(start);
+    const double freq = rdtsc_cycles / static_cast<double> (time_ns) * 1000000000.0;
+    return static_cast<long long> (freq);
 #endif
 }
 

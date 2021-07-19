@@ -23,14 +23,14 @@ class HostClient {
 
     void post_recv_reply(CmdReply *reply);
     void post_send_req_unsig(CmdRequest *req);
-    void maybe_poll_sends();
+    void maybe_poll_sends(ibv_cq_ex *send_cq);
     void post_send_req(CmdRequest *req);
     CmdRequest *get_req(size_t req_idx);
     CmdReply *get_reply(size_t rep_idx);
     void disconnect();
 
-    time_point load_send_request(std::queue<time_point> &start_times);
-    void load_handle_reps(std::queue<time_point> &start_times, std::vector<uint32_t> &rtts,
+    long long load_send_request(std::queue<long long> &start_times);
+    void load_handle_reps(std::queue<long long> &start_times, std::vector<uint32_t> &rtts,
                             uint32_t polled, uint32_t &rtt_idx);
     void load_send_req();
     void parse_rmc_reply(CmdReply *reply) const;
@@ -60,7 +60,7 @@ public:
     RMCId get_rmc_id(const RMC &rmc);
 
     int do_maxinflight(long long &duration, int maxinflight);
-    int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs);
+    int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs, long long freq);
     int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
     /* cmd to initiate disconnect */
@@ -99,12 +99,20 @@ inline void HostClient::post_send_req_unsig(CmdRequest *req)
 if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
     poll wait until we get 1 completion.
 */
-inline void HostClient::maybe_poll_sends()
+inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq)
 {
     static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
+    static struct ibv_wc wc;
+    int ne;
+
     if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {
-        rclient.poll_atleast(1, rclient.get_send_cq(), [](size_t) -> void {});
-        pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
+        ne = ibv_poll_cq(ibv_cq_ex_to_cq(send_cq), 1, &wc);
+        TEST_NZ(ne < 0);
+
+        if (ne > 0) {
+            TEST_NZ(wc.status != IBV_WC_SUCCESS);
+            pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
+        }
     }
 }
 
