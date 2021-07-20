@@ -1,5 +1,4 @@
-#ifndef SCHEDULER_H
-#define SCHEDULER_H
+#pragma once
 
 //#define PERF_STATS
 
@@ -24,11 +23,12 @@ class NICServer;
 
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
+    using coro_handle = std::coroutine_handle<>;
     NICServer &ns;
 
     std::unordered_map<RMCId, RMC> id_rmc_map;
     /* RMCs ready to be run */
-    std::deque<CoroRMC<int>*> runqueue;
+    std::deque<coro_handle> runqueue;
     /* RMCs waiting for host memory accesses */
 
     size_t num_llnodes;
@@ -43,7 +43,7 @@ class RMCScheduler {
     RMCId get_rmc_id(const RMC &rmc);
     void req_get_rmc_id(CmdRequest *req);
     void req_new_rmc(CmdRequest *req);
-    void add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx);
+    void add_reply(coro_handle rmc, RDMAContext &server_ctx);
     void send_poll_replies(RDMAContext &server_ctx);
     void check_new_reqs_client(RDMAContext &server_ctx);
     void poll_comps_host();
@@ -61,7 +61,6 @@ class RMCScheduler {
     long long debug_cycles_execs = 0;
     long long debug_cycles_hostcomps = 0;
     long long debug_cycles_newcoros = 0;
-    long long debug_cycles_delcoros = 0;
     std::vector<long long> debug_vec_cycles;
     std::vector<long long> debug_vec_cycles_reqs;
     std::vector<long long> debug_vec_cycles_replies;
@@ -91,6 +90,7 @@ public:
     void set_num_llnodes(size_t num_nodes);
     void set_num_qps(uint16_t num_qps);
     void dispatch_new_req(CmdRequest *req);
+    void spawn(CoroRMC<int> coro);
 
     RDMAContext &get_server_context();
     RDMAContext &get_client_context(unsigned int id);
@@ -177,7 +177,7 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req)
     }
 }
 
-inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
+inline void RMCScheduler::add_reply(coro_handle rmc, RDMAContext &server_ctx)
 {
 #ifdef PERF_STATS
     long long cycles = get_cycles();
@@ -190,13 +190,9 @@ inline void RMCScheduler::add_reply(CoroRMC<int> *rmc, RDMAContext &server_ctx)
     CmdReply *reply = ns.get_reply(this->reply_idx);
     ns.post_batched_send_reply(server_ctx, reply);
     inc_with_wraparound(this->reply_idx, ns.bsize);
-#ifdef PERF_STATS
-    long long cycles_coros = get_cycles();
-#endif
-    delete rmc;
+
 #ifdef PERF_STATS
     long long cycles_end = get_cycles();
-    debug_cycles_newcoros += cycles_end - cycles_coros;
     debug_replies++;
     debug_cycles_replies += cycles_end - cycles;
 #endif
@@ -331,5 +327,3 @@ inline void RMCScheduler::debug_capture_stats()
     }
 #endif
 }
-
-#endif

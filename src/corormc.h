@@ -10,6 +10,7 @@ template <typename T = void> class CoroRMC {
 based on:
     https://www.modernescpp.com/index.php/c-20-an-infinite-data-stream-with-coroutines
     https://github.com/andreasbuhr/cppcoro/blob/master/include/cppcoro/task.hpp
+    https://github.com/GorNishanov/await/blob/master/2018_CppCon/src/coro_infra.h
 */
 public:
     using value_type = T;
@@ -48,7 +49,7 @@ public:
 
         /* must return the object that wraps promise_type */
         auto get_return_object() noexcept {
-            return CoroRMC{std::coroutine_handle<promise_type>::from_promise(*this)};
+            return CoroRMC{*this};
         }
 
         void return_void() { }
@@ -58,14 +59,17 @@ public:
         value_type current_value;
     };
 
-    /* constructors */
-    CoroRMC(std::coroutine_handle<promise_type> h) noexcept : coroutine(h) {}
+    using HDL = std::coroutine_handle<promise_type>;
+
+    /* move constructor */
+    CoroRMC(CoroRMC &&oth) : coroutine(oth.h) {
+        oth.coroutine = nullptr;
+    }
+
     /* default constructor */
     CoroRMC() = delete;
     /* move assignment op */
     CoroRMC &operator=(CoroRMC &&oth) = delete;
-    /* move constructor */
-    CoroRMC(CoroRMC &&oth) = delete;
     /* copy constructor */
     CoroRMC(const CoroRMC &) = delete;
     /* copy assignment op */
@@ -73,32 +77,17 @@ public:
 
     ~CoroRMC() { }
 
-    void *operator new(size_t size) {
-        if (size != 16)
-            DIE("promise size is not 16, it is=" << size);
+    void *operator new(size_t size) = delete;
+    void operator delete(void * p) = delete;
 
-        return RMCAllocator::get_rmc();
+    auto get_handle() {
+        return coroutine;
     }
-
-    void operator delete(void * p) {
-        RMCAllocator::delete_rmc(p);
-    }
-
-    /* returns true if coroutine is done; false otherwise */
-    bool resume() {
-        /* coroutine.done() returns true if the coroutine is suspended at its final
-        suspend point, or false if the coroutine is suspended at other suspend
-        points. The behavior is undefined if it does not refer to a suspended
-        coroutine. */
-        assert(not coroutine.done());
-        coroutine.resume();
-        return coroutine.done();
-    }
-
-    int id;
 
 private:
-    std::coroutine_handle<promise_type> coroutine;
+    CoroRMC(promise_type &p) : coroutine(HDL::from_promise(p)) {}
+
+    HDL coroutine;
 };
 
 #endif

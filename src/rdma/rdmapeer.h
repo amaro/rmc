@@ -1,6 +1,7 @@
 #ifndef RDMA_PEER_H
 #define RDMA_PEER_H
 
+#include <coroutine>
 #include <list>
 #include <vector>
 #include <queue>
@@ -125,6 +126,8 @@ public:
 
 /* TODO: move this to own file */
 struct RDMAContext {
+    using coro_handle = std::coroutine_handle<>;
+
     struct SendOp {
         unsigned long wr_id;
         void *laddr;
@@ -181,7 +184,7 @@ struct RDMAContext {
     }
 
 public:
-    std::queue<CoroRMC<int> *> memqueue;
+    std::queue<coro_handle> memqueue;
     std::vector<RecvOp> recv_batch;
     uint32_t ctx_id; /* TODO: rename to id */
     bool connected;

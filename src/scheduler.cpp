@@ -5,7 +5,6 @@ CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
     // consider cpu locality into the design
     uintptr_t base_addr = (uintptr_t) client.get_remote_base_addr();
     uint32_t offset = 0;
-    //LLNode *node = (LLNode *) co_await client.readfromcoro(0, sizeof(LLNode));
     LLNode *node = nullptr;
 
     for (size_t i = 0; i < num_nodes; ++i) {
@@ -32,23 +31,23 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req)
     ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
+void RMCScheduler::spawn(CoroRMC<int> coro)
+{
+    runqueue.push_back(coro.get_handle());
+}
+
 void RMCScheduler::req_new_rmc(CmdRequest *req)
 {
     assert(req->type == CmdType::CALL_RMC);
-    //CallReply &callreply = reply->reply.call;
-    //CallReq &callreq = req->request.call;
-
     //size_t arg = std::stoull(callreq.data);
-    static int id = 0;
+
 #ifdef PERF_STATS
     long long cycles_coros = get_cycles();
 #endif
-    CoroRMC<int> *rmc = new auto(rmc_test(ns.onesidedclient, num_llnodes));
+    spawn(rmc_test(ns.onesidedclient, num_llnodes));
 #ifdef PERF_STATS
-    debug_cycles_delcoros += get_cycles() - cycles_coros;
+    debug_cycles_newcoros += get_cycles() - cycles_coros;
 #endif
-    rmc->id = id++;
-    runqueue.push_back(rmc);
 }
 
 void RMCScheduler::run()
@@ -81,10 +80,13 @@ void RMCScheduler::schedule(RDMAClient &rclient)
             batch_started = true;
         }
 
-        CoroRMC<int> *rmc = runqueue.front();
+        auto rmc = runqueue.front();
         runqueue.pop_front();
 
-        if (!rmc->resume())
+        rmc.resume();
+
+        /* coro.done() returns true if coro is suspended at final suspension point */
+        if (!rmc.done())
             clientctx.memqueue.push(rmc);
         else
             add_reply(rmc, server_ctx);
@@ -141,7 +143,6 @@ void RMCScheduler::debug_print_stats()
     std::cout << "total replies=" << std::accumulate(debug_vec_replies.begin(), debug_vec_replies.end(), 0) << "\n";
     std::cout << "total execs=" << std::accumulate(debug_vec_rmcexecs.begin(), debug_vec_rmcexecs.end(), 0) << "\n";
     std::cout << "total cycles new coros =" << debug_cycles_newcoros << " (substract from total cycles req)\n";
-    std::cout << "total cycles del coros =" << debug_cycles_delcoros << " (substract from total cycles replies)\n";
 #endif
 }
 

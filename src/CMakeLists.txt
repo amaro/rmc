@@ -2,14 +2,20 @@ set(INCLUDE_DIR "${RMC_SOURCE_DIR}/src")
 include_directories(${INCLUDE_DIR})
 
 add_library(rdmapeer_obj OBJECT rdma/rdmapeer.cpp)
+# this shouldn't be needed but the current code mess makes it necessary
+target_compile_options(rdmapeer_obj PUBLIC "-fcoroutines")
 target_compile_options(rdmapeer_obj PUBLIC "-fno-exceptions")
 target_compile_options(rdmapeer_obj PUBLIC "-fno-rtti")
 
 add_library(rdmaclient_obj OBJECT rdma/rdmaclient.cpp)
+# this shouldn't be needed but the current code mess makes it necessary
+target_compile_options(rdmaclient_obj PUBLIC "-fcoroutines")
 target_compile_options(rdmaclient_obj PUBLIC "-fno-exceptions")
 target_compile_options(rdmaclient_obj PUBLIC "-fno-rtti")
 
 add_library(rdmaserver_obj OBJECT rdma/rdmaserver.cpp)
+# this shouldn't be needed but the current code mess makes it necessary
+target_compile_options(rdmaserver_obj PUBLIC "-fcoroutines")
 target_compile_options(rdmaserver_obj PUBLIC "-fno-exceptions")
 target_compile_options(rdmaserver_obj PUBLIC "-fno-rtti")
 
@@ -28,12 +34,14 @@ add_executable(client client.cpp
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_options(client PUBLIC "-fcoroutines")
 target_link_libraries(client mlx5 rdmacm ibverbs pthread)
 
 # hostserver
 add_executable(hostserver hostserver.cpp
     $<TARGET_OBJECTS:rdmaserver_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_options(hostserver PUBLIC "-fcoroutines")
 target_link_libraries(hostserver mlx5 rdmacm ibverbs pthread)
 
 # nicserver; needs both rdmaserver and rdmaclient;
