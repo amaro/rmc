@@ -1,163 +1,169 @@
 #include "scheduler.h"
 
 CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
-    // getting a local buffer should be explicit here
-    // consider cpu locality into the design
-    uintptr_t base_addr = (uintptr_t) client.get_remote_base_addr();
-    uint32_t offset = 0;
-    LLNode *node = nullptr;
+  // getting a local buffer should be explicit here
+  // consider cpu locality into the design
+  uintptr_t base_addr = (uintptr_t)client.get_remote_base_addr();
+  uint32_t offset = 0;
+  LLNode *node = nullptr;
 
-    for (size_t i = 0; i < num_nodes; ++i) {
-        node = (LLNode *) co_await client.readfromcoro(offset, sizeof(LLNode)); // this should take node->next vaddr
-        offset = (uintptr_t) node->next - base_addr;
-    }
+  for (size_t i = 0; i < num_nodes; ++i) {
+    node = (LLNode *)co_await client.readfromcoro(
+        offset, sizeof(LLNode)); // this should take node->next vaddr
+    offset = (uintptr_t)node->next - base_addr;
+  }
 }
 
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
-void RMCScheduler::req_get_rmc_id(CmdRequest *req)
-{
-    assert(ns.nsready);
-    assert(req->type == CmdType::GET_RMCID);
+void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
+  assert(ns.nsready);
+  assert(req->type == CmdType::GET_RMCID);
 
-    RMC rmc(req->request.getid.rmc);
-    RMCId id = this->get_rmc_id(rmc);
+  RMC rmc(req->request.getid.rmc);
+  RMCId id = this->get_rmc_id(rmc);
 
-    /* for now, just use buffer 0 for get rmc id reply */
-    CmdReply *reply = ns.get_reply(0);
-    reply->type = CmdType::GET_RMCID;
-    reply->reply.getid.id = id;
-    ns.post_send_reply(reply);
-    ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
+  /* for now, just use buffer 0 for get rmc id reply */
+  CmdReply *reply = ns.get_reply(0);
+  reply->type = CmdType::GET_RMCID;
+  reply->reply.getid.id = id;
+  ns.post_send_reply(reply);
+  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
-void RMCScheduler::spawn(CoroRMC<int> coro)
-{
-    runqueue.push_back(coro.get_handle());
+void RMCScheduler::spawn(CoroRMC<int> coro) {
+  runqueue.push_back(coro.get_handle());
 }
 
-void RMCScheduler::req_new_rmc(CmdRequest *req)
-{
-    assert(req->type == CmdType::CALL_RMC);
-    //size_t arg = std::stoull(callreq.data);
+void RMCScheduler::req_new_rmc(CmdRequest *req) {
+  assert(req->type == CmdType::CALL_RMC);
+  // size_t arg = std::stoull(callreq.data);
 
 #ifdef PERF_STATS
-    long long cycles_coros = get_cycles();
+  long long cycles_coros = get_cycles();
 #endif
-    spawn(rmc_test(ns.onesidedclient, num_llnodes));
+  spawn(rmc_test(ns.onesidedclient, num_llnodes));
 #ifdef PERF_STATS
-    debug_cycles_newcoros += get_cycles() - cycles_coros;
+  debug_cycles_newcoros += get_cycles() - cycles_coros;
 #endif
 }
 
-void RMCScheduler::run()
-{
-    RDMAClient &rclient = ns.onesidedclient.get_rclient();
+void RMCScheduler::run() {
+  RDMAClient &rclient = ns.onesidedclient.get_rclient();
 
-    while (ns.nsready) {
-        schedule(rclient);
+  while (ns.nsready) {
+    schedule(rclient);
 
-        if (this->recvd_disconnect && !this->executing())
-            return ns.disconnect();
+    if (this->recvd_disconnect && !this->executing())
+      return ns.disconnect();
 
-        debug_capture_stats();
-    }
+    debug_capture_stats();
+  }
 }
 
-void RMCScheduler::schedule(RDMAClient &rclient)
-{
+void RMCScheduler::schedule(RDMAClient &rclient) {
 #ifdef PERF_STATS
-    long long exec_start = get_cycles();
+  long long exec_start = get_cycles();
 #endif
-    static RDMAContext &server_ctx = get_server_context();
+  static RDMAContext &server_ctx = get_server_context();
 
-    RDMAContext &clientctx = get_next_client_context();
-    bool batch_started = false;
+  RDMAContext &clientctx = get_next_client_context();
+  bool batch_started = false;
 
-    while (!runqueue.empty() && clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-        if (!batch_started) {
-            rclient.start_batched_ops(&clientctx);
-            batch_started = true;
-        }
-
-        auto rmc = runqueue.front();
-        runqueue.pop_front();
-
-        rmc.resume();
-
-        /* coro.done() returns true if coro is suspended at final suspension point */
-        if (!rmc.done())
-            clientctx.memqueue.push(rmc);
-        else
-            add_reply(rmc, server_ctx);
-
-#ifdef PERF_STATS
-        debug_rmcexecs++;
-#endif
-        if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
-            rclient.end_batched_ops();
-            batch_started = false;
-        }
+  while (!runqueue.empty() &&
+         clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+    if (!batch_started) {
+      rclient.start_batched_ops(&clientctx);
+      batch_started = true;
     }
 
-    if (batch_started) {
-        rclient.end_batched_ops();
-        batch_started = false;
-    }
+    auto rmc = runqueue.front();
+    runqueue.pop_front();
 
-    send_poll_replies(server_ctx);
+    rmc.resume();
+
+    /* coro.done() returns true if coro is suspended at final suspension point
+     */
+    if (!rmc.done())
+      clientctx.memqueue.push(rmc);
+    else
+      add_reply(rmc, server_ctx);
+
 #ifdef PERF_STATS
-    /* we do it here because add_reply() above computes its own duration
-       that must be added to the time spent in send_poll_replies()
-       both of them must be substracted from debug_cycles_execs */
-    debug_cycles_execs = get_cycles() - exec_start - debug_cycles_replies;
+    debug_rmcexecs++;
+#endif
+    if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+      rclient.end_batched_ops();
+      batch_started = false;
+    }
+  }
+
+  if (batch_started) {
+    rclient.end_batched_ops();
+    batch_started = false;
+  }
+
+  send_poll_replies(server_ctx);
+#ifdef PERF_STATS
+  /* we do it here because add_reply() above computes its own duration
+     that must be added to the time spent in send_poll_replies()
+     both of them must be substracted from debug_cycles_execs */
+  debug_cycles_execs = get_cycles() - exec_start - debug_cycles_replies;
 #endif
 
-    check_new_reqs_client(server_ctx);
-    poll_comps_host();
+  check_new_reqs_client(server_ctx);
+  poll_comps_host();
 
 #ifdef PERF_STATS
-    debug_cycles = get_cycles() - exec_start;
-#endif
-
-}
-
-void RMCScheduler::debug_print_stats()
-{
-#ifdef PERF_STATS
-    if (debug_vec_reqs.size () != debug_vec_replies.size()) {
-        std::cout << "vec_reqs size=" << debug_vec_reqs.size() << "\n";
-        std::cout << "vec_replies size=" << debug_vec_replies.size() << "\n";
-    }
-
-    std::cout << "reqs,replies,memq_size,execs,host_comps,cycle,cycle_reqs,cycle_replies,cycle_execs,cycle_hostcomps\n";
-    for (auto i = 0u; i < debug_vec_reqs.size(); ++i) {
-        std::cout << debug_vec_reqs[i] << "," << debug_vec_replies[i] << ","
-            << debug_vec_memqsize[i] << "," << debug_vec_rmcexecs[i] << ","
-            << debug_vec_hostcomps[i] << "," << debug_vec_cycles[i] << ","
-            << debug_vec_cycles_reqs[i] << "," << debug_vec_cycles_replies[i] << ","
-            << debug_vec_cycles_execs[i] << "," << debug_vec_cycles_hostcomps[i] << "\n";
-    }
-
-    std::cout << "total reqs=" << std::accumulate(debug_vec_reqs.begin(), debug_vec_reqs.end(), 0) << "\n";
-    std::cout << "total replies=" << std::accumulate(debug_vec_replies.begin(), debug_vec_replies.end(), 0) << "\n";
-    std::cout << "total execs=" << std::accumulate(debug_vec_rmcexecs.begin(), debug_vec_rmcexecs.end(), 0) << "\n";
-    std::cout << "total cycles new coros =" << debug_cycles_newcoros << " (substract from total cycles req)\n";
+  debug_cycles = get_cycles() - exec_start;
 #endif
 }
 
-void RMCScheduler::debug_allocate()
-{
+void RMCScheduler::debug_print_stats() {
 #ifdef PERF_STATS
-    debug_vec_cycles.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_cycles_reqs.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_cycles_replies.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_cycles_execs.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_cycles_hostcomps.reserve(DEBUG_VEC_RESERVE);
+  if (debug_vec_reqs.size() != debug_vec_replies.size()) {
+    std::cout << "vec_reqs size=" << debug_vec_reqs.size() << "\n";
+    std::cout << "vec_replies size=" << debug_vec_replies.size() << "\n";
+  }
 
-    debug_vec_reqs.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_rmcexecs.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_replies.reserve(DEBUG_VEC_RESERVE);
-    debug_vec_memqsize.reserve(DEBUG_VEC_RESERVE);
+  std::cout << "reqs,replies,memq_size,execs,host_comps,cycle,cycle_reqs,cycle_"
+               "replies,cycle_execs,cycle_hostcomps\n";
+  for (auto i = 0u; i < debug_vec_reqs.size(); ++i) {
+    std::cout << debug_vec_reqs[i] << "," << debug_vec_replies[i] << ","
+              << debug_vec_memqsize[i] << "," << debug_vec_rmcexecs[i] << ","
+              << debug_vec_hostcomps[i] << "," << debug_vec_cycles[i] << ","
+              << debug_vec_cycles_reqs[i] << "," << debug_vec_cycles_replies[i]
+              << "," << debug_vec_cycles_execs[i] << ","
+              << debug_vec_cycles_hostcomps[i] << "\n";
+  }
+
+  std::cout << "total reqs="
+            << std::accumulate(debug_vec_reqs.begin(), debug_vec_reqs.end(), 0)
+            << "\n";
+  std::cout << "total replies="
+            << std::accumulate(debug_vec_replies.begin(),
+                               debug_vec_replies.end(), 0)
+            << "\n";
+  std::cout << "total execs="
+            << std::accumulate(debug_vec_rmcexecs.begin(),
+                               debug_vec_rmcexecs.end(), 0)
+            << "\n";
+  std::cout << "total cycles new coros =" << debug_cycles_newcoros
+            << " (substract from total cycles req)\n";
+#endif
+}
+
+void RMCScheduler::debug_allocate() {
+#ifdef PERF_STATS
+  debug_vec_cycles.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_cycles_reqs.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_cycles_replies.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_cycles_execs.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_cycles_hostcomps.reserve(DEBUG_VEC_RESERVE);
+
+  debug_vec_reqs.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_rmcexecs.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_replies.reserve(DEBUG_VEC_RESERVE);
+  debug_vec_memqsize.reserve(DEBUG_VEC_RESERVE);
 #endif
 }
