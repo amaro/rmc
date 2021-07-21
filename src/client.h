@@ -29,10 +29,9 @@ class HostClient {
     CmdReply *get_reply(size_t rep_idx);
     void disconnect();
 
-    long long load_send_request(std::queue<long long> &start_times);
+    long long load_send_request(std::queue<long long> &start_ts);
     void load_handle_reps(std::queue<long long> &start_times, std::vector<uint32_t> &rtts,
                             uint32_t polled, uint32_t &rtt_idx);
-    void load_send_req();
     void parse_rmc_reply(CmdReply *reply) const;
     void arm_call_req(CmdRequest *req);
 
@@ -59,7 +58,7 @@ public:
        3. return id */
     RMCId get_rmc_id(const RMC &rmc);
 
-    int do_maxinflight(long long &duration, int maxinflight);
+    long long do_maxinflight(uint32_t num_reqs);
     int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs, long long freq);
     int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 

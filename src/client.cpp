@@ -12,7 +12,7 @@
 #include "utils/logger.h"
 
 static constexpr int NUM_REPS = 1;
-static constexpr uint32_t LOAD_NUM_REQS = 100000;
+static constexpr const uint32_t NUM_REQS = 100000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port)
 {
@@ -48,55 +48,51 @@ RMCId HostClient::get_rmc_id(const RMC &rmc)
     return reply->reply.getid.id;
 }
 
-int HostClient::do_maxinflight(long long &duration, int maxinflight)
+long long HostClient::do_maxinflight(uint32_t num_reqs)
 {
     assert(rmccready);
 
-    int curr_inflight = 0;
-    int polled = 0;
-    int buf_idx = 0;
-    int total_reqs = 1000;
+    const auto maxinflight = get_max_inflight();
+    ibv_cq_ex *recv_cq = rclient.get_recv_cq();
+    ibv_cq_ex *send_cq = rclient.get_send_cq();
+    long long duration = 0;
+    static auto noop = [](size_t) constexpr -> void {};
 
-    if (maxinflight > (int) RDMAPeer::MAX_UNSIGNALED_SENDS)
-        die("max in flight > MAX_UNSIGNALED_SENDS");
-
-    auto noop = [](size_t) -> void {};
+    for (auto i = 0u; i < maxinflight; i++)
+        arm_call_req(get_req(i));
 
     time_point start = time_start();
-    for (auto i = 0; i < total_reqs; i++) {
+    for (auto i = 0u; i < num_reqs; i++) {
         /* send as many requests as we have credits for */
-        if (curr_inflight < maxinflight) {
-            post_recv_reply(get_reply(buf_idx));
-            arm_call_req(get_req(buf_idx));
-            post_send_req_unsig(get_req(buf_idx));
-            curr_inflight++;
-            buf_idx = (buf_idx + 1) % maxinflight;
+        if (this->inflight < maxinflight) {
+            post_recv_reply(get_reply(this->req_idx));
+            post_send_req_unsig(get_req(this->req_idx));
+            this->inflight++;
+            inc_with_wraparound(this->req_idx, maxinflight);
         }
 
-        polled = 0;
-        if (curr_inflight > 0) {
-            if (curr_inflight < maxinflight)
-                polled = rclient.poll_atmost(maxinflight, rclient.get_recv_cq(), noop);
+        maybe_poll_sends(send_cq);
+        if (this->inflight > 0) {
+            uint32_t polled = 0;
+            if (this->inflight < maxinflight)
+                polled = rclient.poll_atmost(this->inflight, recv_cq, noop);
             else
-                polled = rclient.poll_atleast(1, rclient.get_recv_cq(), noop);
-        }
+                polled = rclient.poll_atleast(1, recv_cq, noop);
 
-        curr_inflight -= polled;
+            this->inflight -= polled;
+        }
     }
 
-    if (curr_inflight > 0)
-        rclient.poll_exactly(curr_inflight, rclient.get_recv_cq());
+    if (this->inflight > 0)
+        this->inflight -= rclient.poll_atleast(this->inflight, recv_cq, noop);
     duration = time_end(start);
 
-    /* check CmdReplys */
-    for (auto i = 0; i < maxinflight; ++i) {
-        CmdReply *reply = get_reply(i);
-        (void) reply;
-        assert(reply->type == CmdType::CALL_RMC);
-        assert(reply->reply.call.status == 0);
-    }
-
-    return 0;
+    assert(this->inflight == 0);
+    double ops = num_reqs / (duration / (double) 1000000000);
+    LOG("duration=" << duration);
+    LOG("num_reqs=" << num_reqs);
+    LOG("Ops per sec=" << std::fixed << ops);
+    return duration;
 }
 
 int HostClient::do_load(float load, std::vector<uint32_t> &rtts, uint32_t num_reqs, long long freq)
@@ -282,35 +278,29 @@ void print_stats_load(std::vector<uint32_t> &durations, long long freq)
 }
 
 /* keeps maxinflight active requests at all times */
-void benchmark_maxinflight(HostClient &client, std::string ofile, int maxinflight)
+void benchmark_maxinflight(HostClient &client, std::string ofile)
 {
-    const char *prog = R"(void hello() { printf("hello world\n"); })";
-    RMC rmc(prog);
-    std::vector<long long> durations(NUM_REPS);
-    long long duration;
-    std::ofstream stream(ofile, std::ofstream::out);
+    const uint32_t max = client.get_max_inflight();
+    const long long freq = get_freq();
 
-    RMCId id = client.get_rmc_id(rmc);
-    LOG("got id=" << id);
+    LOG("get_max_inflight()=" << max);
+    LOG("rdtsc freq=" << freq);
 
-    // warm up
     LOG("maxinflight: warming up");
-    client.do_maxinflight(duration, maxinflight);
+    client.do_maxinflight(client.get_max_inflight() * 10);
 
     LOG("maxinflight: benchmark start");
-    for (size_t rep = 0; rep < NUM_REPS; ++rep) {
-        client.do_maxinflight(duration, maxinflight);
-        durations[rep] = duration;
-    }
+    client.do_maxinflight(NUM_REQS);
     LOG("maxinflight: benchmark end");
+
     client.last_cmd();
 
-    print_stats_maxinflight(durations, maxinflight);
+    //print_stats_maxinflight(durations, maxinflight);
 }
 
 void benchmark_load(HostClient &client, float load)
 {
-    std::vector<uint32_t> rtts(LOAD_NUM_REQS);
+    std::vector<uint32_t> rtts(NUM_REQS);
     const uint32_t max = client.get_max_inflight();
     const long long freq = get_freq();
 
@@ -321,7 +311,7 @@ void benchmark_load(HostClient &client, float load)
     client.do_load(load, rtts, max, freq);
 
     LOG("load: benchmark start");
-    client.do_load(load, rtts, LOAD_NUM_REQS, freq);
+    client.do_load(load, rtts, NUM_REQS, freq);
     LOG("load: benchmark end");
     client.last_cmd();
 
@@ -337,15 +327,13 @@ int main(int argc, char* argv[])
         ("p,port", "nicserver port", cxxopts::value<int>()->default_value("30000"))
         ("o,output", "output file", cxxopts::value<std::string>())
         ("mode", "client mode, can be: maxinflight or load", cxxopts::value<std::string>())
-        ("m,maxinflight", "max num of reqs in flight (for mode=maxinflight)", cxxopts::value<int>()->default_value("0"))
         ("l,load", "send 1 new req every these many microseconds (for mode=load)", cxxopts::value<float>()->default_value("0.0"))
         ("h,help", "Print usage")
     ;
 
     std::string server, ofile, mode;
     unsigned int port;
-    unsigned int maxinflight = {0};
-    float load = {0};
+    float load = 0.0;
 
     try {
         auto result = opts.parse(argc, argv);
@@ -357,7 +345,6 @@ int main(int argc, char* argv[])
         port = result["port"].as<int>();
         ofile = result["output"].as<std::string>();
         mode = result["mode"].as<std::string>();
-        maxinflight = result["maxinflight"].as<int>();
         load = result["load"].as<float>();
 
         if (mode != "load" && mode != "maxinflight") {
@@ -365,8 +352,6 @@ int main(int argc, char* argv[])
             die(opts.help());
         } else if (mode == "load" && load == 0) {
             die("mode=load requires load > 0");
-        } else if (mode == "maxinflight" && maxinflight == 0) {
-            die("mode=maxinflight requires maxinflight > 0");
         }
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";
@@ -377,7 +362,7 @@ int main(int argc, char* argv[])
     client.connect(server, port);
 
     if (mode == "maxinflight")
-        benchmark_maxinflight(client, ofile, maxinflight);
+        benchmark_maxinflight(client, ofile);
     else
         benchmark_load(client, load);
 }

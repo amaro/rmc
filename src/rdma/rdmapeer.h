@@ -16,7 +16,7 @@
 template <typename T> class CoroRMC;
 struct RDMAContext;
 
-static constexpr int QP_MAX_2SIDED_WRS = 4096;
+static constexpr int QP_MAX_2SIDED_WRS = 2048;
 static constexpr int QP_MAX_1SIDED_WRS = 128;
 
 struct CompQueue {
