@@ -13,7 +13,7 @@
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
 
-template <typename T> class CoroRMC;
+class CoroRMC;
 struct RDMAContext;
 
 static constexpr int QP_MAX_2SIDED_WRS = 2048;

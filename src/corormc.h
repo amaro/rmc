@@ -5,18 +5,19 @@
 #include "utils/utils.h"
 #include <coroutine>
 
-template <typename T = void> class CoroRMC {
+class CoroRMC {
+public:
   /*
   based on:
       https://www.modernescpp.com/index.php/c-20-an-infinite-data-stream-with-coroutines
       https://github.com/andreasbuhr/cppcoro/blob/master/include/cppcoro/task.hpp
       https://github.com/GorNishanov/await/blob/master/2018_CppCon/src/coro_infra.h
   */
-public:
-  using value_type = T;
 
   /* must have this name */
   struct promise_type {
+    bool waiting_next_req = false;
+
     /* move assignment op */
     promise_type &operator=(promise_type &&oth) = delete;
     /* move constructor */
@@ -31,8 +32,8 @@ public:
     ~promise_type() = default;
 
     void *operator new(size_t size) {
-      if (size != 112)
-        DIE("promise size is not 112, it is=" << size);
+      if (size != 120)
+        DIE("promise size is not 120, it is=" << size);
 
       return RMCAllocator::get_promise();
     }
@@ -51,14 +52,12 @@ public:
     void return_void() {}
 
     void unhandled_exception() noexcept { std::terminate(); }
-
-    value_type current_value;
   };
 
   using HDL = std::coroutine_handle<promise_type>;
 
   /* move constructor */
-  CoroRMC(CoroRMC &&oth) : coroutine(oth.h) { oth.coroutine = nullptr; }
+  CoroRMC(CoroRMC &&oth) : _coroutine(oth._coroutine) { oth._coroutine = nullptr; }
 
   /* default constructor */
   CoroRMC() = delete;
@@ -74,12 +73,12 @@ public:
   void *operator new(size_t size) = delete;
   void operator delete(void *p) = delete;
 
-  auto get_handle() { return coroutine; }
+  auto get_handle() { return _coroutine; }
 
 private:
-  CoroRMC(promise_type &p) : coroutine(HDL::from_promise(p)) {}
+  CoroRMC(promise_type &p) : _coroutine(HDL::from_promise(p)) {}
 
-  HDL coroutine;
+  HDL _coroutine;
 };
 
 #endif

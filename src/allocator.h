@@ -7,9 +7,9 @@
 #include "utils/utils.h"
 
 namespace RMCAllocator {
-/* 112 bytes */
+/* 120 bytes */
 struct PromiseAllocNode {
-  uint64_t pad[14];
+  uint64_t pad[15];
 };
 
 static constexpr size_t NUM_NODES = QP_MAX_2SIDED_WRS;
@@ -17,7 +17,7 @@ static constexpr size_t NUM_NODES = QP_MAX_2SIDED_WRS;
 inline std::forward_list<PromiseAllocNode *> promise_list;
 
 inline void init() {
-  static_assert(sizeof(PromiseAllocNode) == 112);
+  static_assert(sizeof(PromiseAllocNode) == 120);
 
   for (auto i = 0u; i < NUM_NODES; ++i) {
     promise_list.push_front(new PromiseAllocNode());

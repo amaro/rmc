@@ -1,6 +1,6 @@
 #pragma once
 
-//#define PERF_STATS
+#define PERF_STATS
 
 #include <cassert>
 #include <cstdlib>
@@ -21,6 +21,44 @@
 
 class NICServer;
 
+inline bool runcoros;
+/* pre allocated, free coroutines */
+inline std::deque<std::coroutine_handle<>> freequeue;
+
+struct AwaitableNextReq {
+  CoroRMC::promise_type *_promise;
+
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
+    _promise = &coro.promise();
+    _promise->waiting_next_req = true;
+    freequeue.push_front(coro);
+    return true; // suspend
+  }
+  bool await_resume() {
+    _promise->waiting_next_req = false;
+    return runcoros;
+  }
+};
+
+inline auto wait_next_req() { return AwaitableNextReq{}; }
+
+inline CoroRMC rmc_test(OneSidedClient &client, size_t num_nodes) {
+  while (co_await wait_next_req()) {
+    // getting a local buffer should be explicit here
+    // consider cpu locality into the design
+    uintptr_t base_addr = (uintptr_t)client.get_remote_base_addr();
+    uint32_t offset = 0;
+    LLNode *node = nullptr;
+
+    for (size_t i = 0; i < num_nodes; ++i) {
+      node = (LLNode *)co_await client.readfromcoro(
+          offset, sizeof(LLNode)); // this should take node->next vaddr
+      offset = (uintptr_t)node->next - base_addr;
+    }
+  }
+}
+
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
   using coro_handle = std::coroutine_handle<>;
@@ -29,7 +67,6 @@ class RMCScheduler {
   std::unordered_map<RMCId, RMC> id_rmc_map;
   /* RMCs ready to be run */
   std::deque<coro_handle> runqueue;
-  /* RMCs waiting for host memory accesses */
 
   size_t num_llnodes;
   uint16_t num_qps;
@@ -81,16 +118,33 @@ public:
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
-  RMCScheduler(NICServer &nicserver)
-      : ns(nicserver), num_qps(0), req_idx(0), reply_idx(0), pending_replies(0),
-        recvd_disconnect(false) {}
+  RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
+      : ns(nicserver), num_llnodes(num_nodes), num_qps(num_qps), req_idx(0), reply_idx(0), pending_replies(0),
+        recvd_disconnect(false) {
+    RMCAllocator::init();
+    for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
+      runcoros = true;
+      spawn(rmc_test(ns.onesidedclient, num_llnodes));
+    }
+  }
+
+  ~RMCScheduler() {
+    runcoros = false;
+    while (!freequeue.empty()) {
+      auto coro = freequeue.front();
+      freequeue.pop_front();
+      coro.resume();
+      assert(coro.done());
+    }
+    RMCAllocator::release();
+  }
 
   void run();
   void schedule(RDMAClient &rclient);
   void set_num_llnodes(size_t num_nodes);
   void set_num_qps(uint16_t num_qps);
   void dispatch_new_req(CmdRequest *req);
-  void spawn(CoroRMC<int> coro);
+  void spawn(CoroRMC coro);
 
   RDMAContext &get_server_context();
   RDMAContext &get_client_context(unsigned int id);

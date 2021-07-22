@@ -125,12 +125,10 @@ int main(int argc, char *argv[]) {
   RDMAServer rserver(1, false);
   NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
 
-  RMCAllocator::init();
-  RMCScheduler sched(nicserver);
-  sched.set_num_llnodes(llnodes);
-  sched.set_num_qps(numqps);
+  //RMCAllocator::init();
+  RMCScheduler sched(nicserver, llnodes, numqps);
 
   nicserver.start(sched, hostaddr, hostport, clientport);
-  RMCAllocator::release();
+  //RMCAllocator::release();
   LOG("bye.");
 }

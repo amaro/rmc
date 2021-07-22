@@ -12,7 +12,7 @@
 #include "utils/utils.h"
 
 static constexpr int NUM_REPS = 1;
-static constexpr const uint32_t NUM_REQS = 100000;
+static constexpr const uint32_t NUM_REQS = 50000;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port) {
   assert(!rmccready);
@@ -282,8 +282,8 @@ void benchmark_maxinflight(HostClient &client, std::string ofile) {
   LOG("get_max_inflight()=" << max);
   LOG("rdtsc freq=" << freq);
 
-  LOG("maxinflight: warming up");
-  client.do_maxinflight(client.get_max_inflight() * 10);
+  //#LOG("maxinflight: warming up");
+  //#client.do_maxinflight(client.get_max_inflight() * 10);
 
   LOG("maxinflight: benchmark start");
   client.do_maxinflight(NUM_REQS);

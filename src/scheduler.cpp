@@ -1,19 +1,5 @@
 #include "scheduler.h"
 
-CoroRMC<int> rmc_test(OneSidedClient &client, size_t num_nodes) {
-  // getting a local buffer should be explicit here
-  // consider cpu locality into the design
-  uintptr_t base_addr = (uintptr_t)client.get_remote_base_addr();
-  uint32_t offset = 0;
-  LLNode *node = nullptr;
-
-  for (size_t i = 0; i < num_nodes; ++i) {
-    node = (LLNode *)co_await client.readfromcoro(
-        offset, sizeof(LLNode)); // this should take node->next vaddr
-    offset = (uintptr_t)node->next - base_addr;
-  }
-}
-
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
 void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
@@ -31,8 +17,9 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
   ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
-void RMCScheduler::spawn(CoroRMC<int> coro) {
-  runqueue.push_back(coro.get_handle());
+void RMCScheduler::spawn(CoroRMC coro) {
+  //runqueue.push_back(coro.get_handle());
+  coro.get_handle().resume();
 }
 
 void RMCScheduler::req_new_rmc(CmdRequest *req) {
@@ -42,7 +29,11 @@ void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  spawn(rmc_test(ns.onesidedclient, num_llnodes));
+  //spawn(rmc_test(ns.onesidedclient, num_llnodes));
+  coro_handle coro = freequeue.front();
+  freequeue.pop_front();
+  runqueue.push_back(coro);
+
 #ifdef PERF_STATS
   debug_cycles_newcoros += get_cycles() - cycles_coros;
 #endif
@@ -77,14 +68,12 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
       batch_started = true;
     }
 
-    auto rmc = runqueue.front();
+    auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(runqueue.front().address());
     runqueue.pop_front();
 
     rmc.resume();
 
-    /* coro.done() returns true if coro is suspended at final suspension point
-     */
-    if (!rmc.done())
+    if (!rmc.promise().waiting_next_req)
       clientctx.memqueue.push(rmc);
     else
       add_reply(rmc, server_ctx);
