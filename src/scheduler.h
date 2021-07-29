@@ -1,6 +1,6 @@
 #pragma once
 
-#define PERF_STATS
+//#define PERF_STATS
 
 #include <cassert>
 #include <cstdlib>
@@ -316,8 +316,8 @@ inline void RMCScheduler::poll_comps_host() {
   long long cycles = get_cycles();
 #endif
   static auto add_to_runqueue = [this](size_t val) {
-    uint32_t ctx_id = val >> 32;
-    uint32_t batch_size = val & 0xFFFFFFFF;
+    const uint32_t ctx_id = val >> 32;
+    const uint32_t batch_size = val & 0xFFFFFFFF;
     RDMAContext &ctx = this->get_client_context(ctx_id);
     for (auto i = 0u; i < batch_size; ++i) {
       this->runqueue.push_front(ctx.memqueue.front());
@@ -328,7 +328,7 @@ inline void RMCScheduler::poll_comps_host() {
   /* poll up to MAX_HOSTMEM_BATCH_SIZE * MAX_HOSTMEM_POLL cqes */
   int comps =
       ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
-  (void)comps;
+  (void) comps;
 #ifdef PERF_STATS
   debug_cycles_hostcomps = get_cycles() - cycles;
   debug_hostcomps = comps;

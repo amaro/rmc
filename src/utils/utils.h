@@ -95,4 +95,10 @@ inline void inc_with_wraparound(T &ref, const T &maxvalue) {
     ref = 0;
 }
 
+inline void dec_with_wraparound(uint32_t &ref, const uint32_t &maxvalue) {
+  /* check for underflow */
+  if (--ref > maxvalue)
+    ref = maxvalue - 1;
+}
+
 #endif

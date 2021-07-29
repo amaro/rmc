@@ -18,7 +18,6 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 }
 
 void RMCScheduler::spawn(CoroRMC coro) {
-  //runqueue.push_back(coro.get_handle());
   coro.get_handle().resume();
 }
 
@@ -29,7 +28,6 @@ void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  //spawn(rmc_test(ns.onesidedclient, num_llnodes));
   coro_handle coro = freequeue.front();
   freequeue.pop_front();
   runqueue.push_back(coro);
@@ -58,38 +56,40 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
 #endif
   static RDMAContext &server_ctx = get_server_context();
 
-  RDMAContext &clientctx = get_next_client_context();
-  bool batch_started = false;
+  for (auto qp=0u; qp < num_qps; ++qp) {
+    RDMAContext &clientctx = get_next_client_context();
+    bool batch_started = false;
 
-  while (!runqueue.empty() &&
-         clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-    if (!batch_started) {
-      rclient.start_batched_ops(&clientctx);
-      batch_started = true;
-    }
+    while (!runqueue.empty() &&
+           clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+      if (!batch_started) {
+        rclient.start_batched_ops(&clientctx);
+        batch_started = true;
+      }
 
-    auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(runqueue.front().address());
-    runqueue.pop_front();
+      auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(runqueue.front().address());
+      runqueue.pop_front();
 
-    rmc.resume();
+      rmc.resume();
 
-    if (!rmc.promise().waiting_next_req)
-      clientctx.memqueue.push(rmc);
-    else
-      add_reply(rmc, server_ctx);
+      if (!rmc.promise().waiting_next_req)
+        clientctx.memqueue.push(rmc);
+      else
+        add_reply(rmc, server_ctx);
 
 #ifdef PERF_STATS
-    debug_rmcexecs++;
+      debug_rmcexecs++;
 #endif
-    if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+        rclient.end_batched_ops();
+        batch_started = false;
+      }
+    }
+
+    if (batch_started) {
       rclient.end_batched_ops();
       batch_started = false;
     }
-  }
-
-  if (batch_started) {
-    rclient.end_batched_ops();
-    batch_started = false;
   }
 
   send_poll_replies(server_ctx);
