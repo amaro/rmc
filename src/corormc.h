@@ -5,6 +5,8 @@
 #include "utils/utils.h"
 #include <coroutine>
 
+inline RMCAllocator allocator;
+
 class CoroRMC {
 public:
   /*
@@ -31,14 +33,9 @@ public:
     promise_type() noexcept {};
     ~promise_type() = default;
 
-    void *operator new(size_t size) {
-      if (size != 120)
-        DIE("promise size is not 120, it is=" << size);
+    void *operator new(size_t size) { return allocator.alloc(size); }
 
-      return RMCAllocator::get_promise();
-    }
-
-    void operator delete(void *p) { RMCAllocator::delete_promise(p); }
+    void operator delete(void *p, size_t size) { allocator.free(p, size); }
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }
@@ -57,7 +54,9 @@ public:
   using HDL = std::coroutine_handle<promise_type>;
 
   /* move constructor */
-  CoroRMC(CoroRMC &&oth) : _coroutine(oth._coroutine) { oth._coroutine = nullptr; }
+  CoroRMC(CoroRMC &&oth) : _coroutine(oth._coroutine) {
+    oth._coroutine = nullptr;
+  }
 
   /* default constructor */
   CoroRMC() = delete;

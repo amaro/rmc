@@ -1,49 +1,43 @@
-#ifndef ALLOCATOR_H
-#define ALLOCATOR_H
+#pragma once
 
 #include <forward_list>
+#include <stdlib.h>
 
 #include "rdma/rdmapeer.h"
 #include "utils/utils.h"
 
-namespace RMCAllocator {
-/* 120 bytes */
-struct PromiseAllocNode {
-  uint64_t pad[15];
+struct RMCAllocator {
+  struct header {
+    header *next;
+    size_t size;
+  };
+
+  header *root = nullptr;
+
+  ~RMCAllocator() {
+    auto current = root;
+    while (current) {
+      auto next = current->next;
+      ::free(current);
+      current = next;
+    }
+  }
+
+  void *alloc(size_t sz) {
+    /* can we reuse prev allocation */
+    if (root && sz <= root->size) {
+      void *mem = root;
+      root = root->next;
+      return mem;
+    }
+
+    return aligned_alloc(64, sz);
+  }
+
+  void free(void *p, size_t sz) {
+    auto new_entry = static_cast<header *>(p);
+    new_entry->next = root;
+    new_entry->size = sz;
+    root = new_entry;
+  }
 };
-
-static constexpr size_t NUM_NODES = QP_MAX_2SIDED_WRS;
-
-inline std::forward_list<PromiseAllocNode *> promise_list;
-
-inline void init() {
-  static_assert(sizeof(PromiseAllocNode) == 120);
-
-  for (auto i = 0u; i < NUM_NODES; ++i) {
-    promise_list.push_front(new PromiseAllocNode());
-  }
-}
-
-inline void release() {
-  for (auto i = 0u; i < NUM_NODES; ++i) {
-    delete promise_list.front();
-    promise_list.pop_front();
-  }
-}
-
-inline void *get_promise() {
-  if (promise_list.empty())
-    DIE("promise_list is empty");
-
-  PromiseAllocNode *promise = promise_list.front();
-  promise_list.pop_front();
-  return promise;
-}
-
-inline void delete_promise(void *ptr) {
-  PromiseAllocNode *promise = reinterpret_cast<PromiseAllocNode *>(ptr);
-  promise_list.push_front(promise);
-}
-}; // namespace RMCAllocator
-
-#endif

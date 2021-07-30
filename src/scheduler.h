@@ -119,9 +119,8 @@ public:
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
   RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
-      : ns(nicserver), num_llnodes(num_nodes), num_qps(num_qps), req_idx(0), reply_idx(0), pending_replies(0),
-        recvd_disconnect(false) {
-    RMCAllocator::init();
+      : ns(nicserver), num_llnodes(num_nodes), num_qps(num_qps), req_idx(0),
+        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
       runcoros = true;
       spawn(rmc_test(ns.onesidedclient, num_llnodes));
@@ -136,7 +135,6 @@ public:
       coro.resume();
       assert(coro.done());
     }
-    RMCAllocator::release();
   }
 
   void run();
@@ -328,7 +326,7 @@ inline void RMCScheduler::poll_comps_host() {
   /* poll up to MAX_HOSTMEM_BATCH_SIZE * MAX_HOSTMEM_POLL cqes */
   int comps =
       ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
-  (void) comps;
+  (void)comps;
 #ifdef PERF_STATS
   debug_cycles_hostcomps = get_cycles() - cycles;
   debug_hostcomps = comps;

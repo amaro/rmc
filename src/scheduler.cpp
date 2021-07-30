@@ -17,9 +17,7 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
   ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
 }
 
-void RMCScheduler::spawn(CoroRMC coro) {
-  coro.get_handle().resume();
-}
+void RMCScheduler::spawn(CoroRMC coro) { coro.get_handle().resume(); }
 
 void RMCScheduler::req_new_rmc(CmdRequest *req) {
   assert(req->type == CmdType::CALL_RMC);
@@ -56,7 +54,7 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
 #endif
   static RDMAContext &server_ctx = get_server_context();
 
-  for (auto qp=0u; qp < num_qps; ++qp) {
+  for (auto qp = 0u; qp < num_qps; ++qp) {
     RDMAContext &clientctx = get_next_client_context();
     bool batch_started = false;
 
@@ -67,7 +65,8 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
         batch_started = true;
       }
 
-      auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(runqueue.front().address());
+      auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(
+          runqueue.front().address());
       runqueue.pop_front();
 
       rmc.resume();
