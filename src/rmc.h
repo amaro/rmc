@@ -23,7 +23,6 @@ struct CallReq {
   char data[MAX_RMC_ARG_LEN + 1];
 };
 struct CallReply {
-  int status;
   char data[MAX_RMC_REPLY_LEN + 1];
 };
 struct SetRDMAMrReq {

@@ -49,7 +49,6 @@ public:
       reply_buf.push_back(CmdReply());
       /* assume replies are successful */
       reply_buf[i].type = CmdType::CALL_RMC;
-      reply_buf[i].reply.call.status = 0;
     }
   }
 

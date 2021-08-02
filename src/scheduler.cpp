@@ -26,7 +26,7 @@ void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  coro_handle coro = freequeue.front();
+  void_handle coro = freequeue.front();
   freequeue.pop_front();
   runqueue.push_back(coro);
 
@@ -65,8 +65,9 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
         batch_started = true;
       }
 
-      auto rmc = std::coroutine_handle<CoroRMC::promise_type>::from_address(
-          runqueue.front().address());
+      promise_handle rmc =
+          std::coroutine_handle<CoroRMC::promise_type>::from_address(
+              runqueue.front().address());
       runqueue.pop_front();
 
       rmc.resume();

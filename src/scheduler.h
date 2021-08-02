@@ -21,52 +21,15 @@
 
 class NICServer;
 
-inline bool runcoros;
-/* pre allocated, free coroutines */
-inline std::deque<std::coroutine_handle<>> freequeue;
-
-struct AwaitableNextReq {
-  CoroRMC::promise_type *_promise;
-
-  bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-    _promise = &coro.promise();
-    _promise->waiting_next_req = true;
-    freequeue.push_front(coro);
-    return true; // suspend
-  }
-  bool await_resume() {
-    _promise->waiting_next_req = false;
-    return runcoros;
-  }
-};
-
-inline auto wait_next_req() { return AwaitableNextReq{}; }
-
-inline CoroRMC rmc_test(OneSidedClient &client, size_t num_nodes) {
-  while (co_await wait_next_req()) {
-    // getting a local buffer should be explicit here
-    // consider cpu locality into the design
-    uintptr_t base_addr = (uintptr_t)client.get_remote_base_addr();
-    uint32_t offset = 0;
-    LLNode *node = nullptr;
-
-    for (size_t i = 0; i < num_nodes; ++i) {
-      node = (LLNode *)co_await client.readfromcoro(
-          offset, sizeof(LLNode)); // this should take node->next vaddr
-      offset = (uintptr_t)node->next - base_addr;
-    }
-  }
-}
-
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
-  using coro_handle = std::coroutine_handle<>;
+  using void_handle = std::coroutine_handle<>;
+  using promise_handle = std::coroutine_handle<CoroRMC::promise_type>;
   NICServer &ns;
 
   std::unordered_map<RMCId, RMC> id_rmc_map;
   /* RMCs ready to be run */
-  std::deque<coro_handle> runqueue;
+  std::deque<void_handle> runqueue;
 
   size_t num_llnodes;
   uint16_t num_qps;
@@ -80,7 +43,7 @@ class RMCScheduler {
   RMCId get_rmc_id(const RMC &rmc);
   void req_get_rmc_id(CmdRequest *req);
   void req_new_rmc(CmdRequest *req);
-  void add_reply(coro_handle rmc, RDMAContext &server_ctx);
+  void add_reply(promise_handle rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
   void poll_comps_host();
@@ -132,8 +95,7 @@ public:
     while (!freequeue.empty()) {
       auto coro = freequeue.front();
       freequeue.pop_front();
-      coro.resume();
-      assert(coro.done());
+      coro.resume(); // coro gets destroyed
     }
   }
 
@@ -221,7 +183,8 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
   }
 }
 
-inline void RMCScheduler::add_reply(coro_handle rmc, RDMAContext &server_ctx) {
+inline void RMCScheduler::add_reply(promise_handle rmc,
+                                    RDMAContext &server_ctx) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
@@ -231,6 +194,9 @@ inline void RMCScheduler::add_reply(coro_handle rmc, RDMAContext &server_ctx) {
 
   pending_replies = true;
   CmdReply *reply = ns.get_reply(this->reply_idx);
+
+  *(reinterpret_cast<int *>(reply->reply.call.data)) = rmc.promise().reply_val;
+
   ns.post_batched_send_reply(server_ctx, reply);
   inc_with_wraparound(this->reply_idx, ns.bsize);
 
