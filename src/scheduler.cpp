@@ -37,6 +37,7 @@ void RMCScheduler::req_new_rmc(CmdRequest *req) {
 
 void RMCScheduler::run() {
   RDMAClient &rclient = ns.onesidedclient.get_rclient();
+  os_client = &ns.onesidedclient;
 
   while (ns.nsready) {
     schedule(rclient);

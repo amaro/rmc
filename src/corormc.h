@@ -6,6 +6,10 @@
 #include <coroutine>
 
 inline RMCAllocator allocator;
+inline bool runcoros;
+/* pre allocated, free coroutines */
+inline std::deque<std::coroutine_handle<>> freequeue;
+inline OneSidedClient *os_client;
 
 class CoroRMC {
 public:
@@ -80,10 +84,6 @@ private:
   HDL _coroutine;
 };
 
-inline bool runcoros;
-/* pre allocated, free coroutines */
-inline std::deque<std::coroutine_handle<>> freequeue;
-
 struct AwaitableNextReq {
   CoroRMC::promise_type *_promise;
 
@@ -100,20 +100,47 @@ struct AwaitableNextReq {
   }
 };
 
-inline auto wait_next_req() { return AwaitableNextReq{}; }
+inline auto wait_next_req() noexcept { return AwaitableNextReq{}; }
 
-inline CoroRMC rmc_test(OneSidedClient &client, size_t num_nodes) {
+struct AwaitableHostMemoryRead {
+  uintptr_t raddr;
+  uintptr_t laddr;
+  uint32_t size;
+
+  AwaitableHostMemoryRead(uintptr_t raddr, uint32_t sz)
+      : raddr(raddr), size(sz) {
+    /* find the remote offset from remote base addr and apply it to local addr
+     * too */
+    uint32_t offset = raddr - os_client->get_remote_base_addr();
+    laddr = os_client->get_local_base_addr() + offset;
+  }
+
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<> coro) {
+    os_client->read_async(raddr, laddr, size);
+    return true; // suspend
+  }
+  void *await_resume() { return reinterpret_cast<void *>(laddr); }
+};
+
+inline auto read(uintptr_t raddr, uint32_t sz) noexcept {
+  return AwaitableHostMemoryRead{raddr, sz};
+}
+
+inline auto get_remote_baseaddr() noexcept {
+  return os_client->get_remote_base_addr();
+}
+
+inline CoroRMC traverse_linkedlist(size_t num_nodes) {
   while (co_await wait_next_req()) {
     // getting a local buffer should be explicit here
     // consider cpu locality into the design
-    uintptr_t base_addr = (uintptr_t)client.get_remote_base_addr();
-    uint32_t offset = 0;
+    uintptr_t remote_addr = get_remote_baseaddr();
     LLNode *node = nullptr;
 
     for (size_t i = 0; i < num_nodes; ++i) {
-      node = (LLNode *)co_await client.readfromcoro(
-          offset, sizeof(LLNode)); // this should take node->next vaddr
-      offset = (uintptr_t)node->next - base_addr;
+      node = static_cast<LLNode *>(co_await read(remote_addr, sizeof(LLNode)));
+      remote_addr = reinterpret_cast<uintptr_t>(node->next);
     }
 
     co_yield 1;

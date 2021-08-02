@@ -86,7 +86,7 @@ public:
         reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
       runcoros = true;
-      spawn(rmc_test(ns.onesidedclient, num_llnodes));
+      spawn(traverse_linkedlist(num_llnodes));
     }
   }
 
