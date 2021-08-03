@@ -16,8 +16,8 @@
 class CoroRMC;
 struct RDMAContext;
 
-static constexpr int QP_MAX_2SIDED_WRS = 2048;
-static constexpr int QP_MAX_1SIDED_WRS = 128;
+static constexpr int QP_MAX_2SIDED_WRS = 1024;
+static constexpr int QP_MAX_1SIDED_WRS = 64;
 
 struct CompQueue {
   ibv_cq_ex *cqx = nullptr;
