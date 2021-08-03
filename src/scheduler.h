@@ -26,6 +26,7 @@ class RMCScheduler {
   using void_handle = std::coroutine_handle<>;
   using promise_handle = std::coroutine_handle<CoroRMC::promise_type>;
   NICServer &ns;
+  Backend &backend;
 
   std::unordered_map<RMCId, RMC> id_rmc_map;
   /* RMCs ready to be run */
@@ -81,12 +82,13 @@ public:
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
 
-  RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
-      : ns(nicserver), num_llnodes(num_nodes), num_qps(num_qps), req_idx(0),
-        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
+  RMCScheduler(NICServer &nicserver, Backend &b, size_t num_nodes,
+               uint16_t num_qps)
+      : ns(nicserver), backend(b), num_llnodes(num_nodes), num_qps(num_qps),
+        req_idx(0), reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
       runcoros = true;
-      spawn(traverse_linkedlist(num_llnodes));
+      spawn(traverse_linkedlist(backend, num_llnodes));
     }
   }
 

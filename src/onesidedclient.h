@@ -6,8 +6,6 @@
 #include "rmc.h"
 #include <coroutine>
 
-class HostMemoryAsyncRead;
-
 class OneSidedClient {
   RDMAClient rclient;
 
