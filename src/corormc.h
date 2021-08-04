@@ -107,70 +107,73 @@ struct AwaitNextReq {
 template <class A> class Backend {};
 
 template <> class Backend<OneSidedClient> {
-  struct AwaitHostMemoryRead {
-    OneSidedClient &access;
-    uintptr_t raddr = 0;
-    uintptr_t laddr = 0;
-    uint32_t size = 0;
-
-    AwaitHostMemoryRead(OneSidedClient &a) : access(a) {}
-
-    bool await_ready() { return false; }
-    auto await_suspend(std::coroutine_handle<> coro) {
-      access.read_async(raddr, laddr, size);
-      return true; // suspend
-    }
-    void *await_resume() { return reinterpret_cast<void *>(laddr); }
-  };
-
-  OneSidedClient &access;
-  AwaitNextReq awaitnextreq;
-  AwaitHostMemoryRead awaitread;
+  OneSidedClient &OSClient;
 
 public:
-  Backend(OneSidedClient &c) : access(c), awaitread(c) {}
+  Backend(OneSidedClient &c) : OSClient(c) {}
   ~Backend() {}
 
-  auto wait_next_req() noexcept { return awaitnextreq; }
+  auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto read(uintptr_t addr, uint32_t sz) noexcept {
-    awaitread.raddr = addr;
-    awaitread.size = sz;
-    awaitread.laddr =
-        access.get_local_base_addr() + (addr - access.get_remote_base_addr());
-    return awaitread;
+    struct AwaitHostMemoryRead {
+      OneSidedClient &OSClient;
+      uintptr_t raddr;
+      uint32_t size;
+      uintptr_t laddr;
+
+      AwaitHostMemoryRead(OneSidedClient &c, uintptr_t raddr, uint32_t sz)
+          : OSClient(c), raddr(raddr), size(sz) {
+        laddr = OSClient.get_local_base_addr() +
+                (raddr - OSClient.get_remote_base_addr());
+      }
+
+      bool await_ready() { return false; }
+
+      auto await_suspend(std::coroutine_handle<> coro) {
+        OSClient.read_async(raddr, laddr, size);
+        return true; // suspend
+      }
+
+      void *await_resume() { return reinterpret_cast<void *>(laddr); }
+    };
+
+    return AwaitHostMemoryRead{OSClient, addr, sz};
   }
-  auto get_baseaddr() noexcept { return access.get_remote_base_addr(); }
+  auto get_baseaddr() noexcept { return OSClient.get_remote_base_addr(); }
 };
 
 class LocalMemory {};
 
 template <> class Backend<LocalMemory> {
-  struct AwaitMemoryRead {
-    uintptr_t laddr = 0;
-
-    AwaitMemoryRead() {}
-
-    bool await_ready() { return false; }
-    auto await_suspend(std::coroutine_handle<> coro) {
-      return false; // don't suspend
-    }
-    void *await_resume() { return reinterpret_cast<void *>(laddr); }
-  };
-
-  AwaitNextReq awaitnextreq;
-  AwaitMemoryRead awaitread;
   char *buffer;
+  LLNode *linkedlist;
 
 public:
-  Backend(OneSidedClient &c) {
+  Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
     buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+    linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
   }
-  ~Backend() { free(buffer); }
 
-  auto wait_next_req() noexcept { return awaitnextreq; }
+  ~Backend() {
+    destroy_linkedlist(linkedlist);
+    free(buffer);
+  }
+
+  auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto read(uintptr_t addr, uint32_t sz) noexcept {
-    awaitread.laddr = addr;
-    return awaitread;
+    struct AwaitDRAMRead {
+      uintptr_t laddr;
+
+      AwaitDRAMRead(uintptr_t &a) : laddr(a) {}
+
+      bool await_ready() { return false; }
+      auto await_suspend(std::coroutine_handle<> coro) {
+        return false; // don't suspend
+      }
+      void *await_resume() { return reinterpret_cast<void *>(laddr); }
+    };
+
+    return AwaitDRAMRead{addr};
   }
   auto get_baseaddr() noexcept { return reinterpret_cast<uintptr_t>(buffer); }
 };

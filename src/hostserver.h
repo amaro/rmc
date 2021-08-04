@@ -16,7 +16,6 @@ class HostServer {
   // no reply_buf since we don't need one right now.
   ibv_mr *rdma_mr;
   ibv_mr *req_buf_mr;
-  /* initialized in init_rdma_buffer */
   LLNode *linkedlist;
 
   void send_rdma_mr();
@@ -27,21 +26,18 @@ public:
   static constexpr const int PAGE_SIZE = 4096;
 
   HostServer(unsigned int num_qps) : rserver(num_qps, true), hsready(false) {
-    init_rdma_buffer();
+    rdma_buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+    linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
     req_buf = std::make_unique<CmdRequest>();
   }
 
   ~HostServer() {
-    /* see
-     * https://stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new
-     */
-    linkedlist->~LLNode();
+    destroy_linkedlist(linkedlist);
     free(rdma_buffer);
   }
 
   void connect_and_block(int port);
   void disconnect();
-  void init_rdma_buffer();
 };
 
 inline void HostServer::send_rdma_mr() {

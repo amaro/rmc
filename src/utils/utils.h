@@ -1,5 +1,4 @@
-#ifndef UTILS_H
-#define UTILS_H
+#pragma once
 
 #include "logger.h"
 #include <chrono>
@@ -101,4 +100,23 @@ inline void dec_with_wraparound(uint32_t &ref, const uint32_t &maxvalue) {
     ref = maxvalue - 1;
 }
 
-#endif
+/* creates a linked list over an already allocated *buffer */
+template <typename T>
+inline T *create_linkedlist(void *buffer, size_t bufsize) {
+  size_t num_nodes = bufsize / sizeof(T);
+  T *linkedlist = new (buffer) T[num_nodes];
+
+  for (size_t n = 0; n < num_nodes - 1; ++n)
+    linkedlist[n].next = &linkedlist[n + 1];
+
+  linkedlist[num_nodes - 1].next = nullptr;
+  LOG("linkedlist[0]=" << linkedlist);
+  LOG("linkedlist[0].next=" << linkedlist[0].next);
+  return linkedlist;
+}
+
+/* stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new */
+template <typename T>
+inline void destroy_linkedlist(T *linkedlist) {
+  linkedlist->~T();
+}
