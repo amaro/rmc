@@ -83,64 +83,100 @@ private:
   HDL _coroutine;
 };
 
-class Backend {
+/* TODO: move these to a better place */
+static constexpr const uint16_t PAGE_SIZE = 4096;
+static constexpr const size_t RDMA_BUFF_SIZE = 1 << 26;
+
+/* common for backends */
+struct AwaitNextReq {
+  CoroRMC::promise_type *_promise;
+
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
+    _promise = &coro.promise();
+    _promise->waiting_next_req = true;
+    freequeue.push_front(coro);
+    return true; // suspend
+  }
+  bool await_resume() {
+    _promise->waiting_next_req = false;
+    return runcoros;
+  }
+};
+
+template <class A> class Backend {};
+
+template <> class Backend<OneSidedClient> {
   struct AwaitHostMemoryRead {
-    OneSidedClient &client;
+    OneSidedClient &access;
     uintptr_t raddr = 0;
     uintptr_t laddr = 0;
     uint32_t size = 0;
 
-    AwaitHostMemoryRead(OneSidedClient &c) : client(c) {}
+    AwaitHostMemoryRead(OneSidedClient &a) : access(a) {}
 
     bool await_ready() { return false; }
     auto await_suspend(std::coroutine_handle<> coro) {
-      client.read_async(raddr, laddr, size);
+      access.read_async(raddr, laddr, size);
       return true; // suspend
     }
     void *await_resume() { return reinterpret_cast<void *>(laddr); }
   };
 
-  struct AwaitNextReq {
-    CoroRMC::promise_type *_promise;
-
-    bool await_ready() { return false; }
-    auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-      _promise = &coro.promise();
-      _promise->waiting_next_req = true;
-      freequeue.push_front(coro);
-      return true; // suspend
-    }
-    bool await_resume() {
-      _promise->waiting_next_req = false;
-      return runcoros;
-    }
-  };
-
-  OneSidedClient &client;
+  OneSidedClient &access;
   AwaitNextReq awaitnextreq;
   AwaitHostMemoryRead awaitread;
 
 public:
-  static constexpr const uint16_t PAGE_SIZE = 4096;
-  static constexpr const size_t RDMA_BUFF_SIZE = 1 << 26;
-
-  Backend(OneSidedClient &c) : client(c), awaitread(c) {}
+  Backend(OneSidedClient &c) : access(c), awaitread(c) {}
   ~Backend() {}
 
-  auto wait_next_req() noexcept {
-    return awaitnextreq;
-  }
+  auto wait_next_req() noexcept { return awaitnextreq; }
   auto read(uintptr_t addr, uint32_t sz) noexcept {
     awaitread.raddr = addr;
     awaitread.size = sz;
     awaitread.laddr =
-        client.get_local_base_addr() + (addr - client.get_remote_base_addr());
+        access.get_local_base_addr() + (addr - access.get_remote_base_addr());
     return awaitread;
   }
-  auto get_baseaddr() noexcept { return client.get_remote_base_addr(); }
+  auto get_baseaddr() noexcept { return access.get_remote_base_addr(); }
 };
 
-inline CoroRMC traverse_linkedlist(Backend &b, size_t num_nodes) {
+class LocalMemory {};
+
+template <> class Backend<LocalMemory> {
+  struct AwaitMemoryRead {
+    uintptr_t laddr = 0;
+
+    AwaitMemoryRead() {}
+
+    bool await_ready() { return false; }
+    auto await_suspend(std::coroutine_handle<> coro) {
+      return false; // don't suspend
+    }
+    void *await_resume() { return reinterpret_cast<void *>(laddr); }
+  };
+
+  AwaitNextReq awaitnextreq;
+  AwaitMemoryRead awaitread;
+  char *buffer;
+
+public:
+  Backend(OneSidedClient &c) {
+    buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+  }
+  ~Backend() { free(buffer); }
+
+  auto wait_next_req() noexcept { return awaitnextreq; }
+  auto read(uintptr_t addr, uint32_t sz) noexcept {
+    awaitread.laddr = addr;
+    return awaitread;
+  }
+  auto get_baseaddr() noexcept { return reinterpret_cast<uintptr_t>(buffer); }
+};
+
+template <class T>
+inline CoroRMC traverse_linkedlist(Backend<T> &b, size_t num_nodes) {
   while (co_await b.wait_next_req()) {
     // getting a local buffer should be explicit here
     // consider cpu locality into the design

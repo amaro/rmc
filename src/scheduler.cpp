@@ -26,7 +26,7 @@ void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  void_handle coro = freequeue.front();
+  std::coroutine_handle<> coro = freequeue.front();
   freequeue.pop_front();
   runqueue.push_back(coro);
 

@@ -122,11 +122,10 @@ int main(int argc, char *argv[]) {
   LOG("timer freq=" << get_freq());
 
   OneSidedClient onesidedclient(numqps);
-  Backend backend(onesidedclient);
   RDMAServer rserver(1, false);
   NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
 
-  RMCScheduler sched(nicserver, backend, llnodes, numqps);
+  RMCScheduler sched(nicserver, llnodes, numqps);
   nicserver.start(sched, hostaddr, hostport, clientport);
   LOG("bye.");
 }
