@@ -5,6 +5,13 @@
 #include "utils/utils.h"
 #include <coroutine>
 
+/* TODO: move these to a better place */
+static constexpr const uint16_t PAGE_SIZE = 4096;
+static constexpr const size_t RDMA_BUFF_SIZE = 1 << 26;
+static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
+static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
+    RDMA_BUFF_SIZE / sizeof(LLNode);
+
 inline RMCAllocator allocator;
 inline bool runcoros;
 /* pre allocated, free coroutines */
@@ -83,10 +90,6 @@ private:
   HDL _coroutine;
 };
 
-/* TODO: move these to a better place */
-static constexpr const uint16_t PAGE_SIZE = 4096;
-static constexpr const size_t RDMA_BUFF_SIZE = 1 << 26;
-
 /* common for backends */
 struct AwaitNextReq {
   CoroRMC::promise_type *_promise;
@@ -108,24 +111,27 @@ template <class A> class Backend {};
 
 template <> class Backend<OneSidedClient> {
   OneSidedClient &OSClient;
+  uint64_t calls_baseaddr;
+  uintptr_t base_laddr;
+  uintptr_t base_raddr;
 
 public:
-  Backend(OneSidedClient &c) : OSClient(c) {}
+  Backend(OneSidedClient &c)
+      : OSClient(c), calls_baseaddr(0), base_laddr(0), base_raddr(0) {}
   ~Backend() {}
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
-  auto read(uintptr_t addr, uint32_t sz) noexcept {
+
+  auto read(uintptr_t raddr, uint32_t sz) noexcept {
     struct AwaitHostMemoryRead {
       OneSidedClient &OSClient;
       uintptr_t raddr;
-      uint32_t size;
       uintptr_t laddr;
+      uint32_t size;
 
-      AwaitHostMemoryRead(OneSidedClient &c, uintptr_t raddr, uint32_t sz)
-          : OSClient(c), raddr(raddr), size(sz) {
-        laddr = OSClient.get_local_base_addr() +
-                (raddr - OSClient.get_remote_base_addr());
-      }
+      AwaitHostMemoryRead(OneSidedClient &c, uintptr_t raddr, uintptr_t laddr,
+                          uint32_t sz)
+          : OSClient(c), raddr(raddr), laddr(laddr), size(sz) {}
 
       bool await_ready() { return false; }
 
@@ -137,9 +143,27 @@ public:
       void *await_resume() { return reinterpret_cast<void *>(laddr); }
     };
 
-    return AwaitHostMemoryRead{OSClient, addr, sz};
+    return AwaitHostMemoryRead{OSClient, raddr,
+                               base_laddr + (raddr - base_raddr), sz};
   }
-  auto get_baseaddr() noexcept { return OSClient.get_remote_base_addr(); }
+
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
+    /* initialized here since OSClient is invalid when our constructor executes
+     */
+    if (base_laddr == 0) {
+      base_laddr = OSClient.get_local_base_addr();
+      base_raddr = OSClient.get_remote_base_addr();
+    }
+
+    uint32_t startnode = calls_baseaddr * LINKDLIST_NUM_SKIP_NODES;
+    if (startnode + num_nodes > LINKDLIST_TOTAL_NODES) {
+      startnode = 0;
+      calls_baseaddr = 0;
+    }
+
+    calls_baseaddr++;
+    return base_raddr + startnode * sizeof(LLNode);
+  }
 };
 
 class LocalMemory {};
@@ -147,9 +171,11 @@ class LocalMemory {};
 template <> class Backend<LocalMemory> {
   char *buffer;
   LLNode *linkedlist;
+  uint64_t calls_baseaddr;
 
 public:
-  Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
+  Backend(OneSidedClient &c)
+      : buffer(nullptr), linkedlist(nullptr), calls_baseaddr(0) {
     buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
     linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
   }
@@ -160,6 +186,7 @@ public:
   }
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
+
   auto read(uintptr_t addr, uint32_t sz) noexcept {
     struct AwaitDRAMRead {
       uintptr_t laddr;
@@ -175,15 +202,23 @@ public:
 
     return AwaitDRAMRead{addr};
   }
-  auto get_baseaddr() noexcept { return reinterpret_cast<uintptr_t>(buffer); }
+
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
+    uint32_t startnode = calls_baseaddr * LINKDLIST_NUM_SKIP_NODES;
+    if (startnode + num_nodes > LINKDLIST_TOTAL_NODES) {
+      startnode = 0;
+      calls_baseaddr = 0;
+    }
+
+    calls_baseaddr++;
+    return reinterpret_cast<uintptr_t>(buffer + startnode * sizeof(LLNode));
+  }
 };
 
 template <class T>
 inline CoroRMC traverse_linkedlist(Backend<T> &b, size_t num_nodes) {
   while (co_await b.wait_next_req()) {
-    // getting a local buffer should be explicit here
-    // consider cpu locality into the design
-    uintptr_t addr = b.get_baseaddr();
+    uintptr_t addr = b.get_baseaddr(num_nodes);
     LLNode *node = nullptr;
 
     for (size_t i = 0; i < num_nodes; ++i) {

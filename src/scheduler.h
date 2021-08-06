@@ -3,7 +3,6 @@
 //#define PERF_STATS
 #define B_RDMA 1
 #define B_DRAM 2
-#define BACKEND B_DRAM
 
 #include <cassert>
 #include <cstdlib>
@@ -29,10 +28,12 @@ class RMCScheduler {
   using promise_handle = std::coroutine_handle<CoroRMC::promise_type>;
   NICServer &ns;
 
-#if BACKEND == B_RDMA
+#if defined(BACKEND_RDMA)
   Backend<OneSidedClient> backend;
-#else
+#elif defined(BACKEND_DRAM)
   Backend<LocalMemory> backend;
+#else
+  static_assert(false, "Need to select a backend");
 #endif
 
   std::unordered_map<RMCId, RMC> id_rmc_map;

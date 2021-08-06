@@ -24,10 +24,17 @@ target_compile_options(onesidedclient_obj PUBLIC "-fcoroutines")
 target_compile_options(onesidedclient_obj PUBLIC "-fno-exceptions")
 target_compile_options(onesidedclient_obj PUBLIC "-fno-rtti")
 
-add_library(scheduler_obj OBJECT scheduler.cpp)
-target_compile_options(scheduler_obj PUBLIC "-fcoroutines")
-target_compile_options(scheduler_obj PUBLIC "-fno-exceptions")
-target_compile_options(scheduler_obj PUBLIC "-fno-rtti")
+add_library(scheduler_rdma_obj OBJECT scheduler.cpp)
+target_compile_options(scheduler_rdma_obj PUBLIC "-fcoroutines")
+target_compile_options(scheduler_rdma_obj PUBLIC "-fno-exceptions")
+target_compile_options(scheduler_rdma_obj PUBLIC "-fno-rtti")
+target_compile_definitions(scheduler_rdma_obj PUBLIC -DBACKEND_RDMA=1)
+
+add_library(scheduler_dram_obj OBJECT scheduler.cpp)
+target_compile_options(scheduler_dram_obj PUBLIC "-fcoroutines")
+target_compile_options(scheduler_dram_obj PUBLIC "-fno-exceptions")
+target_compile_options(scheduler_dram_obj PUBLIC "-fno-rtti")
+target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
 
 # rmc client
 add_executable(client client.cpp
@@ -47,7 +54,7 @@ target_link_libraries(hostserver mlx5 rdmacm ibverbs pthread)
 # nicserver; needs both rdmaserver and rdmaclient;
 # and for some reason it needs onesidedclient.cpp too (TODO)
 add_executable(nicserver nicserver.cpp
-    $<TARGET_OBJECTS:scheduler_obj>
+    $<TARGET_OBJECTS:scheduler_rdma_obj>
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmaserver_obj>
@@ -55,7 +62,20 @@ add_executable(nicserver nicserver.cpp
 target_compile_options(nicserver PUBLIC "-fcoroutines")
 target_compile_options(nicserver PUBLIC "-fno-exceptions")
 target_compile_options(nicserver PUBLIC "-fno-rtti")
+target_compile_definitions(nicserver PUBLIC -DBACKEND_RDMA=1)
 target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
+
+add_executable(nicserver_dram nicserver.cpp
+    $<TARGET_OBJECTS:scheduler_dram_obj>
+    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:rdmaclient_obj>
+    $<TARGET_OBJECTS:rdmaserver_obj>
+    $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_options(nicserver_dram PUBLIC "-fcoroutines")
+target_compile_options(nicserver_dram PUBLIC "-fno-exceptions")
+target_compile_options(nicserver_dram PUBLIC "-fno-rtti")
+target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
+target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
 
 # no rmc client; i.e., a one sided client that connects to host server directly
 # without a nicserver

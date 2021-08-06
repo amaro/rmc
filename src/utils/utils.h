@@ -1,8 +1,10 @@
 #pragma once
 
 #include "logger.h"
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <random>
 
 #define TEST_NZ(x)                                                             \
   do {                                                                         \
@@ -100,23 +102,36 @@ inline void dec_with_wraparound(uint32_t &ref, const uint32_t &maxvalue) {
     ref = maxvalue - 1;
 }
 
-/* creates a linked list over an already allocated *buffer */
+/* creates a randomized linked list over an already allocated *buffer */
 template <typename T>
 inline T *create_linkedlist(void *buffer, size_t bufsize) {
   size_t num_nodes = bufsize / sizeof(T);
+  std::vector<T *> indices(num_nodes);
   T *linkedlist = new (buffer) T[num_nodes];
 
-  for (size_t n = 0; n < num_nodes - 1; ++n)
-    linkedlist[n].next = &linkedlist[n + 1];
+  for (auto i = 0u; i < num_nodes; ++i)
+    indices[i] = &linkedlist[i];
 
-  linkedlist[num_nodes - 1].next = nullptr;
+  auto rng = std::default_random_engine{};
+  std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
+
+  for (auto i = 0u; i < num_nodes; ++i) {
+    T *cur = indices[i];
+    if (i < num_nodes - 1)
+      cur->next = indices[i + 1];
+    else
+      cur->next = indices[0];
+
+    cur->data = 1;
+  }
+
   LOG("linkedlist[0]=" << linkedlist);
   LOG("linkedlist[0].next=" << linkedlist[0].next);
   return linkedlist;
 }
 
-/* stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new */
-template <typename T>
-inline void destroy_linkedlist(T *linkedlist) {
+/* stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new
+ */
+template <typename T> inline void destroy_linkedlist(T *linkedlist) {
   linkedlist->~T();
 }

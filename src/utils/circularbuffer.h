@@ -10,8 +10,7 @@
  */
 template <class T, uint32_t N> class CircularBuffer {
 public:
-  explicit CircularBuffer()
-      : buffer(std::unique_ptr<T[]>(new T[N])) {}
+  explicit CircularBuffer() : buffer(std::unique_ptr<T[]>(new T[N])) {}
 
   /* pushes at the head and increments head */
   void push(T item) {

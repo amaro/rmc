@@ -10,7 +10,7 @@ NICSERVER_REMOTE_DIR=/home/ubuntu
 ARM_BIN=build_arm/bin
 X86_BIN=build_x86/bin
 
-NICSERVER_FILES="${ARM_BIN}/nicserver scripts/runme_benchmarks_bf1.sh scripts/nicserver_load.sh"
+NICSERVER_FILES="${ARM_BIN}/nicserver ${ARM_BIN}/nicserver_dram scripts/runme_benchmarks_bf1.sh scripts/nicserver_load.sh"
 CLIENT_FILES="${X86_BIN}/client scripts/client_load.sh"
 
 scp ${NICSERVER_FILES} ${NICSERVER_USER}@${NICSERVER_ADDR}:${NICSERVER_REMOTE_DIR}
