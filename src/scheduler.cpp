@@ -54,44 +54,7 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
 #endif
   static RDMAContext &server_ctx = get_server_context();
 
-  for (auto qp = 0u; qp < num_qps; ++qp) {
-    RDMAContext &clientctx = get_next_client_context();
-    bool batch_started = false;
-
-    while (!runqueue.empty() &&
-           clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-      if (!batch_started) {
-        rclient.start_batched_ops(&clientctx);
-        batch_started = true;
-      }
-
-      promise_handle rmc =
-          std::coroutine_handle<CoroRMC::promise_type>::from_address(
-              runqueue.front().address());
-      runqueue.pop_front();
-
-      rmc.resume();
-
-      if (!rmc.promise().waiting_next_req)
-        clientctx.memqueue.push(rmc);
-      else
-        add_reply(rmc, server_ctx);
-
-#ifdef PERF_STATS
-      debug_rmcexecs++;
-#endif
-      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
-        rclient.end_batched_ops();
-        batch_started = false;
-      }
-    }
-
-    if (batch_started) {
-      rclient.end_batched_ops();
-      batch_started = false;
-    }
-  }
-
+  execute(rclient, server_ctx);
   send_poll_replies(server_ctx);
 #ifdef PERF_STATS
   /* we do it here because add_reply() above computes its own duration

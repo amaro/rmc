@@ -52,6 +52,7 @@ class RMCScheduler {
   RMCId get_rmc_id(const RMC &rmc);
   void req_get_rmc_id(CmdRequest *req);
   void req_new_rmc(CmdRequest *req);
+  void execute(RDMAClient &rclient, RDMAContext &server_ctx);
   void add_reply(promise_handle rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
@@ -190,6 +191,48 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
     return;
   default:
     DIE("unrecognized CmdRequest type");
+  }
+}
+
+/* interleaved execution */
+inline void RMCScheduler::execute(RDMAClient &rclient, RDMAContext &server_ctx) {
+  for (auto qp = 0u; qp < num_qps; ++qp) {
+    RDMAContext &clientctx = get_next_client_context();
+    bool batch_started = false;
+
+    while (!runqueue.empty() &&
+           clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+      /* TODO: DRAM should not execute this */
+      if (!batch_started) {
+        rclient.start_batched_ops(&clientctx);
+        batch_started = true;
+      }
+
+      promise_handle rmc =
+          std::coroutine_handle<CoroRMC::promise_type>::from_address(
+              runqueue.front().address());
+      runqueue.pop_front();
+
+      rmc.resume();
+
+      if (!rmc.promise().waiting_next_req)
+        clientctx.memqueue.push(rmc);
+      else
+        add_reply(rmc, server_ctx);
+
+#ifdef PERF_STATS
+      debug_rmcexecs++;
+#endif
+      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+        rclient.end_batched_ops();
+        batch_started = false;
+      }
+    }
+
+    if (batch_started) {
+      rclient.end_batched_ops();
+      batch_started = false;
+    }
   }
 }
 
