@@ -52,7 +52,8 @@ class RMCScheduler {
   RMCId get_rmc_id(const RMC &rmc);
   void req_get_rmc_id(CmdRequest *req);
   void req_new_rmc(CmdRequest *req);
-  void execute(RDMAClient &rclient, RDMAContext &server_ctx);
+  void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
+  void exec_completion(RDMAContext &server_ctx);
   void add_reply(promise_handle rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
@@ -90,6 +91,7 @@ public:
   static constexpr int MAX_HOSTMEM_BATCH_SIZE = 8;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
+  static constexpr uint16_t MAX_EXECS_COMPLETION = 16;
 
   RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
       : ns(nicserver), backend(ns.onesidedclient), num_llnodes(num_nodes),
@@ -111,7 +113,8 @@ public:
   }
 
   void run();
-  void schedule(RDMAClient &rclient);
+  void schedule_interleaved(RDMAClient &rclient);
+  void schedule_completion(RDMAClient &rclient);
   void set_num_llnodes(size_t num_nodes);
   void set_num_qps(uint16_t num_qps);
   void dispatch_new_req(CmdRequest *req);
@@ -194,8 +197,8 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
   }
 }
 
-/* interleaved execution */
-inline void RMCScheduler::execute(RDMAClient &rclient, RDMAContext &server_ctx) {
+inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
+                                           RDMAContext &server_ctx) {
   for (auto qp = 0u; qp < num_qps; ++qp) {
     RDMAContext &clientctx = get_next_client_context();
     bool batch_started = false;
@@ -234,6 +237,26 @@ inline void RMCScheduler::execute(RDMAClient &rclient, RDMAContext &server_ctx) 
       batch_started = false;
     }
   }
+}
+
+inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
+  uint8_t execs = 0;
+
+  while (!runqueue.empty() && execs < MAX_EXECS_COMPLETION) {
+    promise_handle rmc =
+        std::coroutine_handle<CoroRMC::promise_type>::from_address(
+            runqueue.front().address());
+    runqueue.pop_front();
+
+    rmc.resume();
+
+    add_reply(rmc, server_ctx);
+    execs++;
+  }
+
+#ifdef PERF_STATS
+  debug_rmcexecs += execs;
+#endif
 }
 
 inline void RMCScheduler::add_reply(promise_handle rmc,

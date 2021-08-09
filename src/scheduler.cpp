@@ -39,7 +39,11 @@ void RMCScheduler::run() {
   RDMAClient &rclient = ns.onesidedclient.get_rclient();
 
   while (ns.nsready) {
-    schedule(rclient);
+#if defined(BACKEND_RDMA)
+    schedule_interleaved(rclient);
+#elif defined(BACKEND_DRAM)
+    schedule_completion(rclient);
+#endif
 
     if (this->recvd_disconnect && !this->executing())
       return ns.disconnect();
@@ -48,13 +52,13 @@ void RMCScheduler::run() {
   }
 }
 
-void RMCScheduler::schedule(RDMAClient &rclient) {
+void RMCScheduler::schedule_interleaved(RDMAClient &rclient) {
 #ifdef PERF_STATS
   long long exec_start = get_cycles();
 #endif
   static RDMAContext &server_ctx = get_server_context();
 
-  execute(rclient, server_ctx);
+  exec_interleaved(rclient, server_ctx);
   send_poll_replies(server_ctx);
 #ifdef PERF_STATS
   /* we do it here because add_reply() above computes its own duration
@@ -65,6 +69,28 @@ void RMCScheduler::schedule(RDMAClient &rclient) {
 
   check_new_reqs_client(server_ctx);
   poll_comps_host();
+
+#ifdef PERF_STATS
+  debug_cycles = get_cycles() - exec_start;
+#endif
+}
+
+void RMCScheduler::schedule_completion(RDMAClient &rclient) {
+#ifdef PERF_STATS
+  long long exec_start = get_cycles();
+#endif
+  static RDMAContext &server_ctx = get_server_context();
+
+  exec_interleaved(rclient, server_ctx);
+  send_poll_replies(server_ctx);
+#ifdef PERF_STATS
+  /* we do it here because add_reply() above computes its own duration
+     that must be added to the time spent in send_poll_replies()
+     both of them must be substracted from debug_cycles_execs */
+  debug_cycles_execs = get_cycles() - exec_start - debug_cycles_replies;
+#endif
+
+  check_new_reqs_client(server_ctx);
 
 #ifdef PERF_STATS
   debug_cycles = get_cycles() - exec_start;
