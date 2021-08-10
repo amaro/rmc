@@ -32,6 +32,8 @@ class RMCScheduler {
   Backend<OneSidedClient> backend;
 #elif defined(BACKEND_DRAM)
   Backend<LocalMemory> backend;
+#elif defined(BACKEND_RDMA_COMP)
+  Backend<SyncRDMA> backend;
 #else
   static_assert(false, "Need to select a backend");
 #endif
@@ -91,7 +93,7 @@ public:
   static constexpr int MAX_HOSTMEM_BATCH_SIZE = 8;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
-  static constexpr uint16_t MAX_EXECS_COMPLETION = 16;
+  static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
 
   RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
       : ns(nicserver), backend(ns.onesidedclient), num_llnodes(num_nodes),

@@ -41,7 +41,7 @@ void RMCScheduler::run() {
   while (ns.nsready) {
 #if defined(BACKEND_RDMA)
     schedule_interleaved(rclient);
-#elif defined(BACKEND_DRAM)
+#elif defined(BACKEND_DRAM) || defined(BACKEND_RDMA_COMP)
     schedule_completion(rclient);
 #endif
 
@@ -75,13 +75,14 @@ void RMCScheduler::schedule_interleaved(RDMAClient &rclient) {
 #endif
 }
 
+/* does not poll for host completions */
 void RMCScheduler::schedule_completion(RDMAClient &rclient) {
 #ifdef PERF_STATS
   long long exec_start = get_cycles();
 #endif
   static RDMAContext &server_ctx = get_server_context();
 
-  exec_interleaved(rclient, server_ctx);
+  exec_completion(server_ctx);
   send_poll_replies(server_ctx);
 #ifdef PERF_STATS
   /* we do it here because add_reply() above computes its own duration

@@ -107,44 +107,53 @@ struct AwaitNextReq {
   }
 };
 
+/* used when resume returns an address */
+template <bool suspend> struct AwaitAddr {
+  uintptr_t addr;
+
+  AwaitAddr(uintptr_t addr) : addr(addr) {}
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<> coro) {
+    return suspend; // suspend (true) or not (false)
+  }
+  void *await_resume() { return reinterpret_cast<void *>(addr); }
+};
+
+static inline uint32_t get_next_llnode(uint32_t num_skip) noexcept {
+  static uint32_t addresses_given = 0;
+  uint32_t next_node = addresses_given * LINKDLIST_NUM_SKIP_NODES;
+
+  if (next_node + num_skip > LINKDLIST_TOTAL_NODES) {
+    next_node = 0;
+    addresses_given = 0;
+  }
+
+  addresses_given++;
+  return next_node;
+}
+
+/* Generic class for Backends; needs full specialization */
 template <class A> class Backend {};
 
+/* Backend<OneSidedClient> is our main async rdma backend */
 template <> class Backend<OneSidedClient> {
+protected:
   OneSidedClient &OSClient;
-  uint64_t calls_baseaddr;
   uintptr_t base_laddr;
   uintptr_t base_raddr;
 
 public:
-  Backend(OneSidedClient &c)
-      : OSClient(c), calls_baseaddr(0), base_laddr(0), base_raddr(0) {}
+  Backend(OneSidedClient &c) : OSClient(c), base_laddr(0), base_raddr(0) {
+    LOG("Using interleaving RDMA Backend (default)");
+  }
   ~Backend() {}
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
-    struct AwaitHostMemoryRead {
-      OneSidedClient &OSClient;
-      uintptr_t raddr;
-      uintptr_t laddr;
-      uint32_t size;
-
-      AwaitHostMemoryRead(OneSidedClient &c, uintptr_t raddr, uintptr_t laddr,
-                          uint32_t sz)
-          : OSClient(c), raddr(raddr), laddr(laddr), size(sz) {}
-
-      bool await_ready() { return false; }
-
-      auto await_suspend(std::coroutine_handle<> coro) {
-        OSClient.read_async(raddr, laddr, size);
-        return true; // suspend
-      }
-
-      void *await_resume() { return reinterpret_cast<void *>(laddr); }
-    };
-
-    return AwaitHostMemoryRead{OSClient, raddr,
-                               base_laddr + (raddr - base_raddr), sz};
+    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    OSClient.read_async(raddr, laddr, sz);
+    return AwaitAddr<true>{laddr};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
@@ -155,29 +164,69 @@ public:
       base_raddr = OSClient.get_remote_base_addr();
     }
 
-    uint32_t startnode = calls_baseaddr * LINKDLIST_NUM_SKIP_NODES;
-    if (startnode + num_nodes > LINKDLIST_TOTAL_NODES) {
-      startnode = 0;
-      calls_baseaddr = 0;
-    }
-
-    calls_baseaddr++;
-    return base_raddr + startnode * sizeof(LLNode);
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return base_raddr + next_node * sizeof(LLNode);
   }
 };
 
-class LocalMemory {};
-
-template <> class Backend<LocalMemory> {
-  char *buffer;
-  LLNode *linkedlist;
-  uint64_t calls_baseaddr;
+/* Backend<SyncRDMA> defines a backend that matches the main async rdma backend,
+   except in memory access functions */
+class SyncRDMA {};
+template <> class Backend<SyncRDMA> {
+  OneSidedClient &OSClient;
+  uintptr_t base_laddr;
+  uintptr_t base_raddr;
+  RDMAClient &rclient;
+  RDMAContext *ctx;
+  ibv_cq_ex *send_cq;
 
 public:
   Backend(OneSidedClient &c)
-      : buffer(nullptr), linkedlist(nullptr), calls_baseaddr(0) {
+      : OSClient(c), base_laddr(0), base_raddr(0),
+        rclient(OSClient.get_rclient()) {
+    LOG("Using run-to-completion RDMA Backend");
+  }
+  ~Backend() {}
+
+  auto wait_next_req() noexcept { return AwaitNextReq{}; }
+
+  auto read(uintptr_t raddr, uint32_t sz) noexcept {
+    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    rclient.start_batched_ops(ctx);
+    OSClient.read_async(raddr, laddr, sz);
+    rclient.end_batched_ops();
+
+    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
+    return AwaitAddr<false>{laddr};
+  }
+
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
+    /* initialized here since OSClient is invalid when our constructor executes
+     */
+    if (base_laddr == 0) {
+      base_laddr = OSClient.get_local_base_addr();
+      base_raddr = OSClient.get_remote_base_addr();
+      ctx = &rclient.get_contexts()[0];
+      send_cq = rclient.get_send_cq();
+    }
+
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return base_raddr + next_node * sizeof(LLNode);
+  }
+};
+
+/* Backend<LocalMemory> defines a DRAM backend that runs coroutines to
+ * completion */
+class LocalMemory {};
+template <> class Backend<LocalMemory> {
+  char *buffer;
+  LLNode *linkedlist;
+
+public:
+  Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
     buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
     linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
+    LOG("Using local DRAM Backend");
   }
 
   ~Backend() {
@@ -188,30 +237,12 @@ public:
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
-    struct AwaitDRAMRead {
-      uintptr_t laddr;
-
-      AwaitDRAMRead(uintptr_t &a) : laddr(a) {}
-
-      bool await_ready() { return false; }
-      auto await_suspend(std::coroutine_handle<> coro) {
-        return false; // don't suspend
-      }
-      void *await_resume() { return reinterpret_cast<void *>(laddr); }
-    };
-
-    return AwaitDRAMRead{addr};
+    return AwaitAddr<false>{addr};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
-    uint32_t startnode = calls_baseaddr * LINKDLIST_NUM_SKIP_NODES;
-    if (startnode + num_nodes > LINKDLIST_TOTAL_NODES) {
-      startnode = 0;
-      calls_baseaddr = 0;
-    }
-
-    calls_baseaddr++;
-    return reinterpret_cast<uintptr_t>(buffer + startnode * sizeof(LLNode));
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return reinterpret_cast<uintptr_t>(buffer + next_node * sizeof(LLNode));
   }
 };
 
