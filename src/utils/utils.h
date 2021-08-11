@@ -6,6 +6,8 @@
 #include <cstring>
 #include <random>
 
+static constexpr int RANDOM_SEED = 123;
+
 #define TEST_NZ(x)                                                             \
   do {                                                                         \
     if ((x))                                                                   \
@@ -112,7 +114,7 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
   for (auto i = 0u; i < num_nodes; ++i)
     indices[i] = &linkedlist[i];
 
-  auto rng = std::default_random_engine{};
+  auto rng = std::default_random_engine{RANDOM_SEED};
   std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
 
   for (auto i = 0u; i < num_nodes; ++i) {
