@@ -27,7 +27,7 @@ public:
     req_buf = std::make_unique<CmdRequest>();
   }
 
-  ~OneSidedClient() { free(rdma_buffer); }
+  ~OneSidedClient() {}
 
   void connect(const std::string &ip, const unsigned int &port);
   void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);
