@@ -44,8 +44,8 @@ public:
     promise_type() noexcept {};
     ~promise_type() = default;
 
-    void *operator new(size_t size) { return allocator.alloc(size); }
-    void operator delete(void *p, size_t size) { allocator.free(p, size); }
+    // void *operator new(size_t size) { return allocator.alloc(size); }
+    // void operator delete(void *p, size_t size) { allocator.free(p, size); }
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }
@@ -169,8 +169,8 @@ public:
   }
 };
 
-/* Backend<SyncRDMA> defines a backend that matches the main async rdma backend,
-   except in memory access functions */
+/* Backend<SyncRDMA> defines a backend that uses the async rdma backend
+   synchronously */
 class SyncRDMA {};
 template <> class Backend<SyncRDMA> {
   OneSidedClient &OSClient;
@@ -221,18 +221,16 @@ class LocalMemory {};
 template <> class Backend<LocalMemory> {
   char *buffer;
   LLNode *linkedlist;
+  HugeAllocator huge;
 
 public:
   Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
-    buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+    buffer = huge.get();
     linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
     LOG("Using local DRAM Backend");
   }
 
-  ~Backend() {
-    destroy_linkedlist(linkedlist);
-    free(buffer);
-  }
+  ~Backend() { destroy_linkedlist(linkedlist); }
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
 

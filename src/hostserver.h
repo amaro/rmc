@@ -1,6 +1,7 @@
 #ifndef HOST_SERVER_H
 #define HOST_SERVER_H
 
+#include "allocator.h"
 #include "rdma/rdmaserver.h"
 #include "rmc.h"
 #include <cstdlib>
@@ -17,24 +18,21 @@ class HostServer {
   ibv_mr *rdma_mr;
   ibv_mr *req_buf_mr;
   LLNode *linkedlist;
+  HugeAllocator huge;
 
   void send_rdma_mr();
 
 public:
   /* TODO: move these to a config.h or something */
   static constexpr const long RDMA_BUFF_SIZE = 1 << 26;
-  static constexpr const int PAGE_SIZE = 4096;
 
   HostServer(unsigned int num_qps) : rserver(num_qps, true), hsready(false) {
-    rdma_buffer = static_cast<char *>(aligned_alloc(PAGE_SIZE, RDMA_BUFF_SIZE));
+    rdma_buffer = huge.get();
     linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
     req_buf = std::make_unique<CmdRequest>();
   }
 
-  ~HostServer() {
-    destroy_linkedlist(linkedlist);
-    free(rdma_buffer);
-  }
+  ~HostServer() { destroy_linkedlist(linkedlist); }
 
   void connect_and_block(int port);
   void disconnect();

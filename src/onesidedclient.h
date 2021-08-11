@@ -15,6 +15,7 @@ class OneSidedClient {
   ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
   std::unique_ptr<CmdRequest> req_buf;
   char *rdma_buffer;
+  HugeAllocator huge;
 
   void disconnect(); // TODO: do we need this?
   void recv_rdma_mr();
@@ -22,8 +23,7 @@ class OneSidedClient {
 public:
   OneSidedClient(unsigned int num_qps)
       : rclient(num_qps, true), onesready(false) {
-    rdma_buffer = static_cast<char *>(
-        aligned_alloc(HostServer::PAGE_SIZE, HostServer::RDMA_BUFF_SIZE));
+    rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
   }
 

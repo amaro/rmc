@@ -1,10 +1,8 @@
 #pragma once
 
-#include <forward_list>
-#include <stdlib.h>
-
-#include "rdma/rdmapeer.h"
 #include "utils/utils.h"
+#include <stdlib.h>
+#include <sys/mman.h>
 
 struct RMCAllocator {
   struct header {
@@ -31,7 +29,7 @@ struct RMCAllocator {
       return mem;
     }
 
-    return aligned_alloc(64, sz);
+    return malloc(sz);
   }
 
   void free(void *p, size_t sz) {
@@ -40,4 +38,25 @@ struct RMCAllocator {
     new_entry->size = sz;
     root = new_entry;
   }
+};
+
+struct HugeAllocator {
+  /* 1 GB */
+  static constexpr size_t HUGE_PAGE_SIZE = 1 << 30;
+
+  char *ptr;
+
+  HugeAllocator() {
+    ptr = static_cast<char *>(
+        mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0));
+    if (ptr == MAP_FAILED)
+      DIE("huge allocation failed");
+  }
+
+  ~HugeAllocator() { munmap(ptr, HUGE_PAGE_SIZE); }
+
+  char *get() { return ptr; }
+
+  constexpr size_t size() { return HUGE_PAGE_SIZE; }
 };
