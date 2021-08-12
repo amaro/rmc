@@ -24,7 +24,7 @@ class HostServer {
 
 public:
   /* TODO: move these to a config.h or something */
-  static constexpr const long RDMA_BUFF_SIZE = 1 << 26;
+  static constexpr const long RDMA_BUFF_SIZE = 1 << 30;
 
   HostServer(unsigned int num_qps) : rserver(num_qps, true), hsready(false) {
     rdma_buffer = huge.get();

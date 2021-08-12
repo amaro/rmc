@@ -114,6 +114,7 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
   for (auto i = 0u; i < num_nodes; ++i)
     indices[i] = &linkedlist[i];
 
+  LOG("Shuffling " << num_nodes << " linked list nodes");
   auto rng = std::default_random_engine{RANDOM_SEED};
   std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
 
@@ -127,8 +128,6 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
     cur->data = 1;
   }
 
-  LOG("linkedlist[0]=" << linkedlist);
-  LOG("linkedlist[0].next=" << linkedlist[0].next);
   return linkedlist;
 }
 

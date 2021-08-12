@@ -7,7 +7,7 @@
 
 /* TODO: move these to a better place */
 static constexpr const uint16_t PAGE_SIZE = 4096;
-static constexpr const size_t RDMA_BUFF_SIZE = 1 << 26;
+static constexpr const size_t RDMA_BUFF_SIZE = 1 << 30;
 static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
 static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
     RDMA_BUFF_SIZE / sizeof(LLNode);
@@ -44,8 +44,8 @@ public:
     promise_type() noexcept {};
     ~promise_type() = default;
 
-    // void *operator new(size_t size) { return allocator.alloc(size); }
-    // void operator delete(void *p, size_t size) { allocator.free(p, size); }
+    void *operator new(size_t size) { return allocator.alloc(size); }
+    void operator delete(void *p, size_t size) { allocator.free(p, size); }
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }

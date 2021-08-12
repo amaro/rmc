@@ -29,7 +29,7 @@ struct RMCAllocator {
       return mem;
     }
 
-    return malloc(sz);
+    return aligned_alloc(64, sz);
   }
 
   void free(void *p, size_t sz) {
