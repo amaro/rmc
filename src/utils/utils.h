@@ -66,6 +66,24 @@ inline long long ns_to_cycles(long long ns, long long freq) {
   return static_cast<long long>(cycles);
 }
 
+inline void cpu_relax() {
+#if defined(__aarch64__)
+  asm volatile("yield" ::: "memory");
+#else
+  asm volatile("rep; nop" ::: "memory");
+#endif
+}
+
+inline void spinloop_cycles(const long long cycles) {
+  if (cycles == 0)
+    return;
+
+  auto start = get_cycles();
+
+  while (get_cycles() - start < cycles)
+    cpu_relax();
+}
+
 inline long long get_freq() {
 #if defined(__aarch64__)
   long long freq;

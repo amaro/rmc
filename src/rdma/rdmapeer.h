@@ -208,6 +208,7 @@ public:
         curr_batch_size{0}, cm_id{nullptr}, qp{nullptr}, qpx{nullptr},
         event_channel{nullptr}, buffered_send{0, nullptr, 0, 0, false} {
 
+    recv_batch.reserve(MAX_BATCHED_RECVS);
     for (auto i = 0u; i < MAX_BATCHED_RECVS; ++i) {
       recv_batch.push_back(RecvOp());
     }

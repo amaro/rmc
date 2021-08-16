@@ -39,7 +39,7 @@ void RDMAClient::connect_to_server(const std::string &ip,
       }
     }
 
-    contexts.push_back(ctx);
+    contexts.push_back(std::move(ctx));
   }
 }
 

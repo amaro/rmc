@@ -50,7 +50,7 @@ public:
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }
     /* don't suspend after coroutine ends */
-    auto final_suspend() { return std::suspend_never{}; }
+    auto final_suspend() noexcept { return std::suspend_never{}; }
     /* must return the object that wraps promise_type */
     auto get_return_object() noexcept { return CoroRMC{*this}; }
     void return_void() {}
@@ -208,6 +208,69 @@ public:
       base_raddr = OSClient.get_remote_base_addr();
       ctx = &rclient.get_contexts()[0];
       send_cq = rclient.get_send_cq();
+    }
+
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return base_raddr + next_node * sizeof(LLNode);
+  }
+};
+
+/* Backend<Threading> defines a backend that simulates context switching
+   threads by sleeping before suspending and resuming */
+class Threading {};
+template <> class Backend<Threading> {
+protected:
+  /* one-way delay of switching to a thread */
+  static constexpr const uint64_t ONEWAY_DELAY_NS = 200;
+
+  OneSidedClient &OSClient;
+  uintptr_t base_laddr;
+  uintptr_t base_raddr;
+  long long oneway_delay_cycles;
+
+  struct AwaitAddrDelayed {
+    uintptr_t addr;
+    long long oneway_delay;
+
+    AwaitAddrDelayed(uintptr_t addr, long long delay)
+        : addr(addr), oneway_delay(delay) {}
+    bool await_ready() { return false; }
+    auto await_suspend(std::coroutine_handle<> coro) {
+      spinloop_cycles(oneway_delay);
+      return true;
+    }
+    void *await_resume() {
+      spinloop_cycles(oneway_delay);
+      return reinterpret_cast<void *>(addr);
+    }
+  };
+
+public:
+  Backend(OneSidedClient &c) : OSClient(c), base_laddr(0), base_raddr(0) {
+    auto cpufreq = get_freq();
+    oneway_delay_cycles = ns_to_cycles(ONEWAY_DELAY_NS, cpufreq);
+    LOG("Using threads interleaving RDMA Backend");
+    LOG("CPU freq=" << cpufreq);
+    LOG("One-way delay in ns=" << ONEWAY_DELAY_NS
+                       << ". Delay in cycles=" << oneway_delay_cycles);
+  }
+
+  ~Backend() {}
+
+  auto wait_next_req() noexcept { return AwaitNextReq{}; }
+
+  auto read(uintptr_t raddr, uint32_t sz) noexcept {
+    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    OSClient.read_async(raddr, laddr, sz);
+    return AwaitAddrDelayed{laddr, oneway_delay_cycles};
+  }
+
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
+    /* initialized here since OSClient is invalid when our constructor executes
+     */
+    if (base_laddr == 0) {
+      base_laddr = OSClient.get_local_base_addr();
+      base_raddr = OSClient.get_remote_base_addr();
     }
 
     uint32_t next_node = get_next_llnode(num_nodes);
