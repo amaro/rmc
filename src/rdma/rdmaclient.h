@@ -4,7 +4,7 @@
 #include "rdmapeer.h"
 
 class RDMAClient : public RDMAPeer {
-  bool onesided;
+  const bool onesided;
   void handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id);
 
 public:

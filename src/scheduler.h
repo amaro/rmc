@@ -42,7 +42,8 @@ class RMCScheduler {
   /* RMCs ready to be run */
   std::deque<std::coroutine_handle<>> runqueue;
 
-  uint16_t num_qps;
+  const uint16_t num_qps;
+  const uint16_t max_hostmem_bsize;
   unsigned int req_idx;
   uint32_t reply_idx;
   bool pending_replies;
@@ -87,16 +88,15 @@ class RMCScheduler {
 
 public:
   static constexpr int MAX_NEW_REQS_PER_ITER = 32;
-  /* decreasing MAX_HOSTMEM_BATCH_SIZE increases latency because
-  there's more involvement from CPU to issue more batches and more host comps */
-  static constexpr int MAX_HOSTMEM_BATCH_SIZE = 8;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
 
   RMCScheduler(NICServer &nicserver, uint16_t num_qps)
-      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps), req_idx(0),
-        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
+      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps),
+        max_hostmem_bsize(num_qps == 1 ? 8 : 16), req_idx(0), reply_idx(0),
+        pending_replies(0), recvd_disconnect(false) {
+    LOG("batchsize=" << max_hostmem_bsize);
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
       runcoros = true;
       spawn(traverse_linkedlist(backend));
@@ -138,10 +138,6 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc) {
   }
 
   return id;
-}
-
-inline void RMCScheduler::set_num_qps(uint16_t num_qps) {
-  this->num_qps = num_qps;
 }
 
 inline RDMAContext &RMCScheduler::get_server_context() {
@@ -241,7 +237,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 #ifdef PERF_STATS
       debug_rmcexecs++;
 #endif
-      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BATCH_SIZE) {
+      if (clientctx.curr_batch_size >= max_hostmem_bsize) {
         rclient.end_batched_ops();
         batch_started = false;
       }
@@ -380,7 +376,7 @@ inline void RMCScheduler::poll_comps_host() {
     }
   };
 
-  /* poll up to MAX_HOSTMEM_BATCH_SIZE * MAX_HOSTMEM_POLL cqes */
+  /* poll up to max_hostmem_bsize * MAX_HOSTMEM_POLL cqes */
   int comps =
       ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
   (void)comps;
