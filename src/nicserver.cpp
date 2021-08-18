@@ -69,26 +69,22 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
 
 int main(int argc, char *argv[]) {
   char *hostaddr = nullptr;
-  int32_t hostport, clientport, llnodes, numqps;
+  int32_t hostport, clientport, numqps;
   int c;
 
   opterr = 0;
   clientport = 30000;
   hostport = 30001;
-  llnodes = 0;
   numqps = 0;
 
-  /* server address, num queue pairs, number of ll nodes */
-  while ((c = getopt(argc, argv, "s:q:n:")) != -1) {
+  /* server address, num queue pairs */
+  while ((c = getopt(argc, argv, "s:q:")) != -1) {
     switch (c) {
     case 's':
       hostaddr = optarg;
       break;
     case 'q':
       numqps = atoi(optarg);
-      break;
-    case 'n':
-      llnodes = atoi(optarg);
       break;
     case '?':
     default:
@@ -97,17 +93,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps
-            << " llnodes=" << llnodes << "\n";
-
-  if (llnodes == 0) {
-    std::cerr << "Need to specify number of nodes with -n\n";
-    return 1;
-  }
-
-  /* by pass error checking */
-  if (llnodes == -1)
-    llnodes = 0;
+  std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << "\n";
 
   if (numqps == 0) {
     std::cerr << "Need to specify number of qps with -q\n";
@@ -125,7 +111,7 @@ int main(int argc, char *argv[]) {
   RDMAServer rserver(1, false);
   NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
 
-  RMCScheduler sched(nicserver, llnodes, numqps);
+  RMCScheduler sched(nicserver, numqps);
   nicserver.start(sched, hostaddr, hostport, clientport);
   LOG("bye.");
 }

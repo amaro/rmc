@@ -42,7 +42,6 @@ class RMCScheduler {
   /* RMCs ready to be run */
   std::deque<std::coroutine_handle<>> runqueue;
 
-  size_t num_llnodes;
   uint16_t num_qps;
   unsigned int req_idx;
   uint32_t reply_idx;
@@ -95,13 +94,12 @@ public:
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
 
-  RMCScheduler(NICServer &nicserver, size_t num_nodes, uint16_t num_qps)
-      : ns(nicserver), backend(ns.onesidedclient), num_llnodes(num_nodes),
-        num_qps(num_qps), req_idx(0), reply_idx(0), pending_replies(0),
-        recvd_disconnect(false) {
+  RMCScheduler(NICServer &nicserver, uint16_t num_qps)
+      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps), req_idx(0),
+        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
       runcoros = true;
-      spawn(traverse_linkedlist(backend, num_llnodes));
+      spawn(traverse_linkedlist(backend));
     }
   }
 
@@ -142,11 +140,6 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc) {
   return id;
 }
 
-inline void RMCScheduler::set_num_llnodes(size_t num_nodes) {
-  LOG("num nodes in each linked list=" << num_nodes);
-  num_llnodes = num_nodes;
-}
-
 inline void RMCScheduler::set_num_qps(uint16_t num_qps) {
   this->num_qps = num_qps;
 }
@@ -182,6 +175,27 @@ inline bool RMCScheduler::executing() {
   return false;
 }
 
+inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
+  assert(req->type == CmdType::CALL_RMC);
+
+#ifdef PERF_STATS
+  long long cycles_coros = get_cycles();
+#endif
+  promise_handle rmc =
+      std::coroutine_handle<CoroRMC::promise_type>::from_address(
+          freequeue.front().address());
+  freequeue.pop_front();
+
+  CallReq *callreq = &req->request.call;
+  rmc.promise().param = *(reinterpret_cast<uint32_t *>(callreq->data));
+
+  runqueue.push_back(rmc);
+
+#ifdef PERF_STATS
+  debug_cycles_newcoros += get_cycles() - cycles_coros;
+#endif
+}
+
 inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
   switch (req->type) {
   case CmdType::GET_RMCID:
@@ -207,7 +221,6 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 
     while (!runqueue.empty() &&
            clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
-      /* TODO: DRAM should not execute this */
       if (!batch_started) {
         rclient.start_batched_ops(&clientctx);
         batch_started = true;

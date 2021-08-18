@@ -30,6 +30,7 @@ public:
   struct promise_type {
     bool waiting_next_req = false;
     int reply_val = 0;
+    int param = 0;
 
     /* move assignment op */
     promise_type &operator=(promise_type &&oth) = delete;
@@ -107,6 +108,17 @@ struct AwaitNextReq {
   }
 };
 
+struct AwaitGetParam {
+  CoroRMC::promise_type *_promise;
+
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
+    _promise = &coro.promise();
+    return false; // don't suspend
+  }
+  int await_resume() { return _promise->param; }
+};
+
 /* used when resume returns an address */
 template <bool suspend> struct AwaitAddr {
   uintptr_t addr;
@@ -149,6 +161,7 @@ public:
   ~Backend() {}
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
+  auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
@@ -189,6 +202,7 @@ public:
   ~Backend() {}
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
+  auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
@@ -252,12 +266,13 @@ public:
     LOG("Using threads interleaving RDMA Backend");
     LOG("CPU freq=" << cpufreq);
     LOG("One-way delay in ns=" << ONEWAY_DELAY_NS
-                       << ". Delay in cycles=" << oneway_delay_cycles);
+                               << ". Delay in cycles=" << oneway_delay_cycles);
   }
 
   ~Backend() {}
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
+  auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
@@ -296,6 +311,7 @@ public:
   ~Backend() { destroy_linkedlist(linkedlist); }
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
+  auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
     return AwaitAddr<false>{addr};
@@ -307,13 +323,13 @@ public:
   }
 };
 
-template <class T>
-inline CoroRMC traverse_linkedlist(Backend<T> &b, size_t num_nodes) {
+template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
   while (co_await b.wait_next_req()) {
+    int num_nodes = co_await b.get_param();
     uintptr_t addr = b.get_baseaddr(num_nodes);
     LLNode *node = nullptr;
 
-    for (size_t i = 0; i < num_nodes; ++i) {
+    for (int i = 0; i < num_nodes; ++i) {
       node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
       addr = reinterpret_cast<uintptr_t>(node->next);
     }

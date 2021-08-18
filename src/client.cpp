@@ -47,7 +47,7 @@ RMCId HostClient::get_rmc_id(const RMC &rmc) {
   return reply->reply.getid.id;
 }
 
-long long HostClient::do_maxinflight(uint32_t num_reqs) {
+long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param) {
   assert(rmccready);
 
   const auto maxinflight = get_max_inflight();
@@ -57,7 +57,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs) {
   static auto noop = [](size_t) constexpr->void{};
 
   for (auto i = 0u; i < maxinflight; i++)
-    arm_call_req(get_req(i));
+    arm_call_req(get_req(i), param);
 
   time_point start = time_start();
   for (auto i = 0u; i < num_reqs; i++) {
@@ -278,7 +278,8 @@ void print_stats_load(std::vector<uint32_t> &durations, long long freq) {
 }
 
 /* keeps maxinflight active requests at all times */
-void benchmark_maxinflight(HostClient &client, std::string ofile) {
+void benchmark_maxinflight(HostClient &client, std::string ofile,
+                           uint32_t param) {
   const uint32_t max = client.get_max_inflight();
   const long long freq = get_freq();
 
@@ -286,10 +287,10 @@ void benchmark_maxinflight(HostClient &client, std::string ofile) {
   LOG("rdtsc freq=" << freq);
 
   LOG("maxinflight: warming up");
-  client.do_maxinflight(client.get_max_inflight() * 10);
+  client.do_maxinflight(client.get_max_inflight() * 10, param);
 
   LOG("maxinflight: benchmark start");
-  client.do_maxinflight(NUM_REQS);
+  client.do_maxinflight(NUM_REQS, param);
   LOG("maxinflight: benchmark end");
 
   client.last_cmd();
@@ -327,10 +328,12 @@ int main(int argc, char *argv[]) {
       "mode", "client mode, can be: maxinflight or load",
       cxxopts::value<std::string>())(
       "l,load", "send 1 new req every these many microseconds (for mode=load)",
-      cxxopts::value<float>()->default_value("0.0"))("h,help", "Print usage");
+      cxxopts::value<float>()->default_value("0.0"))(
+      "param", "param for rmc", cxxopts::value<int>())("h,help", "Print usage");
 
   std::string server, ofile, mode;
   unsigned int port;
+  int param;
   float load = 0.0;
 
   try {
@@ -344,12 +347,15 @@ int main(int argc, char *argv[]) {
     ofile = result["output"].as<std::string>();
     mode = result["mode"].as<std::string>();
     load = result["load"].as<float>();
+    param = result["param"].as<int>();
 
     if (mode != "load" && mode != "maxinflight") {
       std::cerr << "need to specify mode: load or maxinflight\n";
       die(opts.help());
     } else if (mode == "load" && load == 0) {
       die("mode=load requires load > 0");
+    } else if (param < 0) {
+      die("param must be > 0");
     }
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
@@ -360,7 +366,7 @@ int main(int argc, char *argv[]) {
   client.connect(server, port);
 
   if (mode == "maxinflight")
-    benchmark_maxinflight(client, ofile);
+    benchmark_maxinflight(client, ofile, param);
   else
     benchmark_load(client, load);
 }

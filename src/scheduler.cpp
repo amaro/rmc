@@ -19,22 +19,6 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 
 void RMCScheduler::spawn(CoroRMC coro) { coro.get_handle().resume(); }
 
-void RMCScheduler::req_new_rmc(CmdRequest *req) {
-  assert(req->type == CmdType::CALL_RMC);
-  // size_t arg = std::stoull(callreq.data);
-
-#ifdef PERF_STATS
-  long long cycles_coros = get_cycles();
-#endif
-  std::coroutine_handle<> coro = freequeue.front();
-  freequeue.pop_front();
-  runqueue.push_back(coro);
-
-#ifdef PERF_STATS
-  debug_cycles_newcoros += get_cycles() - cycles_coros;
-#endif
-}
-
 void RMCScheduler::run() {
   RDMAClient &rclient = ns.onesidedclient.get_rclient();
 

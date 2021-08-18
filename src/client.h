@@ -35,6 +35,7 @@ class HostClient {
                         uint32_t &rtt_idx);
   void parse_rmc_reply(CmdReply *reply) const;
   void arm_call_req(CmdRequest *req);
+  void arm_call_req(CmdRequest *req, uint32_t param);
 
 public:
   HostClient(size_t b, unsigned int num_qps)
@@ -59,7 +60,7 @@ public:
      3. return id */
   RMCId get_rmc_id(const RMC &rmc);
 
-  long long do_maxinflight(uint32_t num_reqs);
+  long long do_maxinflight(uint32_t num_reqs, uint32_t param);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
               long long freq);
   int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
@@ -132,6 +133,12 @@ inline void HostClient::arm_call_req(CmdRequest *req) {
   // CallReq *callreq = &req->request.call;
   // callreq->id = id;
   // num_to_str<size_t>(arg, callreq->data, MAX_RMC_ARG_LEN);
+}
+
+inline void HostClient::arm_call_req(CmdRequest *req, uint32_t param) {
+  req->type = CmdType::CALL_RMC;
+  CallReq *callreq = &req->request.call;
+  *(reinterpret_cast<uint32_t *>(callreq->data)) = param;
 }
 
 constexpr uint32_t HostClient::get_max_inflight() {
