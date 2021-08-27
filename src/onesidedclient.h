@@ -31,7 +31,7 @@ public:
 
   void connect(const std::string &ip, const unsigned int &port);
   void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);
-  void writehost(uint64_t raddr, uint32_t size, void *localbuff);
+  void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size);
   template <typename T> int poll_reads_atmost(int max, T &&comp_func);
   char *get_rdma_buffer();
   uintptr_t get_remote_base_addr();
@@ -63,6 +63,16 @@ inline void OneSidedClient::read_async(uintptr_t remote_addr,
   RDMAContext *ctx = rclient.batch_ctx;
   ctx->post_batched_read(remote_addr, local_addr, size, host_mr.rkey,
                          rdma_mr->lkey);
+}
+
+inline void OneSidedClient::write_async(uintptr_t remote_addr,
+                                        uintptr_t local_addr, uint32_t size) {
+  assert(onesready);
+  assert(rclient.batch_ctx != nullptr);
+
+  RDMAContext *ctx = rclient.batch_ctx;
+  ctx->post_batched_write(remote_addr, local_addr, size, host_mr.rkey,
+                          rdma_mr->lkey);
 }
 
 template <typename T>

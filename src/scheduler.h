@@ -92,14 +92,22 @@ public:
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
 
-  RMCScheduler(NICServer &nicserver, uint16_t num_qps)
+  RMCScheduler(NICServer &nicserver, uint16_t num_qps, Workload work)
       : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps),
         max_hostmem_bsize(num_qps == 1 ? 8 : 16), req_idx(0), reply_idx(0),
         pending_replies(0), recvd_disconnect(false) {
     LOG("batchsize=" << max_hostmem_bsize);
+    runcoros = true;
+
     for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
-      runcoros = true;
-      spawn(traverse_linkedlist(backend));
+      switch (work) {
+      case READ:
+        spawn(traverse_linkedlist(backend));
+        break;
+      case WRITE:
+        spawn(random_writes(backend));
+        break;
+      }
     }
   }
 

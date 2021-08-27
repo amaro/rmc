@@ -20,6 +20,7 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 void RMCScheduler::spawn(CoroRMC coro) { coro.get_handle().resume(); }
 
 void RMCScheduler::run() {
+  backend.init();
   RDMAClient &rclient = ns.onesidedclient.get_rclient();
 
   while (ns.nsready) {

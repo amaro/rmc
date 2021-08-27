@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include "hostserver.h"
 #include "utils/utils.h"
 
@@ -32,9 +34,47 @@ void HostServer::disconnect() {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 3)
-    die("usage: server <port> <numqps>");
+  int32_t port, numqps;
+  char *workload = nullptr;
+  int c;
 
-  HostServer server(atoi(argv[2]));
-  server.connect_and_block(atoi(argv[1]));
+  opterr = 0;
+  port = 30001;
+  numqps = 0;
+
+  /* num queue pairs, workload */
+  while ((c = getopt(argc, argv, "q:w:")) != -1) {
+    switch (c) {
+    case 'q':
+      numqps = atoi(optarg);
+      break;
+    case 'w':
+      workload = optarg;
+      break;
+    case '?':
+    default:
+      std::cerr << "Usage: -q numqps -w workload\n";
+      return 1;
+    }
+  }
+
+  Workload work = READ;
+  if (workload != nullptr) {
+    if (strcmp(workload, "read") == 0) {
+      work = READ;
+    } else if (strcmp(workload, "write") == 0) {
+      work = WRITE;
+    } else {
+      std::cerr << "Specify workload=read, write\n";
+      return 1;
+    }
+  } else {
+    std::cerr << "Usage: -q numqps -w workload\n";
+    return 1;
+  }
+
+  std::cout << "Workload=" << workload << "\n";
+
+  HostServer server(numqps, work);
+  server.connect_and_block(port);
 }

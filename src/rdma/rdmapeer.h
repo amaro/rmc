@@ -139,27 +139,37 @@ struct RDMAContext {
     bool signaled;
   };
 
-  struct ReadOp {
-    uint64_t wr_id;
+  struct ReadWriteOp {
     uintptr_t raddr;
     uintptr_t laddr;
     uint32_t len;
     unsigned int rkey;
     unsigned int lkey;
-    bool signaled;
+    bool read;
 
-    ReadOp()
-        : wr_id(0), raddr(0), laddr(0), len(0), rkey(0), lkey(0),
-          signaled(false) {}
+    ReadWriteOp() : raddr(0), laddr(0), len(0), rkey(0), lkey(0), read(false) {}
 
-    void post(ibv_qp_ex *qpx) {
-      if (signaled)
-        qpx->wr_flags = IBV_SEND_SIGNALED;
+    void post_unsignaled(ibv_qp_ex *qpx) {
+      qpx->wr_flags = 0;
+      qpx->wr_id = 0;
+
+      if (read)
+        ibv_wr_rdma_read(qpx, rkey, raddr);
       else
-        qpx->wr_flags = 0;
+        ibv_wr_rdma_write(qpx, rkey, raddr);
 
+      ibv_wr_set_sge(qpx, lkey, laddr, len);
+    }
+
+    void post_signaled(ibv_qp_ex *qpx, uint64_t wr_id) {
+      qpx->wr_flags = IBV_SEND_SIGNALED;
       qpx->wr_id = wr_id;
-      ibv_wr_rdma_read(qpx, rkey, raddr);
+
+      if (read)
+        ibv_wr_rdma_read(qpx, rkey, raddr);
+      else
+        ibv_wr_rdma_write(qpx, rkey, raddr);
+
       ibv_wr_set_sge(qpx, lkey, laddr, len);
     }
   };
@@ -169,7 +179,7 @@ struct RDMAContext {
     ibv_sge sge;
   };
 
-  enum BatchType { SEND, READ };
+  enum BatchType { SEND, RW };
 
   /* TODO: move this inside SendOp */
   void post_send(SendOp &sendop) {
@@ -198,7 +208,7 @@ public:
   ibv_qp_ex *qpx;
   rdma_event_channel *event_channel;
   SendOp buffered_send;
-  ReadOp buffered_read;
+  ReadWriteOp buffered_rw;
 
   /* TODO: try larger values of batched recvs */
   static constexpr uint32_t MAX_BATCHED_RECVS = 16;
@@ -250,39 +260,47 @@ public:
     post_send(buffered_send);
   }
 
-  void post_batched_read(uintptr_t raddr, uintptr_t laddr, uint32_t size,
-                         uint32_t rkey, uint32_t lkey) {
+  void post_batched_rw(uintptr_t raddr, uintptr_t laddr, uint32_t size,
+                       uint32_t rkey, uint32_t lkey, bool read) {
     if (curr_batch_size > 0)
-      buffered_read.post(qpx);
+      buffered_rw.post_unsignaled(qpx);
     else
-      curr_batch_type = BatchType::READ;
+      curr_batch_type = BatchType::RW;
 
-    buffered_read.wr_id = 0;
-    buffered_read.raddr = raddr;
-    buffered_read.laddr = laddr;
-    buffered_read.len = size;
-    buffered_read.rkey = rkey;
-    buffered_read.lkey = lkey;
-    buffered_read.signaled = false;
+    buffered_rw.raddr = raddr;
+    buffered_rw.laddr = laddr;
+    buffered_rw.len = size;
+    buffered_rw.rkey = rkey;
+    buffered_rw.lkey = lkey;
+    buffered_rw.read = read;
 
     curr_batch_size++;
   }
 
-  void end_batched_reads() {
-    buffered_read.signaled = true;
+  void post_batched_read(uintptr_t raddr, uintptr_t laddr, uint32_t size,
+                         uint32_t rkey, uint32_t lkey) {
+    post_batched_rw(raddr, laddr, size, rkey, lkey, true);
+  }
+
+  void post_batched_write(uintptr_t raddr, uintptr_t laddr, uint32_t size,
+                          uint32_t rkey, uint32_t lkey) {
+    post_batched_rw(raddr, laddr, size, rkey, lkey, false);
+  }
+
+  void end_batched_rw() {
+    uint64_t wr_id = ctx_id;
     /* left 32 bits used for ctx_id, right 32 bits batch size */
-    buffered_read.wr_id = ctx_id;
-    buffered_read.wr_id <<= 32;
-    buffered_read.wr_id |= curr_batch_size;
-    buffered_read.post(qpx);
+    wr_id <<= 32;
+    wr_id |= curr_batch_size;
+    buffered_rw.post_signaled(qpx, wr_id);
   }
 
   void end_batched_ops() {
     switch (curr_batch_type) {
     case BatchType::SEND:
       return end_batched_sends();
-    case BatchType::READ:
-      return end_batched_reads();
+    case BatchType::RW:
+      return end_batched_rw();
     default:
       DIE("unrecognized batch type");
     }

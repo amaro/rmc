@@ -1,8 +1,10 @@
 #pragma once
 
-#include "utils/utils.h"
+#include <cstring>
 #include <stdlib.h>
 #include <sys/mman.h>
+
+#include "utils/utils.h"
 
 struct RMCAllocator {
   struct header {
@@ -52,6 +54,7 @@ struct HugeAllocator {
              MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0));
     if (ptr == MAP_FAILED)
       DIE("huge allocation failed");
+    std::memset(ptr, 0, HUGE_PAGE_SIZE);
   }
 
   ~HugeAllocator() { munmap(ptr, HUGE_PAGE_SIZE); }

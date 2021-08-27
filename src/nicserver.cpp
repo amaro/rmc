@@ -69,8 +69,10 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
 
 int main(int argc, char *argv[]) {
   char *hostaddr = nullptr;
+  char *workload = nullptr;
   int32_t hostport, clientport, numqps;
   int c;
+  Workload work;
 
   opterr = 0;
   clientport = 30000;
@@ -78,7 +80,7 @@ int main(int argc, char *argv[]) {
   numqps = 0;
 
   /* server address, num queue pairs */
-  while ((c = getopt(argc, argv, "s:q:")) != -1) {
+  while ((c = getopt(argc, argv, "s:q:w:")) != -1) {
     switch (c) {
     case 's':
       hostaddr = optarg;
@@ -86,16 +88,33 @@ int main(int argc, char *argv[]) {
     case 'q':
       numqps = atoi(optarg);
       break;
+    case 'w':
+      workload = optarg;
+      break;
     case '?':
     default:
-      std::cerr << "Usage: -s hostaddr -q numqps -n numnodes\n";
+      std::cerr << "Usage: -s hostaddr -q numqps\n";
       return 1;
     }
   }
 
-  std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << "\n";
+  if (workload != nullptr) {
+    if (strcmp(workload, "read") == 0) {
+      work = READ;
+    } else if (strcmp(workload, "write") == 0) {
+      work = WRITE;
+    } else {
+      std::cerr << "Specify workload=read, write\n";
+      return 1;
+    }
+  } else {
+    std::cerr << "Specify workload=read, write\n";
+    return 1;
+  }
 
-  if (numqps == 0) {
+  std::cout << "Workload=" << workload << "\n";
+
+  if (numqps <= 0) {
     std::cerr << "Need to specify number of qps with -q\n";
     return 1;
   }
@@ -105,13 +124,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  LOG("timer freq=" << get_freq());
+  std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << "\n";
 
   OneSidedClient onesidedclient(numqps);
   RDMAServer rserver(1, false);
   NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
 
-  RMCScheduler sched(nicserver, numqps);
+  RMCScheduler sched(nicserver, numqps, work);
   nicserver.start(sched, hostaddr, hostport, clientport);
   LOG("bye.");
 }

@@ -119,6 +119,15 @@ struct AwaitGetParam {
   int await_resume() { return _promise->param; }
 };
 
+template <bool suspend> struct AwaitVoid {
+  AwaitVoid() {}
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<> coro) {
+    return suspend; // suspend (true) or not (false)
+  }
+  void await_resume() {}
+};
+
 /* used when resume returns an address */
 template <bool suspend> struct AwaitAddr {
   uintptr_t addr;
@@ -153,12 +162,20 @@ protected:
   OneSidedClient &OSClient;
   uintptr_t base_laddr;
   uintptr_t base_raddr;
+  uintptr_t last_random_addr;
 
 public:
-  Backend(OneSidedClient &c) : OSClient(c), base_laddr(0), base_raddr(0) {
+  Backend(OneSidedClient &c)
+      : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
     LOG("Using interleaving RDMA Backend (default)");
   }
   ~Backend() {}
+
+  void init() {
+    base_laddr = OSClient.get_local_base_addr();
+    base_raddr = OSClient.get_remote_base_addr();
+    last_random_addr = base_raddr;
+  }
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
@@ -169,16 +186,24 @@ public:
     return AwaitAddr<true>{laddr};
   }
 
-  auto get_baseaddr(uint32_t num_nodes) noexcept {
-    /* initialized here since OSClient is invalid when our constructor executes
-     */
-    if (base_laddr == 0) {
-      base_laddr = OSClient.get_local_base_addr();
-      base_raddr = OSClient.get_remote_base_addr();
-    }
+  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
+    static_assert(sizeof(T) <= 8);
+    uintptr_t laddr = base_laddr + (raddr - base_raddr);
 
+    /* copy to laddr first, then issue the write from there */
+    *(reinterpret_cast<T *>(laddr)) = *data;
+    OSClient.write_async(raddr, laddr, sizeof(T));
+    return AwaitVoid<true>{};
+  }
+
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
     return base_raddr + next_node * sizeof(LLNode);
+  }
+
+  uintptr_t get_random_addr() {
+    last_random_addr += 248;
+    return last_random_addr;
   }
 };
 
@@ -201,6 +226,13 @@ public:
   }
   ~Backend() {}
 
+  void init() {
+    base_laddr = OSClient.get_local_base_addr();
+    base_raddr = OSClient.get_remote_base_addr();
+    ctx = &rclient.get_contexts()[0];
+    send_cq = rclient.get_send_cq();
+  }
+
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
@@ -214,18 +246,19 @@ public:
     return AwaitAddr<false>{laddr};
   }
 
-  auto get_baseaddr(uint32_t num_nodes) noexcept {
-    /* initialized here since OSClient is invalid when our constructor executes
-     */
-    if (base_laddr == 0) {
-      base_laddr = OSClient.get_local_base_addr();
-      base_raddr = OSClient.get_remote_base_addr();
-      ctx = &rclient.get_contexts()[0];
-      send_cq = rclient.get_send_cq();
-    }
+  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
+    DIE("not implemented yet");
+    return AwaitVoid<true>{};
+  }
 
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
     return base_raddr + next_node * sizeof(LLNode);
+  }
+
+  uintptr_t get_random_addr() {
+    DIE("not implemented yet");
+    return 0;
   }
 };
 
@@ -271,6 +304,11 @@ public:
 
   ~Backend() {}
 
+  void init() {
+    base_laddr = OSClient.get_local_base_addr();
+    base_raddr = OSClient.get_remote_base_addr();
+  }
+
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
@@ -280,16 +318,19 @@ public:
     return AwaitAddrDelayed{laddr, oneway_delay_cycles};
   }
 
-  auto get_baseaddr(uint32_t num_nodes) noexcept {
-    /* initialized here since OSClient is invalid when our constructor executes
-     */
-    if (base_laddr == 0) {
-      base_laddr = OSClient.get_local_base_addr();
-      base_raddr = OSClient.get_remote_base_addr();
-    }
+  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
+    DIE("not implemented yet");
+    return AwaitVoid<true>{};
+  }
 
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
     return base_raddr + next_node * sizeof(LLNode);
+  }
+
+  uintptr_t get_random_addr() {
+    DIE("not implemented yet");
+    return 0;
   }
 };
 
@@ -310,6 +351,8 @@ public:
 
   ~Backend() { destroy_linkedlist(linkedlist); }
 
+  void init() {}
+
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
@@ -317,9 +360,19 @@ public:
     return AwaitAddr<false>{addr};
   }
 
+  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
+    DIE("not implemented yet");
+    return AwaitVoid<true>{};
+  }
+
   auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
     return reinterpret_cast<uintptr_t>(buffer + next_node * sizeof(LLNode));
+  }
+
+  uintptr_t get_random_addr() {
+    DIE("not implemented yet");
+    return 0;
   }
 };
 
@@ -332,6 +385,19 @@ template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
     for (int i = 0; i < num_nodes; ++i) {
       node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
       addr = reinterpret_cast<uintptr_t>(node->next);
+    }
+
+    co_yield 1;
+  }
+}
+
+template <class T> inline CoroRMC random_writes(Backend<T> &b) {
+  while (co_await b.wait_next_req()) {
+    const uint32_t num_writes = co_await b.get_param();
+    uint64_t val = 0xDEADBEEF;
+
+    for (auto i = 0u; i < num_writes; ++i) {
+      co_await b.write(b.get_random_addr(), &val);
     }
 
     co_yield 1;
