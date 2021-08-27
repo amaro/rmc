@@ -13,4 +13,6 @@ void OneSidedClient::connect(const std::string &ip, const unsigned int &port) {
 
   onesready = true;
   recv_rdma_mr();
+
+  LOG("connected to hostserver.");
 }

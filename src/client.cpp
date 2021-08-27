@@ -320,16 +320,17 @@ void benchmark_load(HostClient &client, float load) {
 int main(int argc, char *argv[]) {
   cxxopts::Options opts("client", "RMC client");
 
-  opts.add_options()("s,server", "nicserver address",
-                     cxxopts::value<std::string>())(
-      "p,port", "nicserver port",
-      cxxopts::value<int>()->default_value("30000"))(
-      "o,output", "output file", cxxopts::value<std::string>())(
-      "mode", "client mode, can be: maxinflight or load",
-      cxxopts::value<std::string>())(
-      "l,load", "send 1 new req every these many microseconds (for mode=load)",
-      cxxopts::value<float>()->default_value("0.0"))(
-      "param", "param for rmc", cxxopts::value<int>())("h,help", "Print usage");
+  // clang-format off
+  opts.add_options()
+    ("s,server", "nicserver address", cxxopts::value<std::string>())
+    ("p,port", "nicserver start port", cxxopts::value<int>()->default_value("30000"))
+    ("o,output", "output file", cxxopts::value<std::string>())
+    ("mode", "client mode, can be: maxinflight or load", cxxopts::value<std::string>())
+    ("l,load", "send 1 new req every these many microseconds (for mode=load)",
+      cxxopts::value<float>()->default_value("0.0"))
+    ("param", "param for rmc", cxxopts::value<int>())
+    ("h,help", "Print usage");
+  // clang-format on
 
   std::string server, ofile, mode;
   unsigned int port;

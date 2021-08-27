@@ -53,8 +53,7 @@ public:
   }
 
   void connect(const unsigned int &port);
-  void start(RMCScheduler &sched, const std::string &hostaddr,
-             const unsigned int &hostport, const unsigned int &clientport);
+  void start(RMCScheduler &sched, const unsigned int &clientport);
   void init(RMCScheduler &sched);
   void disconnect();
 };

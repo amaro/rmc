@@ -41,7 +41,7 @@ void RMCScheduler::schedule_interleaved(RDMAClient &rclient) {
 #ifdef PERF_STATS
   long long exec_start = get_cycles();
 #endif
-  static RDMAContext &server_ctx = get_server_context();
+  static thread_local RDMAContext &server_ctx = get_server_context();
 
   exec_interleaved(rclient, server_ctx);
   send_poll_replies(server_ctx);
@@ -65,7 +65,7 @@ void RMCScheduler::schedule_completion(RDMAClient &rclient) {
 #ifdef PERF_STATS
   long long exec_start = get_cycles();
 #endif
-  static RDMAContext &server_ctx = get_server_context();
+  static thread_local RDMAContext &server_ctx = get_server_context();
 
   exec_completion(server_ctx);
   send_poll_replies(server_ctx);

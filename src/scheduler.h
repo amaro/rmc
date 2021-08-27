@@ -42,7 +42,9 @@ class RMCScheduler {
   /* RMCs ready to be run */
   std::deque<std::coroutine_handle<>> runqueue;
 
+  // num_qps per thread
   const uint16_t num_qps;
+  const uint16_t thread_id;
   const uint16_t max_hostmem_bsize;
   unsigned int req_idx;
   uint32_t reply_idx;
@@ -92,10 +94,11 @@ public:
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
 
-  RMCScheduler(NICServer &nicserver, uint16_t num_qps, Workload work)
+  RMCScheduler(NICServer &nicserver, Workload work, uint16_t num_qps,
+               uint16_t thread_id)
       : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps),
-        max_hostmem_bsize(num_qps == 1 ? 8 : 16), req_idx(0), reply_idx(0),
-        pending_replies(0), recvd_disconnect(false) {
+        thread_id(thread_id), max_hostmem_bsize(num_qps == 1 ? 8 : 16),
+        req_idx(0), reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     LOG("batchsize=" << max_hostmem_bsize);
     runcoros = true;
 
@@ -123,8 +126,6 @@ public:
   void run();
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
-  void set_num_llnodes(size_t num_nodes);
-  void set_num_qps(uint16_t num_qps);
   void dispatch_new_req(CmdRequest *req);
   void spawn(CoroRMC coro);
 
@@ -157,7 +158,7 @@ inline RDMAContext &RMCScheduler::get_client_context(unsigned int id) {
 }
 
 inline RDMAContext &RMCScheduler::get_next_client_context() {
-  static uint16_t id = 0;
+  static thread_local uint16_t id = 0;
 
   if (num_qps == 1)
     return get_client_context(0);

@@ -1,3 +1,4 @@
+#include <thread>
 #include <unistd.h>
 
 #include "allocator.h"
@@ -48,15 +49,10 @@ void NICServer::disconnect() {
   nsready = false;
 }
 
-void NICServer::start(RMCScheduler &sched, const std::string &hostaddr,
-                      const unsigned int &hostport,
-                      const unsigned int &clientport) {
-  LOG("connecting to hostserver.");
-  onesidedclient.connect(hostaddr, hostport);
-
+void NICServer::start(RMCScheduler &sched, const unsigned int &clientport) {
   LOG("waiting for hostclient to connect.");
-  this->connect(clientport);
-  this->init(sched);
+  connect(clientport);
+  init(sched);
 }
 
 void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
@@ -67,20 +63,35 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
                             num_reqs);
 }
 
+char *hostaddr = nullptr;
+int32_t hostport, clientport, num_threads, qps_per_thread;
+Workload work;
+
+void thread_launch(OneSidedClient &osc, uint16_t thread_id) {
+  RDMAServer rserver(1, false);
+  NICServer nicserver(osc, rserver, QP_MAX_2SIDED_WRS);
+
+  RMCScheduler sched(nicserver, work, qps_per_thread, thread_id);
+  nicserver.start(sched, clientport + thread_id);
+}
+
 int main(int argc, char *argv[]) {
-  char *hostaddr = nullptr;
   char *workload = nullptr;
-  int32_t hostport, clientport, numqps;
+  int32_t numqps;
   int c;
-  Workload work;
 
   opterr = 0;
   clientport = 30000;
   hostport = 30001;
   numqps = 0;
 
-  /* server address, num queue pairs */
-  while ((c = getopt(argc, argv, "s:q:w:")) != -1) {
+  auto usage = []() -> int {
+    std::cerr << "Usage: -s hostaddr -q numqps -w workload -t numthreads\n";
+    return 1;
+  };
+
+  /* server address, num queue pairs, workload, threads */
+  while ((c = getopt(argc, argv, "s:q:w:t:")) != -1) {
     switch (c) {
     case 's':
       hostaddr = optarg;
@@ -91,10 +102,12 @@ int main(int argc, char *argv[]) {
     case 'w':
       workload = optarg;
       break;
+    case 't':
+      num_threads = atoi(optarg);
+      break;
     case '?':
     default:
-      std::cerr << "Usage: -s hostaddr -q numqps\n";
-      return 1;
+      return usage();
     }
   }
 
@@ -104,33 +117,36 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(workload, "write") == 0) {
       work = WRITE;
     } else {
-      std::cerr << "Specify workload=read, write\n";
-      return 1;
+      return usage();
     }
   } else {
-    std::cerr << "Specify workload=read, write\n";
+    return usage();
+  }
+
+  if (numqps <= 0 || strcmp(hostaddr, "") == 0 || num_threads <= 0)
+    return usage();
+
+  if (numqps % num_threads != 0) {
+    std::cerr << "number of qps \% num_threads must equal 0\n";
     return 1;
   }
+  qps_per_thread = numqps / num_threads;
 
   std::cout << "Workload=" << workload << "\n";
-
-  if (numqps <= 0) {
-    std::cerr << "Need to specify number of qps with -q\n";
-    return 1;
-  }
-
-  if (strcmp(hostaddr, "") == 0) {
-    std::cerr << "Need to specify number of qps with -q\n";
-    return 1;
-  }
-
   std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << "\n";
+  std::cout << "threads=" << num_threads << "\n";
 
+  std::vector<std::thread> threads;
   OneSidedClient onesidedclient(numqps);
-  RDMAServer rserver(1, false);
-  NICServer nicserver(onesidedclient, rserver, QP_MAX_2SIDED_WRS);
+  onesidedclient.connect(hostaddr, hostport);
 
-  RMCScheduler sched(nicserver, numqps, work);
-  nicserver.start(sched, hostaddr, hostport, clientport);
+  for (auto i = 0; i < num_threads; ++i) {
+    std::thread t(thread_launch, std::ref(onesidedclient), i);
+    threads.push_back(std::move(t));
+  }
+
+  for (auto i = 0; i < num_threads; ++i)
+    threads[i].join();
+
   LOG("bye.");
 }
