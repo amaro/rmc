@@ -4,6 +4,7 @@
 #include <cassert>
 #include <coroutine>
 #include <list>
+#include <memory>
 #include <queue>
 #include <vector>
 
@@ -16,13 +17,18 @@
 class CoroRMC;
 struct RDMAContext;
 
-static constexpr int QP_MAX_2SIDED_WRS = 1024;
-static constexpr int QP_MAX_1SIDED_WRS = 64;
+static constexpr uint32_t QP_MAX_2SIDED_WRS = 1024;
+static constexpr uint32_t QP_MAX_1SIDED_WRS = 64;
+static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
+/* TODO: try larger values of batched recvs */
+static constexpr uint32_t MAX_BATCHED_RECVS = 16;
+inline thread_local uint16_t current_tid;
 
+/* wraps ibv_cq_ex's with batched polling */
 struct CompQueue {
   ibv_cq_ex *cqx = nullptr;
   bool poll_started = false;
-  unsigned int num_cqes_polled = 0;
+  unsigned int outstanding_cqes = 0;
 
   int start_poll() {
     assert(!poll_started);
@@ -44,9 +50,9 @@ struct CompQueue {
     if (!poll_started)
       return;
 
-    if (num_cqes_polled > 16) {
+    if (outstanding_cqes > CQ_MAX_OUTSTANDING_CQES) {
       ibv_end_poll(cqx);
-      num_cqes_polled = 0;
+      outstanding_cqes = 0;
       poll_started = false;
     }
   }
@@ -57,12 +63,20 @@ protected:
   std::vector<RDMAContext> contexts;
   ibv_context *dev_ctx;
   ibv_pd *pd;
-  CompQueue send_cq;
-  CompQueue recv_cq;
+
+  // cqs are distributed evenly across qps
+  // e.g., if num_qps=4 and num_cqs=2, cq=0 is assigned to qp=0 and qp=1
+  // and cq=1 is assigned to qp=2 and qp=3
+  std::unique_ptr<CompQueue[]> send_cqs;
+  std::unique_ptr<CompQueue[]> recv_cqs;
+  std::vector<RDMAContext *> curr_batch_ctxs;
 
   bool pds_cqs_created;
   uint32_t unsignaled_sends;
-  unsigned int num_qps;
+  uint16_t num_qps;
+  uint16_t num_created_qps;
+  uint16_t num_cqs;
+  uint16_t qps_per_thread;
 
   std::list<ibv_mr *> registered_mrs;
 
@@ -80,13 +94,15 @@ public:
   static constexpr uint32_t MAX_UNSIGNALED_SENDS = 256;
   static constexpr int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
-  RDMAContext *batch_ctx; /* TODO: this shouldn't be kept here, caller should
-                             maintain this */
-
-  RDMAPeer(unsigned int num_qps)
-      : pds_cqs_created(false), unsignaled_sends(0), num_qps(num_qps),
-        batch_ctx(nullptr) {
+  RDMAPeer(uint16_t num_qps, uint16_t num_cqs)
+      : send_cqs(std::unique_ptr<CompQueue[]>(new CompQueue[num_cqs])),
+        recv_cqs(std::unique_ptr<CompQueue[]>(new CompQueue[num_cqs])),
+        curr_batch_ctxs(num_cqs), pds_cqs_created(false), unsignaled_sends(0),
+        num_qps(num_qps), num_created_qps(0), num_cqs(num_cqs),
+        qps_per_thread(num_qps / num_cqs) {
     static_assert(MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
+    assert(num_qps % num_cqs == 0);
+    assert(qps_per_thread > 0);
   }
 
   virtual ~RDMAPeer() {}
@@ -114,17 +130,24 @@ public:
   template <typename T>
   unsigned int poll_batched_atmost(unsigned int max, CompQueue &comp_queue,
                                    T &&comp_func);
-  ibv_cq_ex *get_send_cq();
-  ibv_cq_ex *get_recv_cq();
-  CompQueue &get_send_compqueue();
-  CompQueue &get_recv_compqueue();
+  // these functions receive tids because some users (e.g., RDMAServer) are
+  // created per thread, so they only have 1 cq. in those cases, indexing the cq
+  // by thread id would be wrong.
+  ibv_cq_ex *get_send_cq(uint16_t tid);
+  ibv_cq_ex *get_recv_cq(uint16_t tid);
+  CompQueue &get_send_compqueue(uint16_t tid);
+  CompQueue &get_recv_compqueue(uint16_t tid);
 
   std::vector<RDMAContext> &get_contexts();
+  RDMAContext &get_next_context();
+  RDMAContext &get_context(uint16_t ctx_id);
   RDMAContext &get_ctrl_ctx();
-  unsigned int get_num_qps();
+  uint16_t get_num_qps();
 
   void start_batched_ops(RDMAContext *ctx);
   void end_batched_ops();
+  RDMAContext *get_batch_ctx();
+  bool memqueues_empty();
 };
 
 /* TODO: move this to own file */
@@ -210,9 +233,6 @@ public:
   SendOp buffered_send;
   ReadWriteOp buffered_rw;
 
-  /* TODO: try larger values of batched recvs */
-  static constexpr uint32_t MAX_BATCHED_RECVS = 16;
-
   RDMAContext(unsigned int ctx_id)
       : ctx_id{ctx_id}, connected{false}, outstanding_sends{0},
         curr_batch_size{0}, cm_id{nullptr}, qp{nullptr}, qpx{nullptr},
@@ -295,17 +315,6 @@ public:
     buffered_rw.post_signaled(qpx, wr_id);
   }
 
-  void end_batched_ops() {
-    switch (curr_batch_type) {
-    case BatchType::SEND:
-      return end_batched_sends();
-    case BatchType::RW:
-      return end_batched_rw();
-    default:
-      DIE("unrecognized batch type");
-    }
-  }
-
   /* arguments:
          laddr is the starting local address
          req_len is the individual recv request length in bytes
@@ -336,6 +345,31 @@ public:
 
     if ((err = ibv_post_recv(qp, &recv_batch[0].wr, &bad_wr)) != 0)
       DIE("post_recv() returned " << err);
+  }
+
+  void start_batch() {
+    assert(curr_batch_size == 0);
+
+    ibv_wr_start(qpx);
+  }
+
+  void end_batch() {
+    /* if we are in the middle of a batched op, end it */
+    if (curr_batch_size > 0) {
+      switch (curr_batch_type) {
+      case BatchType::SEND:
+        end_batched_sends();
+        break;
+      case BatchType::RW:
+        end_batched_rw();
+        break;
+      default:
+        DIE("unrecognized batch type");
+      }
+    }
+
+    TEST_NZ(ibv_wr_complete(qpx));
+    curr_batch_size = 0;
   }
 };
 
@@ -368,7 +402,7 @@ inline void RDMAPeer::post_batched_recv(RDMAContext &ctx, ibv_mr *mr,
                                         uint32_t startidx,
                                         uint32_t per_buf_bytes,
                                         uint32_t num_bufs) const {
-  uint32_t max_batch_size = RDMAContext::MAX_BATCHED_RECVS;
+  uint32_t max_batch_size = MAX_BATCHED_RECVS;
   uint32_t num_batches = num_bufs / max_batch_size;
   uint32_t batch_size = 0;
   uintptr_t base_addr = (uintptr_t)mr->addr + (startidx * per_buf_bytes);
@@ -424,21 +458,52 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
   return signaled;
 }
 
-inline ibv_cq_ex *RDMAPeer::get_send_cq() { return send_cq.cqx; }
+inline ibv_cq_ex *RDMAPeer::get_send_cq(uint16_t tid) {
+  return get_send_compqueue(tid).cqx;
+}
 
-inline ibv_cq_ex *RDMAPeer::get_recv_cq() { return recv_cq.cqx; }
+inline ibv_cq_ex *RDMAPeer::get_recv_cq(uint16_t tid) {
+  return get_recv_compqueue(tid).cqx;
+}
 
-inline CompQueue &RDMAPeer::get_send_compqueue() { return send_cq; }
+inline CompQueue &RDMAPeer::get_send_compqueue(uint16_t tid) {
+  assert(tid <= num_cqs);
+  return send_cqs[tid];
+}
 
-inline CompQueue &RDMAPeer::get_recv_compqueue() { return recv_cq; }
+inline CompQueue &RDMAPeer::get_recv_compqueue(uint16_t tid) {
+  assert(tid <= num_cqs);
+  return recv_cqs[tid];
+}
 
 inline std::vector<RDMAContext> &RDMAPeer::get_contexts() { return contexts; }
+
+// this could potentially allow any thread to get any context, so be careful
+// when using ctx_ids to select the context
+inline RDMAContext &RDMAPeer::get_context(uint16_t ctx_id) {
+  return contexts[ctx_id];
+}
+
+// if qps_per_thread == 1, always returns the tid-th context
+// if qps_per_thread > 1, alternates between
+//   [qps_per_thread * tid, qps_per_thread * tid + 1,...,qps_per_thread * tid +
+//   (qps_per_thread - 1)]
+inline RDMAContext &RDMAPeer::get_next_context() {
+  static thread_local uint16_t per_thread_idx = 0;
+
+  if (qps_per_thread == 1)
+    return contexts[current_tid];
+
+  RDMAContext &ctx = contexts[qps_per_thread * current_tid + per_thread_idx];
+  inc_with_wraparound(per_thread_idx, qps_per_thread);
+  return ctx;
+}
 
 /* used for send/recvs. we could have an independent qp only for these ops
    but probably not worth the code */
 inline RDMAContext &RDMAPeer::get_ctrl_ctx() { return contexts[0]; }
 
-inline unsigned int RDMAPeer::get_num_qps() { return num_qps; }
+inline uint16_t RDMAPeer::get_num_qps() { return num_qps; }
 
 template <typename T>
 inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq,
@@ -520,7 +585,7 @@ inline unsigned int RDMAPeer::poll_batched_atmost(unsigned int max,
   } while (polled < max);
 
 end_poll:
-  comp_queue.num_cqes_polled += polled;
+  comp_queue.outstanding_cqes += polled;
   comp_queue.maybe_end_poll();
   assert(polled <= max);
   return polled;
@@ -600,19 +665,32 @@ out:
 }
 
 inline void RDMAPeer::start_batched_ops(RDMAContext *ctx) {
-  batch_ctx = ctx;
-  ctx->curr_batch_size = 0;
-  ibv_wr_start(batch_ctx->qpx);
+  assert(curr_batch_ctxs[current_tid] == nullptr);
+
+  curr_batch_ctxs[current_tid] = ctx;
+  ctx->start_batch();
 }
 
 /* end batched ops (reads/writes/sends) */
 inline void RDMAPeer::end_batched_ops() {
-  /* if we are in the middle of a batched op, end it */
-  if (batch_ctx->curr_batch_size > 0)
-    batch_ctx->end_batched_ops();
+  assert(curr_batch_ctxs[current_tid] != nullptr);
 
-  TEST_NZ(ibv_wr_complete(batch_ctx->qpx));
-  batch_ctx = nullptr;
+  curr_batch_ctxs[current_tid]->end_batch();
+  curr_batch_ctxs[current_tid] = nullptr;
+}
+
+inline RDMAContext *RDMAPeer::get_batch_ctx() {
+  return curr_batch_ctxs[current_tid];
+}
+
+inline bool RDMAPeer::memqueues_empty() {
+  for (auto i = 0u; i < qps_per_thread; ++i) {
+    RDMAContext &ctx = contexts[qps_per_thread * current_tid + i];
+    if (!ctx.memqueue.empty())
+      return false;
+  }
+
+  return true;
 }
 
 #endif

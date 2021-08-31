@@ -12,10 +12,10 @@ static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
 static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
     RDMA_BUFF_SIZE / sizeof(LLNode);
 
-inline RMCAllocator allocator;
-inline bool runcoros;
+inline thread_local RMCAllocator allocator;
+inline thread_local bool runcoros;
 /* pre allocated, free coroutines */
-inline std::deque<std::coroutine_handle<>> freequeue;
+inline thread_local std::deque<std::coroutine_handle<>> freequeue;
 
 class CoroRMC {
 public:
@@ -141,7 +141,7 @@ template <bool suspend> struct AwaitAddr {
 };
 
 static inline uint32_t get_next_llnode(uint32_t num_skip) noexcept {
-  static uint32_t addresses_given = 0;
+  static thread_local uint32_t addresses_given = 0;
   uint32_t next_node = addresses_given * LINKDLIST_NUM_SKIP_NODES;
 
   if (next_node + num_skip > LINKDLIST_TOTAL_NODES) {
@@ -196,6 +196,7 @@ public:
     return AwaitVoid<true>{};
   }
 
+  // TODO: unify with get_random_addr
   auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
     return base_raddr + next_node * sizeof(LLNode);
@@ -229,8 +230,8 @@ public:
   void init() {
     base_laddr = OSClient.get_local_base_addr();
     base_raddr = OSClient.get_remote_base_addr();
-    ctx = &rclient.get_contexts()[0];
-    send_cq = rclient.get_send_cq();
+    ctx = &rclient.get_context(0);
+    send_cq = rclient.get_send_cq(0);
   }
 
   auto wait_next_req() noexcept { return AwaitNextReq{}; }
@@ -238,9 +239,9 @@ public:
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
-    rclient.start_batched_ops(ctx);
+    ctx->start_batch();
     OSClient.read_async(raddr, laddr, sz);
-    rclient.end_batched_ops();
+    ctx->end_batch();
 
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
     return AwaitAddr<false>{laddr};

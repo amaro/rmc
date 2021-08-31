@@ -2,14 +2,14 @@
 #define RDMA_SERVER_H
 
 #include "rdmapeer.h"
-#include <arpa/inet.h>
 
 class RDMAServer : public RDMAPeer {
   bool onesided;
 
 public:
-  RDMAServer(unsigned int num_qps, bool onesided)
-      : RDMAPeer(num_qps), onesided(onesided) {}
+  // num_cqs always 1 here
+  RDMAServer(uint16_t num_qps, bool onesided)
+      : RDMAPeer(num_qps, 1), onesided(onesided) {}
 
   /* server multi step connection establishment
      assumes caller is server. Blocks until connection

@@ -16,9 +16,7 @@ class NICServer {
 
   OneSidedClient &onesidedclient;
   RDMAServer &rserver;
-
   bool nsready;
-  const uint32_t bsize;
 
   /* communication with client */
   std::vector<CmdRequest> req_buf;
@@ -38,13 +36,12 @@ class NICServer {
   CmdReply *get_reply(size_t req_idx);
 
 public:
-  NICServer(OneSidedClient &client, RDMAServer &server, size_t b)
-      : onesidedclient(client), rserver(server), nsready(false), bsize(b) {
-    assert(bsize > 0);
-    req_buf.reserve(bsize);
-    reply_buf.reserve(bsize);
+  NICServer(OneSidedClient &client, RDMAServer &server)
+      : onesidedclient(client), rserver(server), nsready(false) {
+    req_buf.reserve(QP_MAX_2SIDED_WRS);
+    reply_buf.reserve(QP_MAX_2SIDED_WRS);
 
-    for (size_t i = 0; i < bsize; ++i) {
+    for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
       req_buf.push_back(CmdRequest());
       reply_buf.push_back(CmdReply());
       /* assume replies are successful */
@@ -53,8 +50,8 @@ public:
   }
 
   void connect(const unsigned int &port);
-  void start(RMCScheduler &sched, const unsigned int &clientport);
-  void init(RMCScheduler &sched);
+  void start(RMCScheduler &sched, const unsigned int &clientport, uint16_t tid);
+  void init(RMCScheduler &sched, uint16_t tid);
   void disconnect();
 };
 

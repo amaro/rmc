@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
   int c;
 
   opterr = 0;
-  port = 30001;
+  port = 10000;
   numqps = 0;
 
   /* num queue pairs, workload */
@@ -75,6 +75,9 @@ int main(int argc, char *argv[]) {
 
   std::cout << "Workload=" << workload << "\n";
 
+  // HostServer creates as many qps as requested and 1 cq
+  // qps here are for nicserver to connect to
+  current_tid = 0;
   HostServer server(numqps, work);
   server.connect_and_block(port);
 }

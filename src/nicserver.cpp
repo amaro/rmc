@@ -12,29 +12,28 @@ void NICServer::connect(const unsigned int &port) {
 
   /* nic writes incoming requests */
   req_buf_mr =
-      rserver.register_mr(&req_buf[0], sizeof(CmdRequest) * bsize,
+      rserver.register_mr(&req_buf[0], sizeof(CmdRequest) * QP_MAX_2SIDED_WRS,
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   /* cpu writes outgoing replies */
-  reply_buf_mr =
-      rserver.register_mr(&reply_buf[0], sizeof(CmdReply) * bsize, 0);
+  reply_buf_mr = rserver.register_mr(&reply_buf[0],
+                                     sizeof(CmdReply) * QP_MAX_2SIDED_WRS, 0);
 
   nsready = true;
 }
 
 /* not inline, but datapath inside is inline */
-
-void NICServer::init(RMCScheduler &sched) {
+void NICServer::init(RMCScheduler &sched, uint16_t tid) {
   assert(nsready);
 
   /* handle the initial rmc get id call */
   rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
                             sizeof(CmdRequest), 1);
-  rserver.poll_exactly(1, rserver.get_recv_cq());
+  rserver.poll_exactly(1, rserver.get_recv_cq(0));
   sched.dispatch_new_req(get_req(0));
 
   /* post the initial recvs */
   rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
-                            sizeof(CmdRequest), bsize);
+                            sizeof(CmdRequest), QP_MAX_2SIDED_WRS);
 
   sched.debug_allocate();
   sched.run();
@@ -44,15 +43,16 @@ void NICServer::init(RMCScheduler &sched) {
 void NICServer::disconnect() {
   assert(nsready);
 
-  LOG("received disconnect req");
+  LOG("received disconnect req tid=" << current_tid);
   rserver.disconnect_events();
   nsready = false;
 }
 
-void NICServer::start(RMCScheduler &sched, const unsigned int &clientport) {
+void NICServer::start(RMCScheduler &sched, const unsigned int &clientport,
+                      uint16_t tid) {
   LOG("waiting for hostclient to connect.");
   connect(clientport);
-  init(sched);
+  init(sched, tid);
 }
 
 void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
@@ -67,12 +67,19 @@ char *hostaddr = nullptr;
 int32_t hostport, clientport, num_threads, qps_per_thread;
 Workload work;
 
-void thread_launch(OneSidedClient &osc, uint16_t thread_id) {
-  RDMAServer rserver(1, false);
-  NICServer nicserver(osc, rserver, QP_MAX_2SIDED_WRS);
+void thread_launch(OneSidedClient &osc, uint16_t thread_id,
+                   pthread_barrier_t *barrier) {
+  // 1 qp and 1 cq for client-nicserver communication
+  current_tid = thread_id;
+  LOG("START thread current_tid=" << current_tid);
 
-  RMCScheduler sched(nicserver, work, qps_per_thread, thread_id);
-  nicserver.start(sched, clientport + thread_id);
+  RDMAServer rserver(1, false);
+  NICServer nicserver(osc, rserver);
+
+  RMCScheduler sched(nicserver, work, qps_per_thread);
+  pthread_barrier_wait(barrier);
+  nicserver.start(sched, clientport + thread_id, thread_id);
+  LOG("EXIT thread current_tid=" << current_tid);
 }
 
 int main(int argc, char *argv[]) {
@@ -82,7 +89,7 @@ int main(int argc, char *argv[]) {
 
   opterr = 0;
   clientport = 30000;
-  hostport = 30001;
+  hostport = 10000;
   numqps = 0;
 
   auto usage = []() -> int {
@@ -132,16 +139,21 @@ int main(int argc, char *argv[]) {
   }
   qps_per_thread = numqps / num_threads;
 
-  std::cout << "Workload=" << workload << "\n";
-  std::cout << "hostaddr=" << hostaddr << " numqps=" << numqps << "\n";
-  std::cout << "threads=" << num_threads << "\n";
+  LOG("Workload=" << workload);
+  LOG("hostaddr=" << hostaddr << " numqps=" << numqps);
+  LOG("threads=" << num_threads);
 
   std::vector<std::thread> threads;
-  OneSidedClient onesidedclient(numqps);
+  pthread_barrier_t barrier;
+  TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
+
+  // we create numqps QPs, and num_threads CQs in a single OneSidedClient
+  // object. we will use numqps/num_threads QPs and 1 CQ per thread
+  OneSidedClient onesidedclient(numqps, num_threads);
   onesidedclient.connect(hostaddr, hostport);
 
   for (auto i = 0; i < num_threads; ++i) {
-    std::thread t(thread_launch, std::ref(onesidedclient), i);
+    std::thread t(thread_launch, std::ref(onesidedclient), i, &barrier);
     threads.push_back(std::move(t));
   }
 

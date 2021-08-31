@@ -3,6 +3,7 @@
 
 #include "hostserver.h"
 #include "rdma/rdmaclient.h"
+#include "rdma/rdmapeer.h"
 #include "rmc.h"
 #include <coroutine>
 
@@ -21,8 +22,8 @@ class OneSidedClient {
   void recv_rdma_mr();
 
 public:
-  OneSidedClient(unsigned int num_qps)
-      : rclient(num_qps, true), onesready(false) {
+  OneSidedClient(uint16_t num_qps, uint16_t num_cqs)
+      : rclient(num_qps, num_cqs, true), onesready(false) {
     rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
   }
@@ -43,9 +44,10 @@ public:
 inline void OneSidedClient::recv_rdma_mr() {
   assert(onesready);
 
+  // initial communication  with nicserver is done on qp=0 and cq=0 (only one)
   rclient.post_recv(rclient.get_ctrl_ctx(), req_buf.get(), sizeof(CmdRequest),
                     req_buf_mr->lkey);
-  rclient.poll_exactly(1, rclient.get_recv_cq());
+  rclient.poll_exactly(1, rclient.get_recv_cq(0));
 
   assert(req_buf->type == SET_RDMA_MR);
   memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
@@ -58,9 +60,9 @@ inline void OneSidedClient::recv_rdma_mr() {
 inline void OneSidedClient::read_async(uintptr_t remote_addr,
                                        uintptr_t local_addr, uint32_t size) {
   assert(onesready);
-  assert(rclient.batch_ctx != nullptr);
+  RDMAContext *ctx = rclient.get_batch_ctx();
+  assert(ctx != nullptr);
 
-  RDMAContext *ctx = rclient.batch_ctx;
   ctx->post_batched_read(remote_addr, local_addr, size, host_mr.rkey,
                          rdma_mr->lkey);
 }
@@ -68,9 +70,9 @@ inline void OneSidedClient::read_async(uintptr_t remote_addr,
 inline void OneSidedClient::write_async(uintptr_t remote_addr,
                                         uintptr_t local_addr, uint32_t size) {
   assert(onesready);
-  assert(rclient.batch_ctx != nullptr);
+  RDMAContext *ctx = rclient.get_batch_ctx();
+  assert(ctx != nullptr);
 
-  RDMAContext *ctx = rclient.batch_ctx;
   ctx->post_batched_write(remote_addr, local_addr, size, host_mr.rkey,
                           rdma_mr->lkey);
 }
@@ -79,8 +81,8 @@ template <typename T>
 inline int OneSidedClient::poll_reads_atmost(int max, T &&comp_func) {
   assert(onesready);
 
-  return rclient.poll_batched_atmost(max, rclient.get_send_compqueue(),
-                                     comp_func);
+  return rclient.poll_batched_atmost(
+      max, rclient.get_send_compqueue(current_tid), comp_func);
 }
 
 inline char *OneSidedClient::get_rdma_buffer() { return rdma_buffer; }

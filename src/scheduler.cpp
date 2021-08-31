@@ -9,12 +9,12 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
   RMC rmc(req->request.getid.rmc);
   RMCId id = this->get_rmc_id(rmc);
 
-  /* for now, just use buffer 0 for get rmc id reply */
+  /* use buffer 0 for get rmc id reply */
   CmdReply *reply = ns.get_reply(0);
   reply->type = CmdType::GET_RMCID;
   reply->reply.getid.id = id;
   ns.post_send_reply(reply);
-  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq());
+  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
 }
 
 void RMCScheduler::spawn(CoroRMC coro) { coro.get_handle().resume(); }
@@ -30,7 +30,7 @@ void RMCScheduler::run() {
     schedule_completion(rclient);
 #endif
 
-    if (this->recvd_disconnect && !this->executing())
+    if (this->recvd_disconnect && !this->executing(rclient))
       return ns.disconnect();
 
     debug_capture_stats();
@@ -53,7 +53,7 @@ void RMCScheduler::schedule_interleaved(RDMAClient &rclient) {
 #endif
 
   check_new_reqs_client(server_ctx);
-  poll_comps_host();
+  poll_comps_host(rclient);
 
 #ifdef PERF_STATS
   debug_cycles = get_cycles() - exec_start;

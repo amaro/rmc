@@ -8,8 +8,8 @@ class RDMAClient : public RDMAPeer {
   void handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id);
 
 public:
-  RDMAClient(unsigned int num_qps, bool onesided)
-      : RDMAPeer(num_qps), onesided(onesided) {}
+  RDMAClient(uint16_t num_qps, uint16_t num_cqs, bool onesided)
+      : RDMAPeer(num_qps, num_cqs), onesided(onesided) {}
 
   /* client multi step connection establishment,
      assumes caller is client. Blocks until connection established */

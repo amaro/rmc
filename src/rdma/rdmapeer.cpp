@@ -13,12 +13,14 @@ void RDMAPeer::create_pds_cqs(ibv_context *verbs, bool onesided) {
 
   dev_ctx = verbs; /* TODO: is this needed? */
   TEST_Z(pd = ibv_alloc_pd(dev_ctx));
-  TEST_Z(send_cq.cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
-  TEST_Z(recv_cq.cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+
+  for (auto i = 0u; i < num_cqs; ++i) {
+    TEST_Z(send_cqs[i].cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+    TEST_Z(recv_cqs[i].cqx = mlx5dv_create_cq(dev_ctx, &cq_attrs_ex, NULL));
+  }
 
   pds_cqs_created = true;
-
-  LOG("created pds and cqs; onesided=" << onesided);
+  LOG("created pds and " << num_cqs << " cqs; onesided=" << onesided);
 }
 
 void RDMAPeer::destroy_pds_cqs() {
@@ -26,15 +28,25 @@ void RDMAPeer::destroy_pds_cqs() {
   pds_cqs_created = false;
 
   ibv_dealloc_pd(pd);
-  ibv_destroy_cq(ibv_cq_ex_to_cq(send_cq.cqx));
-  ibv_destroy_cq(ibv_cq_ex_to_cq(recv_cq.cqx));
+  for (auto i = 0u; i < num_cqs; ++i) {
+    ibv_destroy_cq(ibv_cq_ex_to_cq(get_send_cq(i)));
+    ibv_destroy_cq(ibv_cq_ex_to_cq(get_recv_cq(i)));
+  }
 }
 
 void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided) {
   ibv_qp_init_attr_ex qp_attrs = {};
+  const uint16_t qps_per_cq = num_qps / num_cqs;
+  const uint16_t cq_idx = num_created_qps / qps_per_cq;
 
-  qp_attrs.send_cq = ibv_cq_ex_to_cq(send_cq.cqx);
-  qp_attrs.recv_cq = ibv_cq_ex_to_cq(recv_cq.cqx);
+  // cannot use current_tid here because OneSidedClient is shared among threads,
+  // so current_tid will be 0 for all qps. so we keep track of how many qps
+  // we have created so far, and assign cq_idxs evenly to them
+  ibv_cq_ex *recv_cq = get_recv_cq(cq_idx);
+  ibv_cq_ex *send_cq = get_send_cq(cq_idx);
+
+  qp_attrs.send_cq = ibv_cq_ex_to_cq(send_cq);
+  qp_attrs.recv_cq = ibv_cq_ex_to_cq(recv_cq);
   qp_attrs.qp_type = IBV_QPT_RC;
   qp_attrs.sq_sig_all = 0;
   qp_attrs.pd = this->pd;
@@ -62,7 +74,10 @@ void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided) {
   ctx.cm_id->qp = ctx.qp;
   ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
 
-  LOG("created qps; onesided=" << onesided);
+  LOG("created onesided=" << onesided << " qp=" << ctx.qp
+                          << " bound to send_cq=" << send_cq
+                          << " and recv_cq=" << recv_cq);
+  num_created_qps++;
 }
 
 void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect) {
@@ -81,19 +96,6 @@ void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect) {
   else
     TEST_NZ(rdma_accept(ctx.cm_id, &cm_params));
 }
-
-// void RDMAPeer::disconnect()
-//{
-//    assert(connected);
-//    connected = false;
-//
-//    rdma_disconnect(id);
-//    rdma_destroy_qp(id);
-//
-//
-//
-//    rdma_destroy_id(id);
-//}
 
 void RDMAPeer::dereg_mrs() {
   assert(!registered_mrs.empty());

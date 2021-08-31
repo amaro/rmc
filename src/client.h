@@ -8,7 +8,6 @@
 
 class HostClient {
   bool rmccready;
-  size_t bsize;
   unsigned int pending_unsig_sends;
   uint32_t req_idx;
   uint32_t inflight;
@@ -38,16 +37,17 @@ class HostClient {
   void arm_call_req(CmdRequest *req, uint32_t param);
 
 public:
-  HostClient(size_t b, unsigned int num_qps)
-      : rmccready(false), bsize(b), pending_unsig_sends(0), req_idx(0),
-        inflight(0), rclient(num_qps, false) {
-    assert(bsize > 0);
-    req_buf.reserve(bsize);
-    reply_buf.reserve(bsize);
+  // A client only creates one 2-sided QP to communicate to nicserver,
+  // and one CQ
+  HostClient()
+      : rmccready(false), pending_unsig_sends(0), req_idx(0), inflight(0),
+        rclient(1, 1, false) {
+    req_buf.reserve(QP_MAX_2SIDED_WRS);
+    reply_buf.reserve(QP_MAX_2SIDED_WRS);
     LOG("sizeof(CmdRequest())=" << sizeof(CmdRequest));
     LOG("sizeof(CmdReply())=" << sizeof(CmdReply));
 
-    for (size_t i = 0; i < bsize; ++i) {
+    for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
       req_buf.push_back(CmdRequest());
       reply_buf.push_back(CmdReply());
     }
@@ -60,7 +60,8 @@ public:
      3. return id */
   RMCId get_rmc_id(const RMC &rmc);
 
-  long long do_maxinflight(uint32_t num_reqs, uint32_t param);
+  long long do_maxinflight(uint32_t num_reqs, uint32_t param,
+                           pthread_barrier_t *barrier, uint16_t tid);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
               long long freq);
   int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
@@ -100,7 +101,7 @@ if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
 */
 inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
   static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
-  static struct ibv_wc wc;
+  static thread_local struct ibv_wc wc;
   int ne;
 
   if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {

@@ -27,7 +27,7 @@ public:
   /* TODO: move these to a config.h or something */
   static constexpr const long RDMA_BUFF_SIZE = 1 << 30;
 
-  HostServer(unsigned int num_qps, Workload work)
+  HostServer(uint16_t num_qps, Workload work)
       : rserver(num_qps, true), hsready(false), workload(work) {
     rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
@@ -63,7 +63,8 @@ inline void HostServer::send_rdma_mr() {
   memcpy(&req_buf->request.rdma_mr.mr, rdma_mr, sizeof(ibv_mr));
   rserver.post_send(rserver.get_ctrl_ctx(), req_buf.get(), sizeof(CmdRequest),
                     req_buf_mr->lkey);
-  rserver.poll_exactly(1, rserver.get_send_cq());
+  // there's only one CQ
+  rserver.poll_exactly(1, rserver.get_send_cq(0));
   LOG("sent SET_RDMA_MR");
 }
 

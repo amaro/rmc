@@ -1,7 +1,8 @@
 #include <algorithm>
-#include <emmintrin.h>
 #include <fstream>
+#include <pthread.h>
 #include <queue>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -18,9 +19,10 @@ void HostClient::connect(const std::string &ip, const unsigned int &port) {
   assert(!rmccready);
   rclient.connect_to_server(ip, port);
 
-  req_buf_mr = rclient.register_mr(&req_buf[0], sizeof(CmdRequest) * bsize, 0);
+  req_buf_mr = rclient.register_mr(&req_buf[0],
+                                   sizeof(CmdRequest) * QP_MAX_2SIDED_WRS, 0);
   reply_buf_mr =
-      rclient.register_mr(&reply_buf[0], sizeof(CmdReply) * bsize,
+      rclient.register_mr(&reply_buf[0], sizeof(CmdReply) * QP_MAX_2SIDED_WRS,
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   rmccready = true;
 }
@@ -39,25 +41,30 @@ RMCId HostClient::get_rmc_id(const RMC &rmc) {
   rmc.copy(req->request.getid.rmc, sizeof(req->request.getid.rmc));
   post_send_req(req);
 
-  rclient.poll_exactly(1, rclient.get_send_cq());
-  rclient.poll_exactly(1, rclient.get_recv_cq());
+  rclient.poll_exactly(1, rclient.get_send_cq(0));
+  rclient.poll_exactly(1, rclient.get_recv_cq(0));
 
   /* read CmdReply */
   assert(reply->type == CmdType::GET_RMCID);
   return reply->reply.getid.id;
 }
 
-long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param) {
+// tid here is only for debugging purposes
+long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
+                                     pthread_barrier_t *barrier, uint16_t tid) {
   assert(rmccready);
 
   const auto maxinflight = get_max_inflight();
-  ibv_cq_ex *recv_cq = rclient.get_recv_cq();
-  ibv_cq_ex *send_cq = rclient.get_send_cq();
+  // we have one HostClient per thread, so CQs 0 are the only ones that exist
+  ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
+  ibv_cq_ex *send_cq = rclient.get_send_cq(0);
   long long duration = 0;
   static auto noop = [](size_t) constexpr->void{};
 
   for (auto i = 0u; i < maxinflight; i++)
     arm_call_req(get_req(i), param);
+
+  pthread_barrier_wait(barrier);
 
   time_point start = time_start();
   for (auto i = 0u; i < num_reqs; i++) {
@@ -110,8 +117,8 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   std::queue<long long> start_times;
   static auto noop = [](size_t) constexpr->void{};
   long long sent_at = 0;
-  ibv_cq_ex *recv_cq = rclient.get_recv_cq();
-  ibv_cq_ex *send_cq = rclient.get_send_cq();
+  ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
+  ibv_cq_ex *send_cq = rclient.get_send_cq(0);
 
   LOG("will issue " << num_reqs << " requests every " << wait_in_nsec
                     << " nanoseconds");
@@ -203,7 +210,7 @@ void HostClient::last_cmd() {
   CmdRequest *req = get_req(0);
   req->type = CmdType::LAST_CMD;
   post_send_req(req);
-  rclient.poll_exactly(1, rclient.get_send_cq());
+  rclient.poll_exactly(1, rclient.get_send_cq(0));
   disconnect();
 }
 
@@ -278,27 +285,25 @@ void print_stats_load(std::vector<uint32_t> &durations, long long freq) {
 }
 
 /* keeps maxinflight active requests at all times */
-void benchmark_maxinflight(HostClient &client, std::string ofile,
-                           uint32_t param) {
+void benchmark_maxinflight(HostClient &client, uint32_t param,
+                           pthread_barrier_t *barrier, uint16_t tid) {
   const uint32_t max = client.get_max_inflight();
-  const long long freq = get_freq();
 
   LOG("get_max_inflight()=" << max);
-  LOG("rdtsc freq=" << freq);
 
   LOG("maxinflight: warming up");
-  client.do_maxinflight(client.get_max_inflight() * 10, param);
+  client.do_maxinflight(client.get_max_inflight() * 10, param, barrier, tid);
 
   LOG("maxinflight: benchmark start");
-  client.do_maxinflight(NUM_REQS, param);
+  client.do_maxinflight(NUM_REQS, param, barrier, tid);
   LOG("maxinflight: benchmark end");
 
   client.last_cmd();
-
   // print_stats_maxinflight(durations, maxinflight);
 }
 
-void benchmark_load(HostClient &client, float load) {
+void benchmark_load(HostClient &client, float load,
+                    pthread_barrier_t *barrier) {
   std::vector<uint32_t> rtts(NUM_REQS);
   const uint32_t max = client.get_max_inflight();
   const long long freq = get_freq();
@@ -317,6 +322,27 @@ void benchmark_load(HostClient &client, float load) {
   print_stats_load(rtts, freq);
 }
 
+std::string server, mode;
+int param;
+unsigned int start_port;
+float load = 0.0;
+
+void thread_launch(uint16_t thread_id, pthread_barrier_t *barrier) {
+  // we create one HostClient per thread, so in each client we have 1 QP and 1
+  // CQ. therefore, we don't need thread_ids to select QPs and CQs here
+  LOG("START thread=" << thread_id);
+  current_tid = 0;
+  HostClient client;
+  client.connect(server, start_port + thread_id);
+
+  if (mode == "maxinflight")
+    benchmark_maxinflight(client, param, barrier, thread_id);
+  else
+    benchmark_load(client, load, barrier);
+
+  LOG("EXIT thread=" << thread_id);
+}
+
 int main(int argc, char *argv[]) {
   cxxopts::Options opts("client", "RMC client");
 
@@ -328,14 +354,12 @@ int main(int argc, char *argv[]) {
     ("mode", "client mode, can be: maxinflight or load", cxxopts::value<std::string>())
     ("l,load", "send 1 new req every these many microseconds (for mode=load)",
       cxxopts::value<float>()->default_value("0.0"))
+    ("t, threads", "number of threads", cxxopts::value<int>())
     ("param", "param for rmc", cxxopts::value<int>())
     ("h,help", "Print usage");
   // clang-format on
 
-  std::string server, ofile, mode;
-  unsigned int port;
-  int param;
-  float load = 0.0;
+  int num_threads;
 
   try {
     auto result = opts.parse(argc, argv);
@@ -344,10 +368,10 @@ int main(int argc, char *argv[]) {
       die(opts.help());
 
     server = result["server"].as<std::string>();
-    port = result["port"].as<int>();
-    ofile = result["output"].as<std::string>();
+    start_port = result["port"].as<int>();
     mode = result["mode"].as<std::string>();
     load = result["load"].as<float>();
+    num_threads = result["threads"].as<int>();
     param = result["param"].as<int>();
 
     if (mode != "load" && mode != "maxinflight") {
@@ -357,17 +381,23 @@ int main(int argc, char *argv[]) {
       die("mode=load requires load > 0");
     } else if (param < 0) {
       die("param must be > 0");
+    } else if (num_threads <= 0) {
+      die("threads must be > 0");
     }
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
     die(opts.help());
   }
 
-  HostClient client(QP_MAX_2SIDED_WRS, 1);
-  client.connect(server, port);
+  std::vector<std::thread> threads;
+  pthread_barrier_t barrier;
+  TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
 
-  if (mode == "maxinflight")
-    benchmark_maxinflight(client, ofile, param);
-  else
-    benchmark_load(client, load);
+  for (auto i = 0; i < num_threads; ++i) {
+    std::thread t(thread_launch, i, &barrier);
+    threads.push_back(std::move(t));
+  }
+
+  for (auto i = 0; i < num_threads; ++i)
+    threads[i].join();
 }

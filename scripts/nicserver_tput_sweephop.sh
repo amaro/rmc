@@ -19,7 +19,6 @@ threads=$3
 cmd() {
     sudo MLX5_SCATTER_TO_CQE=1 MLX5_SINGLE_THREADED=1 \
        	MLX_MR_ALLOC_TYPE=CONTIG MLX_MR_MIN_LOG2_CONTIG_BSIZE=16 \
-        MLX_QP_ALLOC_TYPE=HUGE MLX_CQ_ALLOC_TYPE=HUGE \
         taskset -c 7 chrt -f 99 ./nicserver -s 10.10.1.1 -q $1 -w $2 -t $3
     sleep 10
 }
