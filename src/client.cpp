@@ -104,7 +104,8 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
 }
 
 int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
-                        uint32_t num_reqs, long long freq) {
+                        uint32_t num_reqs, long long freq, uint32_t param,
+                        pthread_barrier_t *barrier) {
   assert(rmccready);
 
   uint32_t rtt_idx = 0;
@@ -125,7 +126,9 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   LOG("or every " << wait_in_cycles << " cycles");
 
   for (auto i = 0u; i < maxinflight; i++)
-    arm_call_req(get_req(i));
+    arm_call_req(get_req(i), param);
+
+  pthread_barrier_wait(barrier);
 
   long long next_send = get_cycles();
   for (auto i = 0u; i < num_reqs; i++) {
@@ -220,11 +223,11 @@ void HostClient::disconnect() {
   rmccready = false;
 }
 
-double get_avg(std::vector<long long> &durations) {
+template <typename T> double get_avg(std::vector<T> &durations) {
   double avg = 0;
-  long long sum = 1;
+  T sum = 1;
 
-  for (long long &d : durations)
+  for (T &d : durations)
     sum += d;
 
   avg = sum / (double)durations.size();
@@ -261,8 +264,8 @@ void print_stats_maxinflight(std::vector<long long> &durations,
   std::cout << "median=" << median << "\n";
 }
 
-void print_stats_load(std::vector<uint32_t> &durations, long long freq) {
-  double avg = 0;
+double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
+  // double avg = 0;
   double median = 0;
 
   for (auto &d : durations)
@@ -271,17 +274,18 @@ void print_stats_load(std::vector<uint32_t> &durations, long long freq) {
   unsigned int remove = durations.size() * 0.1;
   auto d2 = std::vector<long long>(durations.begin() + remove, durations.end());
   std::sort(d2.begin(), d2.end());
-  avg = get_avg(d2);
+  // avg = get_avg(d2);
   median = get_median(d2);
+  return median;
+  // std::cout << "avg (skipped first " << remove << ")=" << std::fixed << avg
+  //          << "\n";
+  // std::cout << "median (skipped first " << remove << ")=" << median << "\n"
+  // << std::flush;
 
-  std::cout << "avg (skipped first " << remove << ")=" << std::fixed << avg
-            << "\n";
-  std::cout << "median (skipped first " << remove << ")=" << median << "\n";
-
-  std::cout << "rtt\n";
-  for (const auto &d :
-       std::vector<long long>(durations.begin() + remove, durations.end()))
-    std::cout << d << "\n";
+  // std::cout << "rtt\n";
+  // for (const auto &d :
+  //     std::vector<long long>(durations.begin() + remove, durations.end()))
+  //  std::cout << d << "\n";
 }
 
 /* keeps maxinflight active requests at all times */
@@ -292,7 +296,7 @@ void benchmark_maxinflight(HostClient &client, uint32_t param,
   LOG("get_max_inflight()=" << max);
 
   LOG("maxinflight: warming up");
-  client.do_maxinflight(client.get_max_inflight() * 10, param, barrier, tid);
+  client.do_maxinflight(max * 10, param, barrier, tid);
 
   LOG("maxinflight: benchmark start");
   client.do_maxinflight(NUM_REQS, param, barrier, tid);
@@ -302,9 +306,9 @@ void benchmark_maxinflight(HostClient &client, uint32_t param,
   // print_stats_maxinflight(durations, maxinflight);
 }
 
-void benchmark_load(HostClient &client, float load,
-                    pthread_barrier_t *barrier) {
-  std::vector<uint32_t> rtts(NUM_REQS);
+double benchmark_load(HostClient &client, uint32_t param, float load,
+                      pthread_barrier_t *barrier, std::vector<uint32_t> &rtts,
+                      uint32_t num_reqs) {
   const uint32_t max = client.get_max_inflight();
   const long long freq = get_freq();
 
@@ -312,14 +316,14 @@ void benchmark_load(HostClient &client, float load,
   LOG("rdtsc freq=" << freq);
 
   LOG("load: warming up");
-  client.do_load(load, rtts, max, freq);
+  client.do_load(load, rtts, max, freq, param, barrier);
 
   LOG("load: benchmark start");
-  client.do_load(load, rtts, NUM_REQS, freq);
+  client.do_load(load, rtts, num_reqs, freq, param, barrier);
   LOG("load: benchmark end");
   client.last_cmd();
 
-  print_stats_load(rtts, freq);
+  return print_stats_load(rtts, freq);
 }
 
 std::string server, mode;
@@ -327,7 +331,7 @@ int param;
 unsigned int start_port;
 float load = 0.0;
 
-void thread_launch(uint16_t thread_id, pthread_barrier_t *barrier) {
+void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   LOG("START thread=" << thread_id);
@@ -335,12 +339,30 @@ void thread_launch(uint16_t thread_id, pthread_barrier_t *barrier) {
   HostClient client;
   client.connect(server, start_port + thread_id);
 
-  if (mode == "maxinflight")
-    benchmark_maxinflight(client, param, barrier, thread_id);
-  else
-    benchmark_load(client, load, barrier);
+  benchmark_maxinflight(client, param, barrier, thread_id);
+}
 
-  LOG("EXIT thread=" << thread_id);
+void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
+                        std::vector<std::vector<uint32_t>> &rtts,
+                        int num_threads) {
+  // we create one HostClient per thread, so in each client we have 1 QP and 1
+  // CQ. therefore, we don't need thread_ids to select QPs and CQs here
+  current_tid = 0;
+  HostClient client;
+  client.connect(server, start_port + tid);
+
+  benchmark_load(client, param, load, barrier, rtts[tid], NUM_REQS / num_threads);
+
+  pthread_barrier_wait(barrier);
+  if (tid == 0) {
+    // print all rtts
+    std::cout << "start rtts\n";
+    size_t num_threads = rtts.size();
+    for (auto i = 0u; i < num_threads; ++i)
+      for (const auto &rtt : rtts[i])
+        std::cout << rtt << "\n";
+    std::cout << "end rtts\n";
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -377,7 +399,7 @@ int main(int argc, char *argv[]) {
     if (mode != "load" && mode != "maxinflight") {
       std::cerr << "need to specify mode: load or maxinflight\n";
       die(opts.help());
-    } else if (mode == "load" && load == 0) {
+    } else if (mode == "load" && load <= 0) {
       die("mode=load requires load > 0");
     } else if (param < 0) {
       die("param must be > 0");
@@ -393,9 +415,27 @@ int main(int argc, char *argv[]) {
   pthread_barrier_t barrier;
   TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
 
-  for (auto i = 0; i < num_threads; ++i) {
-    std::thread t(thread_launch, i, &barrier);
-    threads.push_back(std::move(t));
+  LOG("will launch " << num_threads << " threads");
+  // one rtt vector per thread
+  std::vector<std::vector<uint32_t>> rtts(num_threads, std::vector<uint32_t>(NUM_REQS / num_threads));
+
+  if (mode == "load") {
+    // distribute load request evenly among all cores
+    if (num_threads > 1) {
+      load = load * num_threads;
+      LOG("adjusting load using multiple cores");
+      LOG("each core will issue a req every " << load << " us");
+    }
+
+    for (auto i = 0; i < num_threads; ++i) {
+      std::thread t(thread_launch_load, i, &barrier, std::ref(rtts), num_threads);
+      threads.push_back(std::move(t));
+    }
+  } else {
+    for (auto i = 0; i < num_threads; ++i) {
+      std::thread t(thread_launch_maxinflight, i, &barrier);
+      threads.push_back(std::move(t));
+    }
   }
 
   for (auto i = 0; i < num_threads; ++i)

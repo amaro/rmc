@@ -1,10 +1,5 @@
 #!/bin/bash
 
-if [ "$EUID" -ne 0 ]
-  then echo "Please run as root"
-  exit
-fi
-
 if [[ $# -ne 3 ]]; then
     echo "Requires 3 parameters; nicserver IP, threads, outputfile"
 	exit 2
@@ -14,20 +9,10 @@ ip=$1
 threads=$2
 output=$3
 
-sudo sh -c "echo -1 > /proc/sys/kernel/sched_rt_runtime_us"
+. utils.sh
 
-if [[ ${threads} = "1" ]]; then
-    cpus="7"
-elif [[ ${threads} = "2" ]]; then
-    cpus="6,7"
-elif [[ ${threads} = "3" ]]; then
-    cpus="5,6,7"
-elif [[ ${threads} = "4" ]]; then
-    cpus="4,5,6,7"
-else
-    echo "threads can only equal 1, 2, 3, 4"
-    exit 2
-fi
+pre_experiment_setup
+define_cpus ${threads}
 
 for numnodes in 1 2 4 8
 do

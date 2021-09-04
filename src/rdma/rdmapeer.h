@@ -17,8 +17,8 @@
 class CoroRMC;
 struct RDMAContext;
 
-static constexpr uint32_t QP_MAX_2SIDED_WRS = 1024;
-static constexpr uint32_t QP_MAX_1SIDED_WRS = 64;
+static constexpr uint32_t QP_MAX_2SIDED_WRS = 512;
+static constexpr uint32_t QP_MAX_1SIDED_WRS = 16;
 static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
 /* TODO: try larger values of batched recvs */
 static constexpr uint32_t MAX_BATCHED_RECVS = 16;
@@ -91,7 +91,7 @@ public:
   static constexpr int TIMEOUT_MS = 5;
   static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
   static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
-  static constexpr uint32_t MAX_UNSIGNALED_SENDS = 256;
+  static constexpr uint32_t MAX_UNSIGNALED_SENDS = 128;
   static constexpr int MAX_QP_INFLIGHT_READS = 16; // hw limited
 
   RDMAPeer(uint16_t num_qps, uint16_t num_cqs)

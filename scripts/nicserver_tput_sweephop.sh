@@ -1,12 +1,5 @@
 #!/bin/bash
 
-set -x
-
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root"
-    exit
-fi
-
 if [[ $# -ne 3 ]]; then
     echo "Requires numqps, workload, threads"
     exit 2
@@ -16,18 +9,10 @@ numqps=$1
 workload=$2
 threads=$3
 
-if [[ ${threads} = "1" ]]; then
-    cpus="7"
-elif [[ ${threads} = "2" ]]; then
-    cpus="6,7"
-elif [[ ${threads} = "3" ]]; then
-    cpus="5,6,7"
-elif [[ ${threads} = "4" ]]; then
-    cpus="4,5,6,7"
-else
-    echo "threads can only equal 1, 2, 3, 4"
-    exit 2
-fi
+. utils.sh
+
+pre_experiment_setup
+define_cpus ${threads}
 
 cmd() {
     sudo MLX5_SCATTER_TO_CQE=1 MLX5_SINGLE_THREADED=1 \

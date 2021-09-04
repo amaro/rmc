@@ -44,7 +44,6 @@ class RMCScheduler {
 
   // num_qps per thread
   const uint16_t num_qps;
-  const uint16_t max_hostmem_bsize;
   unsigned int req_idx;
   uint32_t reply_idx;
   bool pending_replies;
@@ -88,16 +87,16 @@ class RMCScheduler {
 #endif
 
 public:
-  static constexpr int MAX_NEW_REQS_PER_ITER = 32;
+  static constexpr int MAX_NEW_REQS_PER_ITER = 8;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
+  static constexpr uint16_t MAX_HOSTMEM_BSIZE = 4;
 
   RMCScheduler(NICServer &nicserver, Workload work, uint16_t num_qps)
-      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps),
-        max_hostmem_bsize(num_qps == 1 ? 8 : 16), req_idx(0), reply_idx(0),
-        pending_replies(0), recvd_disconnect(false) {
-    LOG("RMCScheduler batchsize=" << max_hostmem_bsize << " num_qps=" << num_qps
+      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps), req_idx(0),
+        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
+    LOG("RMCScheduler batchsize=" << MAX_HOSTMEM_BSIZE << " num_qps=" << num_qps
                                   << " tid=" << current_tid);
     runcoros = true;
 
@@ -228,7 +227,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 #ifdef PERF_STATS
       debug_rmcexecs++;
 #endif
-      if (clientctx.curr_batch_size >= max_hostmem_bsize) {
+      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BSIZE) {
         rclient.end_batched_ops();
         batch_started = false;
       }
@@ -365,7 +364,7 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
     }
   };
 
-  // poll up to max_hostmem_bsize * MAX_HOSTMEM_POLL cqes
+  // poll up to MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL cqes
   int comps =
       ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
   (void)comps;

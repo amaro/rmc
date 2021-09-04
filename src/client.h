@@ -33,7 +33,6 @@ class HostClient {
                         std::vector<uint32_t> &rtts, uint32_t polled,
                         uint32_t &rtt_idx);
   void parse_rmc_reply(CmdReply *reply) const;
-  void arm_call_req(CmdRequest *req);
   void arm_call_req(CmdRequest *req, uint32_t param);
 
 public:
@@ -63,7 +62,7 @@ public:
   long long do_maxinflight(uint32_t num_reqs, uint32_t param,
                            pthread_barrier_t *barrier, uint16_t tid);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
-              long long freq);
+              long long freq, uint32_t param, pthread_barrier_t *barrier);
   int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
   /* cmd to initiate disconnect */
@@ -127,13 +126,6 @@ inline void HostClient::parse_rmc_reply(CmdReply *reply) const {
   CallReply *callreply = &reply->reply.call;
   size_t hash = std::stoull(callreply->data);
   LOG("hash at client=" << hash);
-}
-
-inline void HostClient::arm_call_req(CmdRequest *req) {
-  req->type = CmdType::CALL_RMC;
-  // CallReq *callreq = &req->request.call;
-  // callreq->id = id;
-  // num_to_str<size_t>(arg, callreq->data, MAX_RMC_ARG_LEN);
 }
 
 inline void HostClient::arm_call_req(CmdRequest *req, uint32_t param) {

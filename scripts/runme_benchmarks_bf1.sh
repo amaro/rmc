@@ -9,7 +9,7 @@ fi
 systemctl stop irqbalance.service
 
 for i in /proc/irq/*/smp_affinity; do
-        echo 3 > $i
+        echo 1 > $i
 done
 
 echo -1 > /proc/sys/kernel/sched_rt_runtime_us
