@@ -141,7 +141,7 @@ template <bool suspend> struct AwaitAddr {
 };
 
 static inline uint32_t get_next_llnode(uint32_t num_skip) noexcept {
-  static thread_local uint32_t addresses_given = 0;
+  thread_local uint32_t addresses_given = 0;
   uint32_t next_node = addresses_given * LINKDLIST_NUM_SKIP_NODES;
 
   if (next_node + num_skip > LINKDLIST_TOTAL_NODES) {

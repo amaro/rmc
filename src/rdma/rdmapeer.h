@@ -489,7 +489,7 @@ inline RDMAContext &RDMAPeer::get_context(uint16_t ctx_id) {
 //   [qps_per_thread * tid, qps_per_thread * tid + 1,...,qps_per_thread * tid +
 //   (qps_per_thread - 1)]
 inline RDMAContext &RDMAPeer::get_next_context() {
-  static thread_local uint16_t per_thread_idx = 0;
+  thread_local uint16_t per_thread_idx = 0;
 
   if (qps_per_thread == 1)
     return contexts[current_tid];

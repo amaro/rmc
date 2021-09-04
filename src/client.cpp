@@ -351,7 +351,8 @@ void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
   HostClient client;
   client.connect(server, start_port + tid);
 
-  benchmark_load(client, param, load, barrier, rtts[tid], NUM_REQS / num_threads);
+  benchmark_load(client, param, load, barrier, rtts[tid],
+                 NUM_REQS / num_threads);
 
   pthread_barrier_wait(barrier);
   if (tid == 0) {
@@ -417,7 +418,8 @@ int main(int argc, char *argv[]) {
 
   LOG("will launch " << num_threads << " threads");
   // one rtt vector per thread
-  std::vector<std::vector<uint32_t>> rtts(num_threads, std::vector<uint32_t>(NUM_REQS / num_threads));
+  std::vector<std::vector<uint32_t>> rtts(
+      num_threads, std::vector<uint32_t>(NUM_REQS / num_threads));
 
   if (mode == "load") {
     // distribute load request evenly among all cores
@@ -428,7 +430,8 @@ int main(int argc, char *argv[]) {
     }
 
     for (auto i = 0; i < num_threads; ++i) {
-      std::thread t(thread_launch_load, i, &barrier, std::ref(rtts), num_threads);
+      std::thread t(thread_launch_load, i, &barrier, std::ref(rtts),
+                    num_threads);
       threads.push_back(std::move(t));
     }
   } else {

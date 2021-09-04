@@ -100,7 +100,7 @@ if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
 */
 inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
   static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
-  static thread_local struct ibv_wc wc;
+  thread_local struct ibv_wc wc;
   int ne;
 
   if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {

@@ -286,7 +286,7 @@ inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
-  static thread_local auto update_out_sends = [&](size_t batch_size) {
+  thread_local auto update_out_sends = [&](size_t batch_size) {
     server_ctx.outstanding_sends -= batch_size;
   };
 
@@ -354,20 +354,30 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
-  static thread_local auto add_to_runqueue = [this, &rclient](size_t val) {
+  uint16_t rmc_comps = 0;
+  thread_local std::array<std::coroutine_handle<>,
+                          MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL>
+      reordervec;
+  thread_local auto add_to_reordervec = [this, &rclient,
+                                         &rmc_comps](size_t val) {
     const uint32_t ctx_id = val >> 32;
     const uint32_t batch_size = val & 0xFFFFFFFF;
     RDMAContext &ctx = rclient.get_context(ctx_id);
+    // reorder completions
     for (auto i = 0u; i < batch_size; ++i) {
-      this->runqueue.push_front(ctx.memqueue.front());
+      reordervec[rmc_comps++] = ctx.memqueue.front();
       ctx.memqueue.pop();
     }
   };
 
   // poll up to MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL cqes
   int comps =
-      ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_runqueue);
+      ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_reordervec);
   (void)comps;
+
+  for (auto i = rmc_comps - 1; i >= 0; i--)
+    runqueue.push_front(reordervec[i]);
+
 #ifdef PERF_STATS
   debug_cycles_hostcomps = get_cycles() - cycles;
   debug_hostcomps = comps;
