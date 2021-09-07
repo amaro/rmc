@@ -96,7 +96,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
     assert(*(reinterpret_cast<int *>(reply_buf[i].reply.call.data)) == 1);
 
-  double ops = num_reqs / (duration / (double)1000000000);
+  //double ops = num_reqs / (duration / (double)1000000000);
   LOG("duration=" << duration);
   LOG("num_reqs=" << num_reqs);
   LOG("Ops per sec=" << std::fixed << ops);

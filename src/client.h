@@ -123,8 +123,8 @@ inline CmdReply *HostClient::get_reply(size_t rep_idx) {
 }
 
 inline void HostClient::parse_rmc_reply(CmdReply *reply) const {
-  CallReply *callreply = &reply->reply.call;
-  size_t hash = std::stoull(callreply->data);
+  //CallReply *callreply = &reply->reply.call;
+  //size_t hash = std::stoull(callreply->data);
   LOG("hash at client=" << hash);
 }
 

@@ -91,7 +91,7 @@ public:
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
-  static constexpr uint16_t MAX_HOSTMEM_BSIZE = 4;
+  static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
   RMCScheduler(NICServer &nicserver, Workload work, uint16_t num_qps)
       : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps), req_idx(0),
