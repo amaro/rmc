@@ -96,10 +96,6 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
     assert(*(reinterpret_cast<int *>(reply_buf[i].reply.call.data)) == 1);
 
-  //double ops = num_reqs / (duration / (double)1000000000);
-  LOG("duration=" << duration);
-  LOG("num_reqs=" << num_reqs);
-  LOG("Ops per sec=" << std::fixed << ops);
   return duration;
 }
 
@@ -289,9 +285,11 @@ double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
 }
 
 /* keeps maxinflight active requests at all times */
-void benchmark_maxinflight(HostClient &client, uint32_t param,
-                           pthread_barrier_t *barrier, uint16_t tid) {
+double benchmark_maxinflight(HostClient &client, uint32_t param,
+                             pthread_barrier_t *barrier, uint16_t tid,
+                             uint32_t num_reqs) {
   const uint32_t max = client.get_max_inflight();
+  double duration;
 
   LOG("get_max_inflight()=" << max);
 
@@ -299,10 +297,11 @@ void benchmark_maxinflight(HostClient &client, uint32_t param,
   client.do_maxinflight(max * 10, param, barrier, tid);
 
   LOG("maxinflight: benchmark start");
-  client.do_maxinflight(NUM_REQS, param, barrier, tid);
+  duration = client.do_maxinflight(num_reqs, param, barrier, tid);
   LOG("maxinflight: benchmark end");
 
   client.last_cmd();
+  return duration;
   // print_stats_maxinflight(durations, maxinflight);
 }
 
@@ -331,7 +330,9 @@ int param;
 unsigned int start_port;
 float load = 0.0;
 
-void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier) {
+void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
+                               std::vector<double> &durations,
+                               int num_threads) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   LOG("START thread=" << thread_id);
@@ -339,7 +340,21 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier) {
   HostClient client;
   client.connect(server, start_port + thread_id);
 
-  benchmark_maxinflight(client, param, barrier, thread_id);
+  durations[thread_id] = benchmark_maxinflight(
+      client, param, barrier, thread_id, NUM_REQS / num_threads);
+
+  pthread_barrier_wait(barrier);
+  if (thread_id == 0) {
+    double max = 0;
+    for (double &d : durations)
+      max = std::max(d, max);
+
+    double ops = NUM_REQS / (max / (double)1000000000);
+    std::cout << "max duration=" << max << "\n";
+    std::cout << "num_reqs per thread=" << NUM_REQS  / num_threads << "\n";
+    std::cout << "num_reqs=" << NUM_REQS << "\n";
+    std::cout << "Ops per sec=" << std::fixed << ops << "\n";
+  }
 }
 
 void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
@@ -417,9 +432,13 @@ int main(int argc, char *argv[]) {
   TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
 
   LOG("will launch " << num_threads << " threads");
-  // one rtt vector per thread
+
+  // for load; one rtt vector per thread
   std::vector<std::vector<uint32_t>> rtts(
       num_threads, std::vector<uint32_t>(NUM_REQS / num_threads));
+
+  // for maxinflight; one duration per thread
+  std::vector<double> durations(num_threads);
 
   if (mode == "load") {
     // distribute load request evenly among all cores
@@ -436,7 +455,8 @@ int main(int argc, char *argv[]) {
     }
   } else {
     for (auto i = 0; i < num_threads; ++i) {
-      std::thread t(thread_launch_maxinflight, i, &barrier);
+      std::thread t(thread_launch_maxinflight, i, &barrier, std::ref(durations),
+                    num_threads);
       threads.push_back(std::move(t));
     }
   }
