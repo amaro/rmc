@@ -98,34 +98,34 @@ public:
         reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     LOG("RMCScheduler batchsize=" << MAX_HOSTMEM_BSIZE << " num_qps=" << num_qps
                                   << " tid=" << current_tid);
-    runcoros = true;
+    //runcoros = true;
 
-    for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
-      switch (work) {
-      case READ:
-        spawn(traverse_linkedlist(backend));
-        break;
-      case WRITE:
-        spawn(random_writes(backend));
-        break;
-      }
-    }
+    //for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
+    //  switch (work) {
+    //  case READ:
+    //    spawn(traverse_linkedlist(backend));
+    //    break;
+    //  case WRITE:
+    //    spawn(random_writes(backend));
+    //    break;
+    //  }
+    //}
   }
 
   ~RMCScheduler() {
-    runcoros = false;
-    while (!freequeue.empty()) {
-      auto coro = freequeue.front();
-      freequeue.pop_front();
-      coro.resume(); // coro gets destroyed
-    }
+    //runcoros = false;
+    //while (!freequeue.empty()) {
+    //  auto coro = freequeue.front();
+    //  freequeue.pop_front();
+    //  coro.resume(); // coro gets destroyed
+    //}
   }
 
   void run();
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
   void dispatch_new_req(CmdRequest *req);
-  void spawn(CoroRMC coro);
+  CoroRMC spawn(CoroRMC coro);
 
   RDMAContext &get_server_context();
 
@@ -167,15 +167,15 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  promise_handle rmc =
-      std::coroutine_handle<CoroRMC::promise_type>::from_address(
-          freequeue.front().address());
-  freequeue.pop_front();
-
+  //promise_handle rmc =
+  //    std::coroutine_handle<CoroRMC::promise_type>::from_address(
+  //        freequeue.front().address());
+  //freequeue.pop_front();
+  CoroRMC rmc = spawn(traverse_linkedlist(backend));
   CallReq *callreq = &req->request.call;
-  rmc.promise().param = *(reinterpret_cast<uint32_t *>(callreq->data));
+  rmc.get_handle().promise().param = *(reinterpret_cast<uint32_t *>(callreq->data));
 
-  runqueue.push_back(rmc);
+  runqueue.push_back(rmc.get_handle());
 
 #ifdef PERF_STATS
   debug_cycles_newcoros += get_cycles() - cycles_coros;
@@ -219,7 +219,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 
       rmc.resume();
 
-      if (!rmc.promise().waiting_next_req) {
+      if (rmc.promise().reply_val == 0) {
         clientctx.memqueue.push(rmc);
       } else
         add_reply(rmc, server_ctx);

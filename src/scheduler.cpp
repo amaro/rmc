@@ -17,7 +17,9 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
   ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
 }
 
-void RMCScheduler::spawn(CoroRMC coro) { coro.get_handle().resume(); }
+CoroRMC RMCScheduler::spawn(CoroRMC coro) {
+  return coro;
+}
 
 void RMCScheduler::run() {
   backend.init();
