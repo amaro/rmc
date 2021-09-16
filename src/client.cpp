@@ -351,7 +351,7 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
 
     double ops = NUM_REQS / (max / (double)1000000000);
     std::cout << "max duration=" << max << "\n";
-    std::cout << "num_reqs per thread=" << NUM_REQS  / num_threads << "\n";
+    std::cout << "num_reqs per thread=" << NUM_REQS / num_threads << "\n";
     std::cout << "num_reqs=" << NUM_REQS << "\n";
     std::cout << "Ops per sec=" << std::fixed << ops << "\n";
   }

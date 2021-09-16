@@ -98,28 +98,9 @@ public:
         reply_idx(0), pending_replies(0), recvd_disconnect(false) {
     LOG("RMCScheduler batchsize=" << MAX_HOSTMEM_BSIZE << " num_qps=" << num_qps
                                   << " tid=" << current_tid);
-    //runcoros = true;
-
-    //for (auto i = 0u; i < QP_MAX_2SIDED_WRS; ++i) {
-    //  switch (work) {
-    //  case READ:
-    //    spawn(traverse_linkedlist(backend));
-    //    break;
-    //  case WRITE:
-    //    spawn(random_writes(backend));
-    //    break;
-    //  }
-    //}
   }
 
-  ~RMCScheduler() {
-    //runcoros = false;
-    //while (!freequeue.empty()) {
-    //  auto coro = freequeue.front();
-    //  freequeue.pop_front();
-    //  coro.resume(); // coro gets destroyed
-    //}
-  }
+  ~RMCScheduler() {}
 
   void run();
   void schedule_interleaved(RDMAClient &rclient);
@@ -167,13 +148,12 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  //promise_handle rmc =
-  //    std::coroutine_handle<CoroRMC::promise_type>::from_address(
-  //        freequeue.front().address());
-  //freequeue.pop_front();
   CoroRMC rmc = spawn(traverse_linkedlist(backend));
+
+  /* set params */
   CallReq *callreq = &req->request.call;
-  rmc.get_handle().promise().param = *(reinterpret_cast<uint32_t *>(callreq->data));
+  rmc.get_handle().promise().param =
+      *(reinterpret_cast<uint32_t *>(callreq->data));
 
   runqueue.push_back(rmc.get_handle());
 
@@ -219,9 +199,9 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 
       rmc.resume();
 
-      if (rmc.promise().reply_val == 0) {
+      if (!rmc.done())
         clientctx.memqueue.push(rmc);
-      } else
+      else
         add_reply(rmc, server_ctx);
 
 #ifdef PERF_STATS
@@ -273,6 +253,7 @@ inline void RMCScheduler::add_reply(promise_handle rmc,
   *(reinterpret_cast<int *>(reply->reply.call.data)) = rmc.promise().reply_val;
 
   ns.post_batched_send_reply(server_ctx, reply);
+  rmc.destroy();
   inc_with_wraparound(this->reply_idx, QP_MAX_2SIDED_WRS);
 
 #ifdef PERF_STATS

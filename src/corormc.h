@@ -13,9 +13,6 @@ static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
     RDMA_BUFF_SIZE / sizeof(LLNode);
 
 inline thread_local RMCAllocator allocator;
-//inline thread_local bool runcoros;
-/* pre allocated, free coroutines */
-//inline thread_local std::deque<std::coroutine_handle<>> freequeue;
 
 class CoroRMC {
 public:
@@ -50,8 +47,8 @@ public:
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }
-    /* don't suspend after coroutine ends */
-    auto final_suspend() noexcept { return std::suspend_never{}; }
+    /* suspend after coroutine ends */
+    auto final_suspend() noexcept { return std::suspend_always{}; }
     /* must return the object that wraps promise_type */
     auto get_return_object() noexcept { return CoroRMC{*this}; }
     void return_void() {}
@@ -90,23 +87,6 @@ private:
 
   HDL _coroutine;
 };
-
-/* common for backends */
-//struct AwaitNextReq {
-//  CoroRMC::promise_type *_promise;
-//
-//  bool await_ready() { return false; }
-//  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-//    _promise = &coro.promise();
-//    _promise->waiting_next_req = true;
-//    freequeue.push_front(coro);
-//    return true; // suspend
-//  }
-//  bool await_resume() {
-//    _promise->waiting_next_req = false;
-//    return runcoros;
-//  }
-//};
 
 struct AwaitGetParam {
   CoroRMC::promise_type *_promise;
@@ -177,7 +157,6 @@ public:
     last_random_addr = base_raddr;
   }
 
-  //auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
@@ -234,7 +213,6 @@ public:
     send_cq = rclient.get_send_cq(0);
   }
 
-  //auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
@@ -310,7 +288,6 @@ public:
     base_raddr = OSClient.get_remote_base_addr();
   }
 
-  //auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
@@ -354,7 +331,6 @@ public:
 
   void init() {}
 
-  //auto wait_next_req() noexcept { return AwaitNextReq{}; }
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
@@ -378,29 +354,25 @@ public:
 };
 
 template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
-  //while (co_await b.wait_next_req()) {
-    int num_nodes = co_await b.get_param();
-    uintptr_t addr = b.get_baseaddr(num_nodes);
-    LLNode *node = nullptr;
+  int num_nodes = co_await b.get_param();
+  uintptr_t addr = b.get_baseaddr(num_nodes);
+  LLNode *node = nullptr;
 
-    for (int i = 0; i < num_nodes; ++i) {
-      node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
-      addr = reinterpret_cast<uintptr_t>(node->next);
-    }
+  for (int i = 0; i < num_nodes; ++i) {
+    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+    addr = reinterpret_cast<uintptr_t>(node->next);
+  }
 
-    co_yield 1;
-  //}
+  co_yield 1;
 }
 
 template <class T> inline CoroRMC random_writes(Backend<T> &b) {
-  //while (co_await b.wait_next_req()) {
-    const uint32_t num_writes = co_await b.get_param();
-    uint64_t val = 0xDEADBEEF;
+  const uint32_t num_writes = co_await b.get_param();
+  uint64_t val = 0xDEADBEEF;
 
-    for (auto i = 0u; i < num_writes; ++i) {
-      co_await b.write(b.get_random_addr(), &val);
-    }
+  for (auto i = 0u; i < num_writes; ++i) {
+    co_await b.write(b.get_random_addr(), &val);
+  }
 
-    co_yield 1;
-  //}
+  co_yield 1;
 }
