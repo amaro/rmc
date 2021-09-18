@@ -28,7 +28,7 @@ class HostClient {
   CmdReply *get_reply(size_t rep_idx);
   void disconnect();
 
-  long long load_send_request(std::queue<long long> &start_ts);
+  void load_send_request();
   void load_handle_reps(std::queue<long long> &start_times,
                         std::vector<uint32_t> &rtts, uint32_t polled,
                         uint32_t &rtt_idx);
