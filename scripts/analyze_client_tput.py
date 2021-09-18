@@ -47,7 +47,6 @@ def parse_data(filename):
                 data[numnodes] = []
         elif "Ops per sec" in line:
             tput = float(line.strip().split("=")[1])
-        elif "benchmark end" in line:
             data[numnodes].append(tput)
 
     return data

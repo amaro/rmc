@@ -21,7 +21,7 @@ cmd() {
     sleep 10
 }
 
-for numnodes in 1 2 4 8
+for numnodes in 1 2 4 8 16
 do
 	for rep in {1..5}
 	do

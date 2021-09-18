@@ -14,7 +14,7 @@ output=$3
 pre_experiment_setup
 define_cpus ${threads}
 
-for numnodes in 1 2 4 8
+for numnodes in 1 2 4 8 16
 do
 	for rep in {1..5}
 	do
