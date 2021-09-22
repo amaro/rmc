@@ -217,9 +217,9 @@ public:
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
-    ctx->start_batch();
+    rclient.start_batched_ops(ctx);
     OSClient.read_async(raddr, laddr, sz);
-    ctx->end_batch();
+    rclient.end_batched_ops();
 
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
     return AwaitAddr<false>{laddr};
