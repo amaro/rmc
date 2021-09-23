@@ -99,6 +99,19 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   return duration;
 }
 
+static void get_send_times_exp(std::vector<long long> &send_cycles, uint32_t max_num_req,
+                               uint64_t mean_interval_ns, long long freq) {
+  send_cycles.reserve(max_num_req);
+  std::default_random_engine generator;
+  std::exponential_distribution<double> distribution(double(1) / mean_interval_ns);
+  long long timestamp = 0;
+
+  for (auto i = 0u; i < max_num_req; i++) {
+    timestamp = distribution(generator);
+    send_cycles.push_back(ns_to_cycles(timestamp, freq));
+  }
+}
+
 int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
                         uint32_t num_reqs, long long freq, uint32_t param,
                         pthread_barrier_t *barrier) {
@@ -108,7 +121,6 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   uint32_t curr_max_inflight = 0;
   uint32_t late = 0;
   const uint64_t wait_in_nsec = load * 1000;
-  const long long wait_in_cycles = ns_to_cycles(wait_in_nsec, freq);
   const auto maxinflight = get_max_inflight();
   long long max_late_cycles = 0;
   std::queue<long long> start_times;
@@ -119,16 +131,17 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 
   LOG("will issue " << num_reqs << " requests every " << wait_in_nsec
                     << " nanoseconds");
-  LOG("or every " << wait_in_cycles << " cycles");
 
   for (auto i = 0u; i < maxinflight; i++)
     arm_call_req(get_req(i), param);
 
-  pthread_barrier_wait(barrier);
+  std::vector<long long> send_cycles;
+  get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);
 
+  pthread_barrier_wait(barrier);
   long long next_send = get_cycles();
   for (auto i = 0u; i < num_reqs; i++) {
-    next_send += wait_in_cycles;
+    next_send += send_cycles[i];
 
     /* must start the RTT here because it might get delayed if there's too many
      * reqs in flight */
