@@ -3,7 +3,7 @@
 void RDMAPeer::create_pds_cqs(ibv_context *verbs, bool onesided) {
   ibv_cq_init_attr_ex cq_attrs_ex = {};
   if (onesided)
-    cq_attrs_ex.cqe = QP_MAX_1SIDED_WRS;
+    cq_attrs_ex.cqe = QP_MAX_1SIDED_WRS * 8; // for multiple qps
   else
     cq_attrs_ex.cqe = QP_MAX_2SIDED_WRS;
   cq_attrs_ex.comp_vector = 0;
