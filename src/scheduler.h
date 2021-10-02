@@ -55,6 +55,7 @@ class RMCScheduler {
   void req_get_rmc_id(CmdRequest *req);
   void req_new_rmc(CmdRequest *req);
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
+  void exec_interleaved_dram(RDMAContext &server_ctx);
   void exec_completion(RDMAContext &server_ctx);
   void add_reply(promise_handle rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
@@ -218,7 +219,48 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
   }
 }
 
+inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
+  static_assert(MAX_EXECS_COMPLETION >= MAX_NEW_REQS_PER_ITER);
+
+  thread_local std::array<std::coroutine_handle<>, MAX_EXECS_COMPLETION>
+      reordervec;
+  uint8_t completions = 0;
+
+  while (!runqueue.empty() && completions < MAX_EXECS_COMPLETION) {
+    bool prefetching = true;
+
+  again:
+    uint8_t resumes = 0;
+
+    while (!runqueue.empty() && resumes < MAX_EXECS_COMPLETION) {
+      promise_handle rmc =
+          std::coroutine_handle<CoroRMC::promise_type>::from_address(
+              runqueue.front().address());
+      runqueue.pop_front();
+
+      rmc.resume();
+
+      if (!rmc.done())
+        reordervec[resumes++] = rmc;
+      else {
+        add_reply(rmc, server_ctx);
+        completions++;
+      }
+    }
+
+    for (auto i = resumes - 1; i >= 0; i--)
+      runqueue.push_front(reordervec[i]);
+
+    if (prefetching) {
+      prefetching = false;
+      goto again;
+    }
+  }
+}
+
 inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
+  static_assert(MAX_EXECS_COMPLETION >= MAX_NEW_REQS_PER_ITER);
+
   uint8_t execs = 0;
 
   while (!runqueue.empty() && execs < MAX_EXECS_COMPLETION) {

@@ -99,11 +99,13 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   return duration;
 }
 
-static void get_send_times_exp(std::vector<long long> &send_cycles, uint32_t max_num_req,
-                               uint64_t mean_interval_ns, long long freq) {
+static void get_send_times_exp(std::vector<long long> &send_cycles,
+                               uint32_t max_num_req, uint64_t mean_interval_ns,
+                               long long freq) {
   send_cycles.reserve(max_num_req);
   std::default_random_engine generator;
-  std::exponential_distribution<double> distribution(double(1) / mean_interval_ns);
+  std::exponential_distribution<double> distribution(double(1) /
+                                                     mean_interval_ns);
   long long timestamp = 0;
 
   for (auto i = 0u; i < max_num_req; i++) {

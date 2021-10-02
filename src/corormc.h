@@ -334,6 +334,8 @@ public:
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
+    //__builtin_prefetch(reinterpret_cast<void *>(addr), 0, 0);
+    // return AwaitAddr<true>{addr};
     return AwaitAddr<false>{addr};
   }
 
