@@ -3,7 +3,9 @@
 #include "allocator.h"
 #include "onesidedclient.h"
 #include "utils/utils.h"
+#include <atomic>
 #include <coroutine>
+#include <shared_mutex>
 
 /* TODO: move these to a better place */
 static constexpr const uint16_t PAGE_SIZE = 4096;
@@ -12,6 +14,12 @@ static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
 static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
     RDMA_BUFF_SIZE / sizeof(LLNode);
 
+/* for read-write lock support */
+inline static std::atomic<uint64_t> readers;
+inline static std::atomic<uint64_t> awaiting_writers;
+inline static std::shared_mutex rw_mutex;
+
+/* RMC allocator */
 inline thread_local RMCAllocator allocator;
 
 class CoroRMC {
@@ -25,7 +33,7 @@ public:
 
   /* must have this name */
   struct promise_type {
-    bool waiting_next_req = false;
+    bool waiting_mem_access = false;
     int reply_val = 0;
     int param = 0;
 
@@ -88,15 +96,17 @@ private:
   HDL _coroutine;
 };
 
+using HDL = std::coroutine_handle<CoroRMC::promise_type>;
+
 struct AwaitGetParam {
-  CoroRMC::promise_type *_promise;
+  CoroRMC::promise_type *promise;
 
   bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-    _promise = &coro.promise();
+  auto await_suspend(HDL coro) {
+    promise = &coro.promise();
     return false; // don't suspend
   }
-  int await_resume() { return _promise->param; }
+  int await_resume() { return promise->param; }
 };
 
 template <bool suspend> struct AwaitVoid {
@@ -144,6 +154,36 @@ protected:
   uintptr_t base_raddr;
   uintptr_t last_random_addr;
 
+  struct AwaitRDMARead {
+    uintptr_t addr;
+    CoroRMC::promise_type *promise;
+
+    AwaitRDMARead(uintptr_t addr) : addr(addr) {}
+    bool await_ready() { return false; }
+    auto await_suspend(HDL coro) {
+      promise = &coro.promise();
+      promise->waiting_mem_access = true;
+      return true; // suspend (true)
+    }
+    void *await_resume() {
+      promise->waiting_mem_access = false;
+      return reinterpret_cast<void *>(addr);
+    }
+  };
+
+  struct AwaitRDMAWrite {
+    CoroRMC::promise_type *promise;
+
+    AwaitRDMAWrite(uintptr_t addr) {}
+    bool await_ready() { return false; }
+    auto await_suspend(HDL coro) {
+      promise = &coro.promise();
+      promise->waiting_mem_access = true;
+      return true; // suspend (true)
+    }
+    void await_resume() { promise->waiting_mem_access = false; }
+  };
+
 public:
   Backend(OneSidedClient &c)
       : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
@@ -162,7 +202,7 @@ public:
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
     OSClient.read_async(raddr, laddr, sz);
-    return AwaitAddr<true>{laddr};
+    return AwaitRDMARead{laddr};
   }
 
   template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
@@ -172,7 +212,7 @@ public:
     /* copy to laddr first, then issue the write from there */
     *(reinterpret_cast<T *>(laddr)) = *data;
     OSClient.write_async(raddr, laddr, sizeof(T));
-    return AwaitVoid<true>{};
+    return AwaitRDMAWrite{};
   }
 
   // TODO: unify with get_random_addr
@@ -184,6 +224,30 @@ public:
   uintptr_t get_random_addr() {
     last_random_addr += 248;
     return last_random_addr;
+  }
+
+  void read_lock() {
+    while (awaiting_writers.load(std::memory_order_consume) > 0 ||
+           !rw_mutex.try_lock_shared())
+      AwaitVoid<true>{};
+
+    readers++;
+  }
+
+  void read_unlock() {
+    rw_mutex.unlock_shared();
+    readers--;
+  }
+
+  void write_lock() {
+    awaiting_writers++;
+    while (!rw_mutex.try_lock())
+      AwaitVoid<true>{};
+  }
+
+  void write_unlock() {
+    rw_mutex.unlock();
+    awaiting_writers--;
   }
 };
 

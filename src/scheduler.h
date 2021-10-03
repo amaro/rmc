@@ -200,10 +200,12 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 
       rmc.resume();
 
-      if (!rmc.done())
+      if (rmc.promise().waiting_mem_access)
         clientctx.memqueue.push(rmc);
-      else
+      else if (rmc.done())
         add_reply(rmc, server_ctx);
+      else
+        runqueue.push_back(rmc);
 
 #ifdef PERF_STATS
       debug_rmcexecs++;
