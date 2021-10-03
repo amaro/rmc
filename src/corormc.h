@@ -225,30 +225,6 @@ public:
     last_random_addr += 248;
     return last_random_addr;
   }
-
-  void read_lock() {
-    while (awaiting_writers.load(std::memory_order_consume) > 0 ||
-           !rw_mutex.try_lock_shared())
-      AwaitVoid<true>{};
-
-    readers++;
-  }
-
-  void read_unlock() {
-    rw_mutex.unlock_shared();
-    readers--;
-  }
-
-  void write_lock() {
-    awaiting_writers++;
-    while (!rw_mutex.try_lock())
-      AwaitVoid<true>{};
-  }
-
-  void write_unlock() {
-    rw_mutex.unlock();
-    awaiting_writers--;
-  }
 };
 
 /* Backend<SyncRDMA> defines a backend that uses the async rdma backend
@@ -427,6 +403,61 @@ template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
   for (int i = 0; i < num_nodes; ++i) {
     node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
     addr = reinterpret_cast<uintptr_t>(node->next);
+  }
+
+  co_yield 1;
+}
+
+#define read_lock()                                             \
+do {                                                            \
+  while (awaiting_writers.load(std::memory_order_consume) > 0 ||\
+         !rw_mutex.try_lock_shared())                           \
+    co_await std::suspend_always{};                             \
+  readers++;                                                    \
+} while (0)
+
+#define write_lock()                                            \
+do {                                                            \
+  awaiting_writers++;                                           \
+  while (!rw_mutex.try_lock())                                  \
+    co_await std::suspend_always{};                             \
+} while (0)
+
+static inline void read_unlock() {
+  rw_mutex.unlock_shared();
+  readers--;
+}
+
+static inline void write_unlock() {
+  rw_mutex.unlock();
+  awaiting_writers--;
+}
+
+template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
+  thread_local uint32_t num_execs = 0;
+  int num_nodes = co_await b.get_param();
+  uintptr_t addr = b.get_baseaddr(num_nodes);
+  LLNode *node = nullptr;
+  bool lockreads = true;
+
+  if (++num_execs >= 10) {
+    lockreads = false;
+    num_execs = 0;
+  }
+
+  for (int i = 0; i < num_nodes; ++i) {
+    if (lockreads)
+      read_lock();
+    else
+      write_lock();
+
+    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+    addr = reinterpret_cast<uintptr_t>(node->next);
+
+    if (lockreads)
+      read_unlock();
+    else
+      write_unlock();
   }
 
   co_yield 1;

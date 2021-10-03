@@ -278,7 +278,6 @@ void print_stats_maxinflight(std::vector<long long> &durations,
 }
 
 double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
-  // double avg = 0;
   double median = 0;
 
   for (auto &d : durations)
@@ -287,18 +286,8 @@ double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
   unsigned int remove = durations.size() * 0.1;
   auto d2 = std::vector<long long>(durations.begin() + remove, durations.end());
   std::sort(d2.begin(), d2.end());
-  // avg = get_avg(d2);
   median = get_median(d2);
   return median;
-  // std::cout << "avg (skipped first " << remove << ")=" << std::fixed << avg
-  //          << "\n";
-  // std::cout << "median (skipped first " << remove << ")=" << median << "\n"
-  // << std::flush;
-
-  // std::cout << "rtt\n";
-  // for (const auto &d :
-  //     std::vector<long long>(durations.begin() + remove, durations.end()))
-  //  std::cout << d << "\n";
 }
 
 /* keeps maxinflight active requests at all times */

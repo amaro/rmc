@@ -149,7 +149,7 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-  CoroRMC rmc = spawn(traverse_linkedlist(backend));
+  CoroRMC rmc = spawn(lock_traverse_linkedlist(backend));
 
   /* set params */
   CallReq *callreq = &req->request.call;
@@ -182,11 +182,13 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
 
 inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
                                            RDMAContext &server_ctx) {
-  for (auto qp = 0u; qp < num_qps && !runqueue.empty(); ++qp) {
+  auto resumes_left = runqueue.size();
+
+  for (auto qp = 0u; qp < num_qps && resumes_left > 0; ++qp) {
     RDMAContext &clientctx = rclient.get_next_context();
     bool batch_started = false;
 
-    while (!runqueue.empty() &&
+    while (resumes_left > 0 &&
            clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
       if (!batch_started) {
         rclient.start_batched_ops(&clientctx);
@@ -199,12 +201,17 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
       runqueue.pop_front();
 
       rmc.resume();
+      resumes_left--;
 
       if (rmc.promise().waiting_mem_access)
         clientctx.memqueue.push(rmc);
       else if (rmc.done())
         add_reply(rmc, server_ctx);
       else
+        // TODO: We should not move the RMC all the way to the back, but
+        // instead keep them in a temporary vec, and push them back to the
+        // front of the runqueue after we break from the execution loop. This
+        // will help with latency incurred by locking.
         runqueue.push_back(rmc);
 
 #ifdef PERF_STATS
