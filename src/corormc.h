@@ -395,19 +395,6 @@ public:
   }
 };
 
-template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
-  int num_nodes = co_await b.get_param();
-  uintptr_t addr = b.get_baseaddr(num_nodes);
-  LLNode *node = nullptr;
-
-  for (int i = 0; i < num_nodes; ++i) {
-    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
-    addr = reinterpret_cast<uintptr_t>(node->next);
-  }
-
-  co_yield 1;
-}
-
 #define read_lock()                                             \
 do {                                                            \
   while (awaiting_writers.load(std::memory_order_consume) > 0 ||\
@@ -431,6 +418,30 @@ static inline void read_unlock() {
 static inline void write_unlock() {
   rw_mutex.unlock();
   awaiting_writers--;
+}
+
+template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
+  int num_nodes = co_await b.get_param();
+  uintptr_t addr = b.get_baseaddr(num_nodes);
+  LLNode *node = nullptr;
+
+  for (int i = 0; i < num_nodes; ++i) {
+    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+    addr = reinterpret_cast<uintptr_t>(node->next);
+  }
+
+  co_yield 1;
+}
+
+template <class T> inline CoroRMC random_writes(Backend<T> &b) {
+  const uint32_t num_writes = co_await b.get_param();
+  uint64_t val = 0xDEADBEEF;
+
+  for (auto i = 0u; i < num_writes; ++i) {
+    co_await b.write(b.get_random_addr(), &val);
+  }
+
+  co_yield 1;
 }
 
 template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
@@ -458,17 +469,6 @@ template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
       read_unlock();
     else
       write_unlock();
-  }
-
-  co_yield 1;
-}
-
-template <class T> inline CoroRMC random_writes(Backend<T> &b) {
-  const uint32_t num_writes = co_await b.get_param();
-  uint64_t val = 0xDEADBEEF;
-
-  for (auto i = 0u; i < num_writes; ++i) {
-    co_await b.write(b.get_random_addr(), &val);
   }
 
   co_yield 1;

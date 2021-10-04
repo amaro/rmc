@@ -11,6 +11,8 @@
 #ifndef _RTE_CUCKOO_HASH_H_
 #define _RTE_CUCKOO_HASH_H_
 
+#include <rte_common.h>
+
 #if defined(RTE_ARCH_X86)
 #include "rte_cmp_x86.h"
 #endif
@@ -42,6 +44,7 @@
 
 #include <rte_hash_crc.h>
 #include <rte_jhash.h>
+#include "rte_hash.h"
 
 #if defined(RTE_ARCH_X86) || defined(RTE_ARCH_ARM64)
 /*

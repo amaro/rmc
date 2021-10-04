@@ -43,13 +43,16 @@
 #define FOR_EACH_BUCKET(CURRENT_BKT, START_BUCKET)                            \
 	for (CURRENT_BKT = START_BUCKET;                                      \
 		CURRENT_BKT != NULL;                                          \
-		CURRENT_BKT = CURRENT_BKT->next)
+		CURRENT_BKT = static_cast<rte_hash_bucket*>(CURRENT_BKT->next))
 
 TAILQ_HEAD(rte_hash_list, rte_tailq_entry);
 
-static struct rte_tailq_elem rte_hash_tailq = {
-	.name = "RTE_HASH",
-};
+static struct rte_tailq_elem rte_hash_tailq{};
+//{
+//    NULL,
+//    NULL,
+//	"RTE_HASH",
+//};
 EAL_REGISTER_TAILQ(rte_hash_tailq)
 
 struct __rte_hash_rcu_dq_entry {
@@ -85,7 +88,7 @@ static inline struct rte_hash_bucket *
 rte_hash_get_last_bkt(struct rte_hash_bucket *lst_bkt)
 {
 	while (lst_bkt->next != NULL)
-		lst_bkt = lst_bkt->next;
+		lst_bkt = static_cast<rte_hash_bucket*>(lst_bkt->next);
 	return lst_bkt;
 }
 
@@ -159,6 +162,9 @@ rte_hash_create(const struct rte_hash_parameters *params)
 	struct lcore_cache *local_free_slots = NULL;
 	unsigned int readwrite_concur_lf_support = 0;
 	uint32_t i;
+	uint32_t key_entry_size;
+	uint64_t key_tbl_size;
+	uint32_t num_buckets;
 
 	rte_hash_function default_hash_func = (rte_hash_function)rte_jhash;
 
@@ -243,7 +249,7 @@ rte_hash_create(const struct rte_hash_parameters *params)
 		goto err;
 	}
 
-	const uint32_t num_buckets = rte_align32pow2(params->entries) /
+	num_buckets = rte_align32pow2(params->entries) /
 						RTE_HASH_BUCKET_ENTRIES;
 
 	/* Create ring for extendable buckets. */
@@ -279,7 +285,7 @@ rte_hash_create(const struct rte_hash_parameters *params)
 		goto err_unlock;
 	}
 
-	te = rte_zmalloc("HASH_TAILQ_ENTRY", sizeof(*te), 0);
+	te = static_cast<rte_tailq_entry*>(rte_zmalloc("HASH_TAILQ_ENTRY", sizeof(*te), 0));
 	if (te == NULL) {
 		RTE_LOG(ERR, HASH, "tailq entry allocation failed\n");
 		goto err_unlock;
@@ -321,8 +327,8 @@ rte_hash_create(const struct rte_hash_parameters *params)
 			rte_ring_sp_enqueue_elem(r_ext, &i, sizeof(uint32_t));
 
 		if (readwrite_concur_lf_support) {
-			ext_bkt_to_free = rte_zmalloc(NULL, sizeof(uint32_t) *
-								num_key_slots, 0);
+			ext_bkt_to_free = static_cast<unsigned int*>(rte_zmalloc(NULL, sizeof(uint32_t) *
+								num_key_slots, 0));
 			if (ext_bkt_to_free == NULL) {
 				RTE_LOG(ERR, HASH, "ext bkt to free memory allocation "
 								"failed\n");
@@ -331,10 +337,10 @@ rte_hash_create(const struct rte_hash_parameters *params)
 		}
 	}
 
-	const uint32_t key_entry_size =
+	key_entry_size =
 		RTE_ALIGN(sizeof(struct rte_hash_key) + params->key_len,
 			  KEY_ALIGNMENT);
-	const uint64_t key_tbl_size = (uint64_t) key_entry_size * num_key_slots;
+	key_tbl_size = (uint64_t) key_entry_size * num_key_slots;
 
 	k = rte_zmalloc_socket(NULL, key_tbl_size,
 			RTE_CACHE_LINE_SIZE, params->socket_id);
@@ -344,8 +350,8 @@ rte_hash_create(const struct rte_hash_parameters *params)
 		goto err_unlock;
 	}
 
-	tbl_chng_cnt = rte_zmalloc_socket(NULL, sizeof(uint32_t),
-			RTE_CACHE_LINE_SIZE, params->socket_id);
+	tbl_chng_cnt = static_cast<unsigned int*>(rte_zmalloc_socket(NULL, sizeof(uint32_t),
+			RTE_CACHE_LINE_SIZE, params->socket_id));
 
 	if (tbl_chng_cnt == NULL) {
 		RTE_LOG(ERR, HASH, "memory allocation failed\n");
@@ -392,9 +398,9 @@ rte_hash_create(const struct rte_hash_parameters *params)
 #endif
 
 	if (use_local_cache) {
-		local_free_slots = rte_zmalloc_socket(NULL,
+		local_free_slots = static_cast<lcore_cache*>(rte_zmalloc_socket(NULL,
 				sizeof(struct lcore_cache) * RTE_MAX_LCORE,
-				RTE_CACHE_LINE_SIZE, params->socket_id);
+				RTE_CACHE_LINE_SIZE, params->socket_id));
 		if (local_free_slots == NULL) {
 			RTE_LOG(ERR, HASH, "local free slots memory allocation failed\n");
 			goto err_unlock;
@@ -417,8 +423,8 @@ rte_hash_create(const struct rte_hash_parameters *params)
 
 	h->num_buckets = num_buckets;
 	h->bucket_bitmask = h->num_buckets - 1;
-	h->buckets = buckets;
-	h->buckets_ext = buckets_ext;
+	h->buckets = static_cast<rte_hash_bucket*>(buckets);
+	h->buckets_ext = static_cast<rte_hash_bucket*>(buckets_ext);
 	h->free_ext_bkts = r_ext;
 	h->hash_func = (params->hash_func == NULL) ?
 		default_hash_func : params->hash_func;
@@ -452,8 +458,8 @@ rte_hash_create(const struct rte_hash_parameters *params)
 	 * 2) RTE_HASH_EXTRA_FLAGS_MULTI_WRITER_ADD is enabled
 	 */
 	if (h->writer_takes_lock) {
-		h->readwrite_lock = rte_malloc(NULL, sizeof(rte_rwlock_t),
-						RTE_CACHE_LINE_SIZE);
+		h->readwrite_lock = static_cast<rte_rwlock_t*>(rte_malloc(NULL, sizeof(rte_rwlock_t),
+						RTE_CACHE_LINE_SIZE));
 		if (h->readwrite_lock == NULL)
 			goto err_unlock;
 
@@ -513,8 +519,8 @@ rte_hash_free(struct rte_hash *h)
 
 	rte_mcfg_tailq_write_unlock();
 
-	if (h->dq)
-		rte_rcu_qsbr_dq_delete(h->dq);
+	//if (h->dq)
+	//	rte_rcu_qsbr_dq_delete(h->dq);
 
 	if (h->use_local_cache)
 		rte_free(h->local_free_slots);
@@ -618,19 +624,19 @@ void
 rte_hash_reset(struct rte_hash *h)
 {
 	uint32_t tot_ring_cnt, i;
-	unsigned int pending;
+	//unsigned int pending;
 
 	if (h == NULL)
 		return;
 
 	__hash_rw_writer_lock(h);
 
-	if (h->dq) {
-		/* Reclaim all the resources */
-		rte_rcu_qsbr_dq_reclaim(h->dq, ~0, NULL, &pending, NULL);
-		if (pending != 0)
-			RTE_LOG(ERR, HASH, "RCU reclaim all resources failed\n");
-	}
+	//if (h->dq) {
+	//	/* Reclaim all the resources */
+	//	rte_rcu_qsbr_dq_reclaim(h->dq, ~0, NULL, &pending, NULL);
+	//	if (pending != 0)
+	//		RTE_LOG(ERR, HASH, "RCU reclaim all resources failed\n");
+	//}
 
 	memset(h->buckets, 0, h->num_buckets * sizeof(struct rte_hash_bucket));
 	memset(h->key_store, 0, h->key_entry_size * (h->entries + 1));
@@ -697,7 +703,7 @@ search_and_update(const struct rte_hash *h, void *data, const void *key,
 	struct rte_hash_bucket *bkt, uint16_t sig)
 {
 	int i;
-	struct rte_hash_key *k, *keys = h->key_store;
+	struct rte_hash_key *k, *keys = static_cast<rte_hash_key*>(h->key_store);
 
 	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig) {
@@ -1011,7 +1017,7 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	uint16_t short_sig;
 	uint32_t prim_bucket_idx, sec_bucket_idx;
 	struct rte_hash_bucket *prim_bkt, *sec_bkt, *cur_bkt;
-	struct rte_hash_key *new_k, *keys = h->key_store;
+	struct rte_hash_key *new_k, *keys = static_cast<rte_hash_key*>(h->key_store);
 	uint32_t ext_bkt_id = 0;
 	uint32_t slot_id;
 	int ret;
@@ -1055,20 +1061,20 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	}
 	slot_id = alloc_slot(h, cached_free_slots);
 	if (slot_id == EMPTY_SLOT) {
-		if (h->dq) {
-			__hash_rw_writer_lock(h);
-			ret = rte_rcu_qsbr_dq_reclaim(h->dq,
-					h->hash_rcu_cfg->max_reclaim_size,
-					NULL, NULL, NULL);
-			__hash_rw_writer_unlock(h);
-			if (ret == 0)
-				slot_id = alloc_slot(h, cached_free_slots);
-		}
+		//if (h->dq) {
+		//	__hash_rw_writer_lock(h);
+		//	ret = rte_rcu_qsbr_dq_reclaim(h->dq,
+		//			h->hash_rcu_cfg->max_reclaim_size,
+		//			NULL, NULL, NULL);
+		//	__hash_rw_writer_unlock(h);
+		//	if (ret == 0)
+		//		slot_id = alloc_slot(h, cached_free_slots);
+		//}
 		if (slot_id == EMPTY_SLOT)
 			return -ENOSPC;
 	}
 
-	new_k = RTE_PTR_ADD(keys, slot_id * h->key_entry_size);
+	new_k = static_cast<rte_hash_key*>(RTE_PTR_ADD(keys, slot_id * h->key_entry_size));
 	/* The store to application data (by the application) at *data should
 	 * not leak after the store of pdata in the key store. i.e. pdata is
 	 * the guard variable. Release the application data to the readers.
@@ -1080,7 +1086,7 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	memcpy(new_k->key, key, h->key_len);
 
 	/* Find an empty slot and insert */
-	ret = rte_hash_cuckoo_insert_mw(h, prim_bkt, sec_bkt, key, data,
+	ret = rte_hash_cuckoo_insert_mw(h, prim_bkt, sec_bkt, (const rte_hash_key*) key, data,
 					short_sig, slot_id, &ret_val);
 	if (ret == 0)
 		return slot_id - 1;
@@ -1090,7 +1096,7 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	}
 
 	/* Primary bucket full, need to make space for new entry */
-	ret = rte_hash_cuckoo_make_space_mw(h, prim_bkt, sec_bkt, key, data,
+	ret = rte_hash_cuckoo_make_space_mw(h, prim_bkt, sec_bkt, (const rte_hash_key*) key, data,
 				short_sig, prim_bucket_idx, slot_id, &ret_val);
 	if (ret == 0)
 		return slot_id - 1;
@@ -1100,7 +1106,7 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	}
 
 	/* Also search secondary bucket to get better occupancy */
-	ret = rte_hash_cuckoo_make_space_mw(h, sec_bkt, prim_bkt, key, data,
+	ret = rte_hash_cuckoo_make_space_mw(h, sec_bkt, prim_bkt, (const rte_hash_key*) key, data,
 				short_sig, sec_bucket_idx, slot_id, &ret_val);
 
 	if (ret == 0)
@@ -1161,15 +1167,15 @@ __rte_hash_add_key_with_hash(const struct rte_hash *h, const void *key,
 	if (rte_ring_sc_dequeue_elem(h->free_ext_bkts, &ext_bkt_id,
 						sizeof(uint32_t)) != 0 ||
 					ext_bkt_id == 0) {
-		if (h->dq) {
-			if (rte_rcu_qsbr_dq_reclaim(h->dq,
-					h->hash_rcu_cfg->max_reclaim_size,
-					NULL, NULL, NULL) == 0) {
-				rte_ring_sc_dequeue_elem(h->free_ext_bkts,
-							 &ext_bkt_id,
-							 sizeof(uint32_t));
-			}
-		}
+		//if (h->dq) {
+		//	if (rte_rcu_qsbr_dq_reclaim(h->dq,
+		//			h->hash_rcu_cfg->max_reclaim_size,
+		//			NULL, NULL, NULL) == 0) {
+		//		rte_ring_sc_dequeue_elem(h->free_ext_bkts,
+		//					 &ext_bkt_id,
+		//					 sizeof(uint32_t));
+		//	}
+		//}
 		if (ext_bkt_id == 0) {
 			ret = -ENOSPC;
 			goto failure;
@@ -1247,7 +1253,7 @@ search_one_bucket_l(const struct rte_hash *h, const void *key,
 		const struct rte_hash_bucket *bkt)
 {
 	int i;
-	struct rte_hash_key *k, *keys = h->key_store;
+	struct rte_hash_key *k, *keys = static_cast<rte_hash_key*>(h->key_store);
 
 	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
 		if (bkt->sig_current[i] == sig &&
@@ -1276,7 +1282,7 @@ search_one_bucket_lf(const struct rte_hash *h, const void *key, uint16_t sig,
 {
 	int i;
 	uint32_t key_idx;
-	struct rte_hash_key *k, *keys = h->key_store;
+	struct rte_hash_key *k, *keys = static_cast<rte_hash_key*>(h->key_store);
 
 	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
 		/* Signature comparison is done before the acquire-load
@@ -1475,108 +1481,108 @@ free_slot(const struct rte_hash *h, uint32_t slot_id)
 	return 0;
 }
 
-static void
-__hash_rcu_qsbr_free_resource(void *p, void *e, unsigned int n)
-{
-	void *key_data = NULL;
-	int ret;
-	struct rte_hash_key *keys, *k;
-	struct rte_hash *h = (struct rte_hash *)p;
-	struct __rte_hash_rcu_dq_entry rcu_dq_entry =
-			*((struct __rte_hash_rcu_dq_entry *)e);
+//static void
+//__hash_rcu_qsbr_free_resource(void *p, void *e, unsigned int n)
+//{
+//	void *key_data = NULL;
+//	int ret;
+//	struct rte_hash_key *keys, *k;
+//	struct rte_hash *h = (struct rte_hash *)p;
+//	struct __rte_hash_rcu_dq_entry rcu_dq_entry =
+//			*((struct __rte_hash_rcu_dq_entry *)e);
+//
+//	RTE_SET_USED(n);
+//	keys = h->key_store;
+//
+//	k = (struct rte_hash_key *) ((char *)keys +
+//				rcu_dq_entry.key_idx * h->key_entry_size);
+//	key_data = k->pdata;
+//	if (h->hash_rcu_cfg->free_key_data_func)
+//		h->hash_rcu_cfg->free_key_data_func(h->hash_rcu_cfg->key_data_ptr,
+//						    key_data);
+//
+//	if (h->ext_table_support && rcu_dq_entry.ext_bkt_idx != EMPTY_SLOT)
+//		/* Recycle empty ext bkt to free list. */
+//		rte_ring_sp_enqueue_elem(h->free_ext_bkts,
+//			&rcu_dq_entry.ext_bkt_idx, sizeof(uint32_t));
+//
+//	/* Return key indexes to free slot ring */
+//	ret = free_slot(h, rcu_dq_entry.key_idx);
+//	if (ret < 0) {
+//		RTE_LOG(ERR, HASH,
+//			"%s: could not enqueue free slots in global ring\n",
+//				__func__);
+//	}
+//}
 
-	RTE_SET_USED(n);
-	keys = h->key_store;
-
-	k = (struct rte_hash_key *) ((char *)keys +
-				rcu_dq_entry.key_idx * h->key_entry_size);
-	key_data = k->pdata;
-	if (h->hash_rcu_cfg->free_key_data_func)
-		h->hash_rcu_cfg->free_key_data_func(h->hash_rcu_cfg->key_data_ptr,
-						    key_data);
-
-	if (h->ext_table_support && rcu_dq_entry.ext_bkt_idx != EMPTY_SLOT)
-		/* Recycle empty ext bkt to free list. */
-		rte_ring_sp_enqueue_elem(h->free_ext_bkts,
-			&rcu_dq_entry.ext_bkt_idx, sizeof(uint32_t));
-
-	/* Return key indexes to free slot ring */
-	ret = free_slot(h, rcu_dq_entry.key_idx);
-	if (ret < 0) {
-		RTE_LOG(ERR, HASH,
-			"%s: could not enqueue free slots in global ring\n",
-				__func__);
-	}
-}
-
-int
-rte_hash_rcu_qsbr_add(struct rte_hash *h, struct rte_hash_rcu_config *cfg)
-{
-	struct rte_rcu_qsbr_dq_parameters params = {0};
-	char rcu_dq_name[RTE_RCU_QSBR_DQ_NAMESIZE];
-	struct rte_hash_rcu_config *hash_rcu_cfg = NULL;
-
-	if (h == NULL || cfg == NULL || cfg->v == NULL) {
-		rte_errno = EINVAL;
-		return 1;
-	}
-
-	const uint32_t total_entries = h->use_local_cache ?
-		h->entries + (RTE_MAX_LCORE - 1) * (LCORE_CACHE_SIZE - 1) + 1
-							: h->entries + 1;
-
-	if (h->hash_rcu_cfg) {
-		rte_errno = EEXIST;
-		return 1;
-	}
-
-	hash_rcu_cfg = rte_zmalloc(NULL, sizeof(struct rte_hash_rcu_config), 0);
-	if (hash_rcu_cfg == NULL) {
-		RTE_LOG(ERR, HASH, "memory allocation failed\n");
-		return 1;
-	}
-
-	if (cfg->mode == RTE_HASH_QSBR_MODE_SYNC) {
-		/* No other things to do. */
-	} else if (cfg->mode == RTE_HASH_QSBR_MODE_DQ) {
-		/* Init QSBR defer queue. */
-		snprintf(rcu_dq_name, sizeof(rcu_dq_name),
-					"HASH_RCU_%s", h->name);
-		params.name = rcu_dq_name;
-		params.size = cfg->dq_size;
-		if (params.size == 0)
-			params.size = total_entries;
-		params.trigger_reclaim_limit = cfg->trigger_reclaim_limit;
-		if (params.max_reclaim_size == 0)
-			params.max_reclaim_size = RTE_HASH_RCU_DQ_RECLAIM_MAX;
-		params.esize = sizeof(struct __rte_hash_rcu_dq_entry);
-		params.free_fn = __hash_rcu_qsbr_free_resource;
-		params.p = h;
-		params.v = cfg->v;
-		h->dq = rte_rcu_qsbr_dq_create(&params);
-		if (h->dq == NULL) {
-			rte_free(hash_rcu_cfg);
-			RTE_LOG(ERR, HASH, "HASH defer queue creation failed\n");
-			return 1;
-		}
-	} else {
-		rte_free(hash_rcu_cfg);
-		rte_errno = EINVAL;
-		return 1;
-	}
-
-	hash_rcu_cfg->v = cfg->v;
-	hash_rcu_cfg->mode = cfg->mode;
-	hash_rcu_cfg->dq_size = params.size;
-	hash_rcu_cfg->trigger_reclaim_limit = params.trigger_reclaim_limit;
-	hash_rcu_cfg->max_reclaim_size = params.max_reclaim_size;
-	hash_rcu_cfg->free_key_data_func = cfg->free_key_data_func;
-	hash_rcu_cfg->key_data_ptr = cfg->key_data_ptr;
-
-	h->hash_rcu_cfg = hash_rcu_cfg;
-
-	return 0;
-}
+//int
+//rte_hash_rcu_qsbr_add(struct rte_hash *h, struct rte_hash_rcu_config *cfg)
+//{
+//	struct rte_rcu_qsbr_dq_parameters params = {0};
+//	char rcu_dq_name[RTE_RCU_QSBR_DQ_NAMESIZE];
+//	struct rte_hash_rcu_config *hash_rcu_cfg = NULL;
+//
+//	if (h == NULL || cfg == NULL || cfg->v == NULL) {
+//		rte_errno = EINVAL;
+//		return 1;
+//	}
+//
+//	const uint32_t total_entries = h->use_local_cache ?
+//		h->entries + (RTE_MAX_LCORE - 1) * (LCORE_CACHE_SIZE - 1) + 1
+//							: h->entries + 1;
+//
+//	if (h->hash_rcu_cfg) {
+//		rte_errno = EEXIST;
+//		return 1;
+//	}
+//
+//	hash_rcu_cfg = rte_zmalloc(NULL, sizeof(struct rte_hash_rcu_config), 0);
+//	if (hash_rcu_cfg == NULL) {
+//		RTE_LOG(ERR, HASH, "memory allocation failed\n");
+//		return 1;
+//	}
+//
+//	if (cfg->mode == RTE_HASH_QSBR_MODE_SYNC) {
+//		/* No other things to do. */
+//	} else if (cfg->mode == RTE_HASH_QSBR_MODE_DQ) {
+//		/* Init QSBR defer queue. */
+//		snprintf(rcu_dq_name, sizeof(rcu_dq_name),
+//					"HASH_RCU_%s", h->name);
+//		params.name = rcu_dq_name;
+//		params.size = cfg->dq_size;
+//		if (params.size == 0)
+//			params.size = total_entries;
+//		params.trigger_reclaim_limit = cfg->trigger_reclaim_limit;
+//		if (params.max_reclaim_size == 0)
+//			params.max_reclaim_size = RTE_HASH_RCU_DQ_RECLAIM_MAX;
+//		params.esize = sizeof(struct __rte_hash_rcu_dq_entry);
+//		params.free_fn = __hash_rcu_qsbr_free_resource;
+//		params.p = h;
+//		params.v = cfg->v;
+//		h->dq = rte_rcu_qsbr_dq_create(&params);
+//		if (h->dq == NULL) {
+//			rte_free(hash_rcu_cfg);
+//			RTE_LOG(ERR, HASH, "HASH defer queue creation failed\n");
+//			return 1;
+//		}
+//	} else {
+//		rte_free(hash_rcu_cfg);
+//		rte_errno = EINVAL;
+//		return 1;
+//	}
+//
+//	hash_rcu_cfg->v = cfg->v;
+//	hash_rcu_cfg->mode = cfg->mode;
+//	hash_rcu_cfg->dq_size = params.size;
+//	hash_rcu_cfg->trigger_reclaim_limit = params.trigger_reclaim_limit;
+//	hash_rcu_cfg->max_reclaim_size = params.max_reclaim_size;
+//	hash_rcu_cfg->free_key_data_func = cfg->free_key_data_func;
+//	hash_rcu_cfg->key_data_ptr = cfg->key_data_ptr;
+//
+//	h->hash_rcu_cfg = hash_rcu_cfg;
+//
+//	return 0;
+//}
 
 static inline void
 remove_entry(const struct rte_hash *h, struct rte_hash_bucket *bkt,
@@ -1641,7 +1647,7 @@ static inline int32_t
 search_and_remove(const struct rte_hash *h, const void *key,
 			struct rte_hash_bucket *bkt, uint16_t sig, int *pos)
 {
-	struct rte_hash_key *k, *keys = h->key_store;
+	struct rte_hash_key *k, *keys = static_cast<rte_hash_key*>(h->key_store);
 	unsigned int i;
 	uint32_t key_idx;
 
@@ -1687,7 +1693,7 @@ __rte_hash_del_key_with_hash(const struct rte_hash *h, const void *key,
 	int32_t ret, i;
 	uint16_t short_sig;
 	uint32_t index = EMPTY_SLOT;
-	struct __rte_hash_rcu_dq_entry rcu_dq_entry;
+	//struct __rte_hash_rcu_dq_entry rcu_dq_entry;
 
 	short_sig = get_short_sig(sig);
 	prim_bucket_idx = get_prim_bucket_index(h, sig);
@@ -1699,7 +1705,7 @@ __rte_hash_del_key_with_hash(const struct rte_hash *h, const void *key,
 	ret = search_and_remove(h, key, prim_bkt, short_sig, &pos);
 	if (ret != -1) {
 		__rte_hash_compact_ll(h, prim_bkt, pos);
-		last_bkt = prim_bkt->next;
+		last_bkt = static_cast<rte_hash_bucket*>(prim_bkt->next);
 		prev_bkt = prim_bkt;
 		goto return_bkt;
 	}
@@ -1711,7 +1717,7 @@ __rte_hash_del_key_with_hash(const struct rte_hash *h, const void *key,
 		ret = search_and_remove(h, key, cur_bkt, short_sig, &pos);
 		if (ret != -1) {
 			__rte_hash_compact_ll(h, cur_bkt, pos);
-			last_bkt = sec_bkt->next;
+			last_bkt = static_cast<rte_hash_bucket*>(sec_bkt->next);
 			prev_bkt = sec_bkt;
 			goto return_bkt;
 		}
@@ -1727,7 +1733,7 @@ return_bkt:
 
 	while (last_bkt->next) {
 		prev_bkt = last_bkt;
-		last_bkt = last_bkt->next;
+		last_bkt = static_cast<rte_hash_bucket*>(last_bkt->next);
 	}
 
 	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
@@ -1762,20 +1768,20 @@ return_key:
 	/* Using internal RCU QSBR */
 	if (h->hash_rcu_cfg) {
 		/* Key index where key is stored, adding the first dummy index */
-		rcu_dq_entry.key_idx = ret + 1;
-		rcu_dq_entry.ext_bkt_idx = index;
-		if (h->dq == NULL) {
-			/* Wait for quiescent state change if using
-			 * RTE_HASH_QSBR_MODE_SYNC
-			 */
-			rte_rcu_qsbr_synchronize(h->hash_rcu_cfg->v,
-						 RTE_QSBR_THRID_INVALID);
-			__hash_rcu_qsbr_free_resource((void *)((uintptr_t)h),
-						      &rcu_dq_entry, 1);
-		} else if (h->dq)
-			/* Push into QSBR FIFO if using RTE_HASH_QSBR_MODE_DQ */
-			if (rte_rcu_qsbr_dq_enqueue(h->dq, &rcu_dq_entry) != 0)
-				RTE_LOG(ERR, HASH, "Failed to push QSBR FIFO\n");
+		//rcu_dq_entry.key_idx = ret + 1;
+		//rcu_dq_entry.ext_bkt_idx = index;
+		//if (h->dq == NULL) {
+		//	/* Wait for quiescent state change if using
+		//	 * RTE_HASH_QSBR_MODE_SYNC
+		//	 */
+		//	rte_rcu_qsbr_synchronize(h->hash_rcu_cfg->v,
+		//				 RTE_QSBR_THRID_INVALID);
+		//	__hash_rcu_qsbr_free_resource((void *)((uintptr_t)h),
+		//				      &rcu_dq_entry, 1);
+		//} else if (h->dq)
+		//	/* Push into QSBR FIFO if using RTE_HASH_QSBR_MODE_DQ */
+		//	if (rte_rcu_qsbr_dq_enqueue(h->dq, &rcu_dq_entry) != 0)
+		//		RTE_LOG(ERR, HASH, "Failed to push QSBR FIFO\n");
 	}
 	__hash_rw_writer_unlock(h);
 	return ret;
@@ -1802,7 +1808,7 @@ rte_hash_get_key_with_position(const struct rte_hash *h, const int32_t position,
 {
 	RETURN_IF_TRUE(((h == NULL) || (key == NULL)), -EINVAL);
 
-	struct rte_hash_key *k, *keys = h->key_store;
+	struct rte_hash_key *k, *keys = static_cast<rte_hash_key*>(h->key_store);
 	k = (struct rte_hash_key *) ((char *) keys + (position + 1) *
 				     h->key_entry_size);
 	*key = k->key;
@@ -2025,7 +2031,7 @@ next_key:
 	for (i = 0; i < num_keys; i++) {
 		if ((hits & (1ULL << i)) != 0)
 			continue;
-		next_bkt = secondary_bkt[i]->next;
+		next_bkt = static_cast<rte_hash_bucket*>(secondary_bkt[i]->next);
 		FOR_EACH_BUCKET(cur_bkt, next_bkt) {
 			if (data != NULL)
 				ret = search_one_bucket_l(h, keys[i],
@@ -2188,7 +2194,7 @@ next_key:
 			for (i = 0; i < num_keys; i++) {
 				if ((hits & (1ULL << i)) != 0)
 					continue;
-				next_bkt = secondary_bkt[i]->next;
+				next_bkt = static_cast<rte_hash_bucket*>(secondary_bkt[i]->next);
 				FOR_EACH_BUCKET(cur_bkt, next_bkt) {
 					if (data != NULL)
 						ret = search_one_bucket_lf(h,

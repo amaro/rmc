@@ -6,6 +6,8 @@ project(
     DESCRIPTION "RMC project"
     LANGUAGES CXX)
 
+include(cmake/dpdk.cmake)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

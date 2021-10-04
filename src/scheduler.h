@@ -1,8 +1,6 @@
 #pragma once
 
 //#define PERF_STATS
-#define B_RDMA 1
-#define B_DRAM 2
 
 #include <cassert>
 #include <cstdlib>
@@ -15,6 +13,10 @@
 
 #ifdef PERF_STATS
 #include <numeric>
+#endif
+
+#if defined(BACKEND_RDMA)
+#include "corohashtable.h"
 #endif
 
 #include "corormc.h"
@@ -149,7 +151,11 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
+#if defined(BACKEND_RDMA)
+  CoroRMC rmc = spawn(hash_query(backend));
+#else
   CoroRMC rmc = spawn(lock_traverse_linkedlist(backend));
+#endif
 
   /* set params */
   CallReq *callreq = &req->request.call;
