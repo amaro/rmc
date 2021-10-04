@@ -27,7 +27,7 @@ target_compile_options(onesidedclient_obj PUBLIC "-fno-rtti")
 
 add_library(scheduler_rdma_obj OBJECT scheduler.cpp)
 target_compile_options(scheduler_rdma_obj PUBLIC "-fcoroutines")
-target_compile_options(scheduler_rdma_obj PUBLIC "-fno-exceptions")
+#target_compile_options(scheduler_rdma_obj PUBLIC "-fno-exceptions")
 target_compile_options(scheduler_rdma_obj PUBLIC "-fno-rtti")
 target_compile_definitions(scheduler_rdma_obj PUBLIC -DBACKEND_RDMA=1)
 
@@ -42,11 +42,6 @@ target_compile_options(scheduler_dram_obj PUBLIC "-fcoroutines")
 target_compile_options(scheduler_dram_obj PUBLIC "-fno-exceptions")
 target_compile_options(scheduler_dram_obj PUBLIC "-fno-rtti")
 target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
-
-add_library(rmc_rte_hash_obj OBJECT lib/rte_cuckoo_hash.cpp)
-target_compile_options(rmc_rte_hash_obj PUBLIC "-fcoroutines")
-target_compile_options(rmc_rte_hash_obj PUBLIC "-fno-exceptions")
-target_compile_options(rmc_rte_hash_obj PUBLIC "-fno-rtti")
 
 # rmc client
 add_executable(client client.cpp
@@ -70,10 +65,9 @@ add_executable(nicserver nicserver.cpp
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
     $<TARGET_OBJECTS:rdmaserver_obj>
-    $<TARGET_OBJECTS:rdmapeer_obj>
-    $<TARGET_OBJECTS:rmc_rte_hash_obj>)
+    $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_options(nicserver PUBLIC "-fcoroutines")
-target_compile_options(nicserver PUBLIC "-fno-exceptions")
+#target_compile_options(nicserver PUBLIC "-fno-exceptions")
 target_compile_options(nicserver PUBLIC "-fno-rtti")
 target_compile_definitions(nicserver PUBLIC -DBACKEND_RDMA=1)
 target_link_libraries(nicserver ${DPDK_LIB})
