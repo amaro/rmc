@@ -1220,14 +1220,15 @@ private:
     int res1, res2;
     bucket &b1 = buckets_[b.i1];
     if (!try_find_insert_bucket(b1, res1, hv.partial, key)) {
-      return table_position{b.i1, static_cast<size_type>(res1),
-                            failure_key_duplicated};
+      return table_position{b.i1, static_cast<size_type>(res1), // there is an existing key here, update the key
+                            failure_key_duplicated};            // res1 is slot
     }
     bucket &b2 = buckets_[b.i2];
     if (!try_find_insert_bucket(b2, res2, hv.partial, key)) {
       return table_position{b.i2, static_cast<size_type>(res2),
                             failure_key_duplicated};
     }
+    // we didn't find the key in the hashmap, we do a real insert now
     if (res1 != -1) {
       return table_position{b.i1, static_cast<size_type>(res1), ok};
     }
@@ -1236,6 +1237,7 @@ private:
     }
 
     // We are unlucky, so let's perform cuckoo hashing.
+    // neither the first bucket nor 2nd had space
     size_type insert_bucket = 0;
     size_type insert_slot = 0;
     cuckoo_status st = run_cuckoo<TABLE_MODE>(b, insert_bucket, insert_slot);
@@ -1885,7 +1887,7 @@ private:
     // array. Then the old buckets will be deleted when new_map is deleted.
     maybe_resize_locks(new_map.bucket_count());
     buckets_.swap(new_map.buckets_);
-    
+
     return ok;
   }
 

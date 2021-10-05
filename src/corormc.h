@@ -33,6 +33,7 @@ public:
 
   /* must have this name */
   struct promise_type {
+    std::coroutine_handle<promise_type> continuation;
     bool waiting_mem_access = false;
     int reply_val = 0;
     int param = 0;
@@ -55,8 +56,32 @@ public:
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }
-    /* suspend after coroutine ends */
-    auto final_suspend() noexcept { return std::suspend_always{}; }
+
+    struct final_awaiter {
+      bool await_ready() noexcept { return false; }
+
+      std::coroutine_handle<>
+      await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+        // if there is a continuation to resume, resume it but clear it first
+        // so that the scheduler doesn't attempt to resume it anymore.
+        if (h.promise().continuation) {
+          // if the coro that is about to die has a continuation, then it
+          // must be the case that the continuation's continuation is the
+          // CoroRMC that is in the runqueue (given RMCAwaiter::await_suspend())
+          // therefore, clear the continuation's continuation
+          h.promise().continuation.promise().continuation = {};
+          return h.promise().continuation;
+        } else {
+          return std::noop_coroutine(); // return to scheduler
+        }
+      }
+
+      void await_resume() noexcept {}
+    };
+
+    /* when a CoroRMC is about to suspend for the final time, check if there's
+       a CoroRMC to return to */
+    final_awaiter final_suspend() noexcept { return {}; }
     /* must return the object that wraps promise_type */
     auto get_return_object() noexcept { return CoroRMC{*this}; }
     void return_void() {}
@@ -67,7 +92,39 @@ public:
     }
   };
 
-  using HDL = std::coroutine_handle<promise_type>;
+  using coro_handle = std::coroutine_handle<promise_type>;
+
+  /* Awaiter for other CoroRMCs */
+  class RMCAwaiter {
+  public:
+    bool await_ready() noexcept { return false; }
+
+    coro_handle await_suspend(coro_handle callee) noexcept {
+      // Store the continuation in the task's promise so that the
+      // final_suspend() knows to resume this coroutine when the task completes.
+      called.promise().continuation = callee;
+      // Also, store the new coro in the continuation's continuation
+      // so we can resume it from scheduler
+      callee.promise().continuation = called;
+      // Then we resume the task's coroutine, which is currently suspended
+      // at the initial-suspend-point (ie. at the open curly brace).
+      return called;
+    }
+
+    void await_resume() noexcept {}
+
+  private:
+    friend CoroRMC;
+    explicit RMCAwaiter(coro_handle h) noexcept : called(h) {}
+
+    coro_handle called;
+  };
+
+  RMCAwaiter operator co_await() &&noexcept {
+    // _coroutine here is the CoroRMC's coroutine that was just created,
+    // the one we just called.
+    return RMCAwaiter{_coroutine};
+  }
 
   /* move constructor */
   CoroRMC(CoroRMC &&oth) : _coroutine(oth._coroutine) {
@@ -91,18 +148,15 @@ public:
   auto get_handle() { return _coroutine; }
 
 private:
-  CoroRMC(promise_type &p) : _coroutine(HDL::from_promise(p)) {}
-
-  HDL _coroutine;
+  CoroRMC(promise_type &p) : _coroutine(coro_handle::from_promise(p)) {}
+  coro_handle _coroutine;
 };
-
-using HDL = std::coroutine_handle<CoroRMC::promise_type>;
 
 struct AwaitGetParam {
   CoroRMC::promise_type *promise;
 
   bool await_ready() { return false; }
-  auto await_suspend(HDL coro) {
+  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
     return false; // don't suspend
   }
@@ -160,7 +214,7 @@ protected:
 
     AwaitRDMARead(uintptr_t addr) : addr(addr) {}
     bool await_ready() { return false; }
-    auto await_suspend(HDL coro) {
+    auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
       promise = &coro.promise();
       promise->waiting_mem_access = true;
       return true; // suspend (true)
@@ -174,9 +228,9 @@ protected:
   struct AwaitRDMAWrite {
     CoroRMC::promise_type *promise;
 
-    AwaitRDMAWrite(uintptr_t addr) {}
+    AwaitRDMAWrite() {}
     bool await_ready() { return false; }
-    auto await_suspend(HDL coro) {
+    auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
       promise = &coro.promise();
       promise->waiting_mem_access = true;
       return true; // suspend (true)
@@ -206,11 +260,12 @@ public:
   }
 
   template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
-    static_assert(sizeof(T) <= 8);
+    // static_assert(sizeof(T) <= 8);
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
 
     /* copy to laddr first, then issue the write from there */
-    *(reinterpret_cast<T *>(laddr)) = *data;
+    //*(reinterpret_cast<T *>(laddr)) = *data;
+    memcpy(reinterpret_cast<void *>(laddr), data, sizeof(T));
     OSClient.write_async(raddr, laddr, sizeof(T));
     return AwaitRDMAWrite{};
   }
@@ -225,6 +280,8 @@ public:
     last_random_addr += 248;
     return last_random_addr;
   }
+
+  uintptr_t get_base_raddr() noexcept { return base_raddr; }
 };
 
 /* Backend<SyncRDMA> defines a backend that uses the async rdma backend
@@ -395,20 +452,18 @@ public:
   }
 };
 
-#define read_lock()                                             \
-do {                                                            \
-  while (awaiting_writers.load(std::memory_order_consume) > 0 ||\
-         !rw_mutex.try_lock_shared())                           \
-    co_await std::suspend_always{};                             \
-  readers++;                                                    \
-} while (0)
+inline CoroRMC read_lock() {
+  while (awaiting_writers.load(std::memory_order_consume) > 0 ||
+         !rw_mutex.try_lock_shared())
+    co_await std::suspend_always{};
+  readers++;
+}
 
-#define write_lock()                                            \
-do {                                                            \
-  awaiting_writers++;                                           \
-  while (!rw_mutex.try_lock())                                  \
-    co_await std::suspend_always{};                             \
-} while (0)
+inline CoroRMC write_lock() {
+  awaiting_writers++;
+  while (!rw_mutex.try_lock())
+    co_await std::suspend_always{};
+}
 
 static inline void read_unlock() {
   rw_mutex.unlock_shared();
@@ -458,9 +513,9 @@ template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
 
   for (int i = 0; i < num_nodes; ++i) {
     if (lockreads)
-      read_lock();
+      co_await read_lock();
     else
-      write_lock();
+      co_await write_lock();
 
     node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
     addr = reinterpret_cast<uintptr_t>(node->next);

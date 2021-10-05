@@ -109,7 +109,7 @@ public:
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
   void dispatch_new_req(CmdRequest *req);
-  CoroRMC spawn(CoroRMC coro);
+  CoroRMC get_rmc();
 
   RDMAContext &get_server_context();
 
@@ -151,11 +151,8 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
-#if defined(BACKEND_RDMA)
-  CoroRMC rmc = spawn(hash_query(backend));
-#else
-  CoroRMC rmc = spawn(lock_traverse_linkedlist(backend));
-#endif
+
+  CoroRMC rmc = get_rmc();
 
   /* set params */
   CallReq *callreq = &req->request.call;
@@ -206,7 +203,11 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
               runqueue.front().address());
       runqueue.pop_front();
 
-      rmc.resume();
+      if (rmc.promise().continuation)
+        rmc.promise().continuation.resume();
+      else
+        rmc.resume();
+
       resumes_left--;
 
       if (rmc.promise().waiting_mem_access)
