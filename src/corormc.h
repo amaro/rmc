@@ -1,6 +1,8 @@
 #pragma once
 
 #include "allocator.h"
+#include "corohashtable.h"
+#include "lib/cuckoo_hash.h"
 #include "onesidedclient.h"
 #include "utils/utils.h"
 #include <atomic>
@@ -239,22 +241,32 @@ protected:
   };
 
 public:
+  struct cuckoo_hash table;
+
   Backend(OneSidedClient &c)
       : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
     LOG("Using interleaving RDMA Backend (default)");
   }
-  ~Backend() {}
+  ~Backend() { cuckoo_hash_destroy(&table); }
 
   void init() {
     base_laddr = OSClient.get_local_base_addr();
     base_raddr = OSClient.get_remote_base_addr();
     last_random_addr = base_raddr;
+
+    cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(base_laddr));
   }
 
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
     uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    OSClient.read_async(raddr, laddr, sz);
+    return AwaitRDMARead{laddr};
+  }
+
+  auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
+    uintptr_t raddr = laddr - base_laddr + base_raddr;
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
@@ -456,6 +468,7 @@ inline CoroRMC read_lock() {
   while (awaiting_writers.load(std::memory_order_consume) > 0 ||
          !rw_mutex.try_lock_shared())
     co_await std::suspend_always{};
+
   readers++;
 }
 

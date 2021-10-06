@@ -19,12 +19,12 @@
 #include "utils/logger.h"
 
 #include <assert.h>
-#include <stdint.h>
+#include <cstdint>
 #include <stdlib.h>
 #include <string.h>
 
-static inline void compute_hash(const void *key, size_t key_len, uint32_t *h1,
-                                uint32_t *h2) {
+void compute_hash(const void *key, size_t key_len, uint32_t *h1,
+                         uint32_t *h2) {
   extern void hashlittle2(const void *key, size_t length, uint32_t *pc,
                           uint32_t *pb);
 
@@ -39,20 +39,16 @@ static inline void compute_hash(const void *key, size_t key_len, uint32_t *h1,
   }
 }
 
-struct _cuckoo_hash_elem {
-  struct cuckoo_hash_item hash_item;
-  uint32_t hash1;
-  uint32_t hash2;
-};
-
-bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power) {
+bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power, void *buffer) {
   if (power == 0)
     power = 1;
 
   hash->power = power;
   hash->bin_size = 4;
   hash->count = 0;
-  hash->table = reinterpret_cast<_cuckoo_hash_elem*>(calloc((size_t)hash->bin_size << power, sizeof(*hash->table)));
+  //hash->table = reinterpret_cast<_cuckoo_hash_elem *>(
+  //    calloc((size_t)hash->bin_size << power, sizeof(*hash->table)));
+  hash->table = reinterpret_cast<_cuckoo_hash_elem *>(buffer);
   if (!hash->table)
     return false;
 
@@ -60,11 +56,6 @@ bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power) {
 }
 
 void cuckoo_hash_destroy(const struct cuckoo_hash *hash) { free(hash->table); }
-
-static inline struct _cuckoo_hash_elem *bin_at(const struct cuckoo_hash *hash,
-                                               uint32_t index) {
-  return (hash->table + index * hash->bin_size);
-}
 
 static inline struct cuckoo_hash_item *lookup(const struct cuckoo_hash *hash,
                                               const void *key, size_t key_len,
@@ -122,13 +113,14 @@ void cuckoo_hash_remove(struct cuckoo_hash *hash,
   }
 }
 
-static bool grow_table(struct cuckoo_hash *hash) {
+bool grow_table(struct cuckoo_hash *hash) {
+  DIE("grow_table() called, hash cout=" << hash->count);
   size_t size = ((size_t)hash->bin_size << hash->power) * sizeof(*hash->table);
-  struct _cuckoo_hash_elem *table = reinterpret_cast<_cuckoo_hash_elem*>(realloc(hash->table, size * 2));
+  struct _cuckoo_hash_elem *table =
+      reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size * 2));
   if (!table)
     return false;
 
-  DIE("grow_table() will be true");
   hash->table = table;
   memcpy((char *)hash->table + size, hash->table, size);
   ++hash->power;
@@ -136,15 +128,16 @@ static bool grow_table(struct cuckoo_hash *hash) {
   return true;
 }
 
-static bool grow_bin_size(struct cuckoo_hash *hash) {
+bool grow_bin_size(struct cuckoo_hash *hash) {
+  DIE("grow_bin_size() called");
   size_t size = ((size_t)hash->bin_size << hash->power) * sizeof(*hash->table);
   uint32_t bin_count = 1U << hash->power;
   size_t add = bin_count * sizeof(*hash->table);
-  struct _cuckoo_hash_elem *table = reinterpret_cast<_cuckoo_hash_elem*>(realloc(hash->table, size + add));
+  struct _cuckoo_hash_elem *table =
+      reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size + add));
   if (!table)
     return false;
 
-  DIE("grow_bin_size() will be true");
   hash->table = table;
   for (uint32_t bin = bin_count - 1; bin > 0; --bin) {
     struct _cuckoo_hash_elem *old = bin_at(hash, bin);
@@ -159,9 +152,10 @@ static bool grow_bin_size(struct cuckoo_hash *hash) {
   return true;
 }
 
-static bool undo_insert(struct cuckoo_hash *hash,
+bool undo_insert(struct cuckoo_hash *hash,
                         struct _cuckoo_hash_elem *item, size_t max_depth,
                         uint32_t offset, int phase) {
+  DIE("undo insert");
   uint32_t mask = (1U << hash->power) - 1;
 
   for (size_t depth = 0; depth < max_depth * phase; ++depth) {

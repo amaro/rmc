@@ -79,35 +79,26 @@ target_compile_options(nicserver PUBLIC "-fno-rtti")
 target_compile_definitions(nicserver PUBLIC -DBACKEND_RDMA=1)
 target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
 
-add_executable(nicserver_rdmacomp nicserver.cpp
-    $<TARGET_OBJECTS:scheduler_rdmacomp_obj>
-    $<TARGET_OBJECTS:onesidedclient_obj>
-    $<TARGET_OBJECTS:rdmaclient_obj>
-    $<TARGET_OBJECTS:rdmaserver_obj>
-    $<TARGET_OBJECTS:rdmapeer_obj>)
-target_compile_options(nicserver_rdmacomp PUBLIC "-fcoroutines")
-target_compile_options(nicserver_rdmacomp PUBLIC "-fno-exceptions")
-target_compile_options(nicserver_rdmacomp PUBLIC "-fno-rtti")
-target_compile_definitions(nicserver_rdmacomp PUBLIC -DBACKEND_RDMA_COMP=1)
-target_link_libraries(nicserver_rdmacomp mlx5 rdmacm ibverbs pthread)
-
-add_executable(nicserver_dram nicserver.cpp
-    $<TARGET_OBJECTS:scheduler_dram_obj>
-    $<TARGET_OBJECTS:onesidedclient_obj>
-    $<TARGET_OBJECTS:rdmaclient_obj>
-    $<TARGET_OBJECTS:rdmaserver_obj>
-    $<TARGET_OBJECTS:rdmapeer_obj>)
-target_compile_options(nicserver_dram PUBLIC "-fcoroutines")
-target_compile_options(nicserver_dram PUBLIC "-fno-exceptions")
-target_compile_options(nicserver_dram PUBLIC "-fno-rtti")
-target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
-target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
-
-# no rmc client; i.e., a one sided client that connects to host server directly
-# without a nicserver
-#add_executable(normc_client normc_client.cpp
+#add_executable(nicserver_rdmacomp nicserver.cpp
+#    $<TARGET_OBJECTS:scheduler_rdmacomp_obj>
 #    $<TARGET_OBJECTS:onesidedclient_obj>
 #    $<TARGET_OBJECTS:rdmaclient_obj>
+#    $<TARGET_OBJECTS:rdmaserver_obj>
 #    $<TARGET_OBJECTS:rdmapeer_obj>)
-#target_compile_options(normc_client PUBLIC "-fcoroutines")
-#target_link_libraries(normc_client mlx5 rdmacm ibverbs pthread)
+#target_compile_options(nicserver_rdmacomp PUBLIC "-fcoroutines")
+#target_compile_options(nicserver_rdmacomp PUBLIC "-fno-exceptions")
+#target_compile_options(nicserver_rdmacomp PUBLIC "-fno-rtti")
+#target_compile_definitions(nicserver_rdmacomp PUBLIC -DBACKEND_RDMA_COMP=1)
+#target_link_libraries(nicserver_rdmacomp mlx5 rdmacm ibverbs pthread)
+#
+#add_executable(nicserver_dram nicserver.cpp
+#    $<TARGET_OBJECTS:scheduler_dram_obj>
+#    $<TARGET_OBJECTS:onesidedclient_obj>
+#    $<TARGET_OBJECTS:rdmaclient_obj>
+#    $<TARGET_OBJECTS:rdmaserver_obj>
+#    $<TARGET_OBJECTS:rdmapeer_obj>)
+#target_compile_options(nicserver_dram PUBLIC "-fcoroutines")
+#target_compile_options(nicserver_dram PUBLIC "-fno-exceptions")
+#target_compile_options(nicserver_dram PUBLIC "-fno-rtti")
+#target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
+#target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)

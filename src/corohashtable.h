@@ -3,60 +3,173 @@
 #include "corormc.h"
 #include "lib/cuckoo_hash.h"
 
-static inline struct cuckoo_hash table;
-// in a better implementation, keys come from requests
-inline const std::vector<int> keys{1, 2, 3, 4, 5, 6, 8, 9, 10};
+// in an actual implementation, keys come from requests
+inline const std::vector<int> KEYS{1, 2, 3, 4, 5, 6, 8, 9, 10};
+constexpr uint64_t KEY_LEN = sizeof(int);
 
-static void __attribute__((constructor)) init_table() {
-  cuckoo_hash_init(&table, 16);
+template <class T>
+inline CoroRMC lookup(Backend<T> &b, const struct cuckoo_hash *hash,
+                      const void *key, size_t key_len, uint32_t h1, uint32_t h2,
+                      struct cuckoo_hash_item **res) {
+  uint32_t mask = (1U << hash->power) - 1;
+
+  struct _cuckoo_hash_elem *elem, *end;
+
+  elem = bin_at(hash, (h1 & mask));
+  end = elem + hash->bin_size;
+  while (elem != end) {
+    if (elem->hash2 == h2 && elem->hash1 == h1 &&
+        elem->hash_item.key_len == key_len &&
+        memcmp(elem->hash_item.key, key, key_len) == 0) {
+      *res = &elem->hash_item;
+      co_return;
+    }
+
+    ++elem;
+  }
+
+  elem = bin_at(hash, (h2 & mask));
+  end = elem + hash->bin_size;
+  while (elem != end) {
+    if (elem->hash2 == h1 && elem->hash1 == h2 &&
+        elem->hash_item.key_len == key_len &&
+        memcmp(elem->hash_item.key, key, key_len) == 0) {
+      *res = &elem->hash_item;
+      co_return;
+    }
+
+    ++elem;
+  }
+
+  *res = nullptr;
+  co_return;
 }
 
-static void __attribute__((destructor)) destroy_table() {
-  cuckoo_hash_destroy(&table);
-}
+template <class T>
+inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
+                      struct _cuckoo_hash_elem *item, bool *success) {
+  size_t max_depth = (size_t)hash->power << 5;
+  if (max_depth > (size_t)hash->bin_size << hash->power)
+    max_depth = (size_t)hash->bin_size << hash->power;
 
-struct data {
-  uint64_t val1;
-  uint64_t val2;
-};
+  uint32_t offset = 0;
+  int phase = 0;
+  while (phase < 2) {
+    uint32_t mask = (1U << hash->power) - 1;
 
-template <class T> static inline void *get_next_raddr(Backend<T> &b) {
-  static std::atomic<uint32_t> raddr_given = 0;
+    for (size_t depth = 0; depth < max_depth; ++depth) {
+      uint32_t h1m = item->hash1 & mask;
 
-  void *raddr =
-      reinterpret_cast<void *>(b.get_base_raddr() + raddr_given * sizeof(data));
-  raddr_given++;
-  return raddr;
+      struct _cuckoo_hash_elem *beg = bin_at(hash, h1m);
+      // struct _cuckoo_hash_elem *beg = co_await b.read_laddr(bin_at(hash,
+      // h1m),
+      //                          sizeof(struct _cuckoo_hash_elem) *
+      //                          hash->bin_size);
+      struct _cuckoo_hash_elem *end = beg + hash->bin_size;
+
+      for (struct _cuckoo_hash_elem *elem = beg; elem != end; ++elem) {
+        if (elem->hash1 == elem->hash2 || (elem->hash1 & mask) != h1m) {
+          *elem = *item;
+          *success = true;
+          co_return;
+        }
+      }
+
+      struct _cuckoo_hash_elem victim = beg[offset];
+
+      beg[offset] = *item;
+
+      item->hash_item = victim.hash_item;
+      item->hash1 = victim.hash2;
+      item->hash2 = victim.hash1;
+
+      if (++offset == hash->bin_size)
+        offset = 0;
+    }
+
+    ++phase;
+
+    if (phase == 1) {
+      if (grow_table(hash))
+        /* continue */;
+      else
+        break;
+    }
+  }
+
+  if (grow_bin_size(hash)) {
+    uint32_t mask = (1U << hash->power) - 1;
+    struct _cuckoo_hash_elem *last = bin_at(hash, (item->hash1 & mask) + 1) - 1;
+
+    *last = *item;
+    *success = true;
+  } else {
+    DIE("undo_insert here");
+    // return undo_insert(hash, item, max_depth, offset, phase);
+  }
+
+  co_yield 1;
 }
 
 template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
+  thread_local uint8_t key_id = 0;
+  uint32_t h1, h2;
+  void *value = reinterpret_cast<void *>(0xDEADBEEF);
+
+  compute_hash(&KEYS[key_id], KEY_LEN, &h1, &h2);
+
   struct cuckoo_hash_item *item;
-
-  if (!item)
-    co_yield 1;
-  else
-    co_yield 0;
-}
-
-template <class T> inline CoroRMC hash_query(Backend<T> &b) {
-  thread_local uint64_t read_idx = 0;
-  struct cuckoo_hash_item *item;
-  struct data *readdata = nullptr;
-
-  read_lock();
-  item = cuckoo_hash_lookup(&table, &keys[read_idx], sizeof(struct data));
-  if (item) {
-    readdata = static_cast<struct data *>(co_await b.read(
-        reinterpret_cast<uintptr_t>(item->value), sizeof(struct data)));
-    std::cout << "read val1=" << readdata->val1 << "\n";
-  }
-
+  co_await read_lock();
+  co_await lookup(b, &b.table, &KEYS[key_id], KEY_LEN, h1, h2, &item);
   read_unlock();
 
-  inc_with_wraparound(read_idx, keys.size());
-
-  if (item)
+  // TODO: there might be a race here because we might need to take the above
+  // lock as write if we change the data down here
+  if (item) {
+    // replace old value with same key
+    co_await write_lock();
+    item->value = value;
+    write_unlock();
     co_yield 1;
-  else
+    co_return;
+  }
+
+  struct _cuckoo_hash_elem elem = {
+      .hash_item = {.key = &KEYS[key_id], .key_len = KEY_LEN, .value = value},
+      .hash1 = h1,
+      .hash2 = h2};
+
+  bool success;
+  co_await write_lock();
+  co_await insert(b, &b.table, &elem, &success);
+  write_unlock();
+
+  if (success) {
+    if (++key_id == KEYS.size())
+      key_id = 0;
+    b.table.count++;
+    co_yield 1;
+  } else {
     co_yield 0;
+  }
+}
+
+template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
+  thread_local uint8_t key_id = 0;
+  uint32_t h1, h2;
+
+  compute_hash(&KEYS[key_id], KEY_LEN, &h1, &h2);
+
+  struct cuckoo_hash_item *res;
+  co_await read_lock();
+  co_await lookup(b, &b.table, &KEYS[key_id], KEY_LEN, h1, h2, &res);
+  read_unlock();
+
+  if (++key_id == KEYS.size())
+    key_id = 0;
+  if (res) {
+    co_yield 1;
+  } else {
+    co_yield 0;
+  }
 }

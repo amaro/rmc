@@ -22,14 +22,13 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 
 CoroRMC RMCScheduler::get_rmc() {
 #if defined(BACKEND_RDMA)
-  // thread_local uint8_t num_gets = 0;
-  // if (++num_gets > 10) {
-  //  num_gets = 0;
-  //  return std::move(hash_insert(backend));
-  //} else {
-  //  return std::move(hash_query(backend));
-  //}
-  return std::move(lock_traverse_linkedlist(backend));
+  thread_local uint8_t num_gets = 0;
+  if (++num_gets > 10) {
+    num_gets = 0;
+    return std::move(hash_insert(backend));
+  } else {
+    return std::move(hash_lookup(backend));
+  }
 #else
   return std::move(lock_traverse_linkedlist(backend));
 #endif

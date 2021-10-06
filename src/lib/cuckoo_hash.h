@@ -18,6 +18,7 @@
 #ifndef _CUCKOO_HASH_H
 #define _CUCKOO_HASH_H 1
 
+#include <cstdint>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -29,7 +30,11 @@ struct cuckoo_hash_item {
   void *value;
 };
 
-struct _cuckoo_hash_elem;
+struct _cuckoo_hash_elem {
+  struct cuckoo_hash_item hash_item;
+  uint32_t hash1;
+  uint32_t hash2;
+};
 
 struct cuckoo_hash {
   struct _cuckoo_hash_elem *table;
@@ -51,7 +56,7 @@ extern "C" {
   Return true on success, false if initialization failed (memory
   exhausted).
 */
-bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power);
+bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power, void *buffer);
 
 /*
   cuckoo_hash_destroy(hash):
@@ -168,6 +173,18 @@ cuckoo_hash_next(const struct cuckoo_hash *hash,
   (it) = cuckoo_hash_next((hash), NULL);                                       \
   (it) != NULL;                                                                \
   (it) = cuckoo_hash_next((hash), (it))
+
+void compute_hash(const void *key, size_t key_len, uint32_t *h1, uint32_t *h2);
+inline struct _cuckoo_hash_elem *bin_at(const struct cuckoo_hash *hash,
+                                        uint32_t index) {
+  return (hash->table + index * hash->bin_size);
+}
+bool grow_table(struct cuckoo_hash *hash);
+bool grow_bin_size(struct cuckoo_hash *hash);
+bool undo_insert(struct cuckoo_hash *hash,
+                        struct _cuckoo_hash_elem *item, size_t max_depth,
+                        uint32_t offset, int phase);
+
 
 #ifdef __cplusplus
 } /* extern "C" */
