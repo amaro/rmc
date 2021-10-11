@@ -15,7 +15,11 @@ inline CoroRMC lookup(Backend<T> &b, const struct cuckoo_hash *hash,
 
   struct _cuckoo_hash_elem *elem, *end;
 
-  elem = bin_at(hash, (h1 & mask));
+  // orig code: elem = bin_at(hash, (h1 & mask));
+  // read the data from HM the while loop below will access
+  elem = static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
+      reinterpret_cast<uintptr_t>(bin_at(hash, (h1 & mask))),
+      sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
   end = elem + hash->bin_size;
   while (elem != end) {
     if (elem->hash2 == h2 && elem->hash1 == h1 &&
@@ -28,7 +32,11 @@ inline CoroRMC lookup(Backend<T> &b, const struct cuckoo_hash *hash,
     ++elem;
   }
 
-  elem = bin_at(hash, (h2 & mask));
+  // orig code: elem = bin_at(hash, (h2 & mask));
+  // read the data from HM the while loop below will access
+  elem = static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
+      reinterpret_cast<uintptr_t>(bin_at(hash, (h2 & mask))),
+      sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
   end = elem + hash->bin_size;
   while (elem != end) {
     if (elem->hash2 == h1 && elem->hash1 == h2 &&
@@ -60,16 +68,20 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
     for (size_t depth = 0; depth < max_depth; ++depth) {
       uint32_t h1m = item->hash1 & mask;
 
-      struct _cuckoo_hash_elem *beg = bin_at(hash, h1m);
-      // struct _cuckoo_hash_elem *beg = co_await b.read_laddr(bin_at(hash,
-      // h1m),
-      //                          sizeof(struct _cuckoo_hash_elem) *
-      //                          hash->bin_size);
+      // orig code: struct _cuckoo_hash_elem *beg = bin_at(hash, h1m);
+      // read from HM the data the for loop below will iterate over
+      struct _cuckoo_hash_elem *beg =
+          static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
+              reinterpret_cast<uintptr_t>(bin_at(hash, h1m)),
+              sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
       struct _cuckoo_hash_elem *end = beg + hash->bin_size;
 
       for (struct _cuckoo_hash_elem *elem = beg; elem != end; ++elem) {
         if (elem->hash1 == elem->hash2 || (elem->hash1 & mask) != h1m) {
           *elem = *item;
+          // write elem to HM
+          co_await b.write_laddr(reinterpret_cast<uintptr_t>(elem), elem,
+                                 sizeof(struct _cuckoo_hash_elem));
           *success = true;
           co_return;
         }
@@ -78,6 +90,9 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
       struct _cuckoo_hash_elem victim = beg[offset];
 
       beg[offset] = *item;
+      // write beg[offset] to HM
+      co_await b.write_laddr(reinterpret_cast<uintptr_t>(&beg[offset]),
+                             &beg[offset], sizeof(struct _cuckoo_hash_elem));
 
       item->hash_item = victim.hash_item;
       item->hash1 = victim.hash2;
@@ -107,27 +122,29 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
     DIE("undo_insert here");
     // return undo_insert(hash, item, max_depth, offset, phase);
   }
-
-  co_yield 1;
 }
 
 template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   thread_local uint8_t key_id = 0;
   uint32_t h1, h2;
   void *value = reinterpret_cast<void *>(0xDEADBEEF);
+  const void *key = &KEYS[key_id];
 
-  compute_hash(&KEYS[key_id], KEY_LEN, &h1, &h2);
+  if (++key_id == KEYS.size())
+    key_id = 0;
+
+  //std::cout << "hash_insert() started key=" << key << "\n";
+  compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *item;
-  co_await read_lock();
-  co_await lookup(b, &b.table, &KEYS[key_id], KEY_LEN, h1, h2, &item);
-  read_unlock();
+  co_await write_lock();
+  co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &item);
 
   // TODO: there might be a race here because we might need to take the above
   // lock as write if we change the data down here
   if (item) {
     // replace old value with same key
-    co_await write_lock();
+    //std::cout << "lookup for insert success, replace old value\n";
     item->value = value;
     write_unlock();
     co_yield 1;
@@ -135,21 +152,20 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   }
 
   struct _cuckoo_hash_elem elem = {
-      .hash_item = {.key = &KEYS[key_id], .key_len = KEY_LEN, .value = value},
+      .hash_item = {.key = key, .key_len = KEY_LEN, .value = value},
       .hash1 = h1,
       .hash2 = h2};
 
   bool success;
-  co_await write_lock();
   co_await insert(b, &b.table, &elem, &success);
   write_unlock();
 
   if (success) {
-    if (++key_id == KEYS.size())
-      key_id = 0;
+    //std::cout << "insert success for key=" << key << "\n";
     b.table.count++;
     co_yield 1;
   } else {
+    //std::cout << "insert failed for key=" << key << "\n";
     co_yield 0;
   }
 }
@@ -157,19 +173,24 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
 template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   thread_local uint8_t key_id = 0;
   uint32_t h1, h2;
-
-  compute_hash(&KEYS[key_id], KEY_LEN, &h1, &h2);
-
-  struct cuckoo_hash_item *res;
-  co_await read_lock();
-  co_await lookup(b, &b.table, &KEYS[key_id], KEY_LEN, h1, h2, &res);
-  read_unlock();
+  const void *key = &KEYS[key_id];
 
   if (++key_id == KEYS.size())
     key_id = 0;
+
+  //std::cout << "hash_lookup() started key=" << key << "\n";
+  compute_hash(key, KEY_LEN, &h1, &h2);
+
+  struct cuckoo_hash_item *res;
+  co_await read_lock();
+  co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &res);
+  read_unlock();
+
   if (res) {
+    //std::cout << "lookup successful for key=" << key << "\n";
     co_yield 1;
   } else {
+    //std::cout << "lookup failed for key=" << key << "\n";
     co_yield 0;
   }
 }

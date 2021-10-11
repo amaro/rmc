@@ -88,6 +88,7 @@ public:
     auto get_return_object() noexcept { return CoroRMC{*this}; }
     void return_void() {}
     void unhandled_exception() noexcept { std::terminate(); }
+    /* yields don't suspend */
     auto yield_value(int val) {
       reply_val = val;
       return std::suspend_never{};
@@ -218,6 +219,12 @@ protected:
     bool await_ready() { return false; }
     auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
       promise = &coro.promise();
+
+      // this is a read coming from a nested CoroRMC, need the caller's
+      // promise
+      if (promise->continuation)
+        promise = &promise->continuation.promise();
+
       promise->waiting_mem_access = true;
       return true; // suspend (true)
     }
@@ -234,6 +241,12 @@ protected:
     bool await_ready() { return false; }
     auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
       promise = &coro.promise();
+
+      // this is a write coming from a nested CoroRMC, need the caller's
+      // promise
+      if (promise->continuation)
+        promise = &promise->continuation.promise();
+
       promise->waiting_mem_access = true;
       return true; // suspend (true)
     }
@@ -247,13 +260,16 @@ public:
       : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
     LOG("Using interleaving RDMA Backend (default)");
   }
-  ~Backend() { cuckoo_hash_destroy(&table); }
+  ~Backend() {}
 
   void init() {
     base_laddr = OSClient.get_local_base_addr();
     base_raddr = OSClient.get_remote_base_addr();
+    std::cout << "base_laddr=" << std::hex << base_laddr << "\n";
+    std::cout << "base_raddr=" << std::hex << base_raddr << "\n";
     last_random_addr = base_raddr;
 
+    // no need to destroy the table since we are giving it preallocated memory
     cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(base_laddr));
   }
 
@@ -267,6 +283,7 @@ public:
 
   auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
     uintptr_t raddr = laddr - base_laddr + base_raddr;
+    //std::cout << "read_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
@@ -279,6 +296,14 @@ public:
     //*(reinterpret_cast<T *>(laddr)) = *data;
     memcpy(reinterpret_cast<void *>(laddr), data, sizeof(T));
     OSClient.write_async(raddr, laddr, sizeof(T));
+    return AwaitRDMAWrite{};
+  }
+
+  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
+    uintptr_t raddr = laddr - base_laddr + base_raddr;
+    //std::cout << "write_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
+    memcpy(reinterpret_cast<void *>(laddr), data, sz);
+    OSClient.write_async(raddr, laddr, sz);
     return AwaitRDMAWrite{};
   }
 

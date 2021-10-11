@@ -64,8 +64,10 @@ int main(int argc, char *argv[]) {
       work = READ;
     } else if (strcmp(workload, "write") == 0) {
       work = WRITE;
+    } else if (strcmp(workload, "hash") == 0) {
+      work = HASHTABLE;
     } else {
-      std::cerr << "Specify workload=read, write\n";
+      std::cerr << "Specify workload=read, write, hash\n";
       return 1;
     }
   } else {

@@ -60,7 +60,7 @@ struct LLNode {
   uint64_t data;
 };
 
-enum Workload { READ, WRITE };
+enum Workload { READ, WRITE, HASHTABLE };
 
 static_assert(sizeof(CmdRequest) == 64);
 static_assert(sizeof(CmdReply) == 32);
