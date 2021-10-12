@@ -11,7 +11,7 @@ NICSERVER_REMOTE_DIR=/home/ubuntu
 ARM_BIN=build_arm/bin
 X86_BIN=build_x86/bin
 
-NICSERVER_FILES="${ARM_BIN}/nicserver ${ARM_BIN}/nicserver_dram ${ARM_BIN}/nicserver_rdmacomp"
+NICSERVER_FILES="${ARM_BIN}/nicserver*"
 CLIENT_FILES="${X86_BIN}/client"
 
 scp ${NICSERVER_FILES} ${NICSERVER_USER}@${NICSERVER_ADDR}:${NICSERVER_REMOTE_DIR}

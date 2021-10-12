@@ -34,6 +34,7 @@ public:
 
     switch (workload) {
     case READ:
+    case READ_LOCK:
       linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
       break;
     case WRITE: /* fall through */
@@ -46,6 +47,7 @@ public:
   ~HostServer() {
     switch (workload) {
     case READ:
+    case READ_LOCK:
       destroy_linkedlist(linkedlist);
       break;
     case WRITE: /* fall through */

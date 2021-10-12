@@ -1,7 +1,4 @@
 #include "scheduler.h"
-#if defined(BACKEND_RDMA)
-#include "corohashtable.h"
-#endif
 
 /* Compute the id for this rmc, if it doesn't exist, register it in map.
    Return the id */
@@ -20,18 +17,28 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
   ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
 }
 
-CoroRMC RMCScheduler::get_rmc() {
-#if defined(BACKEND_RDMA)
-  thread_local uint8_t num_gets = 0;
-  if (++num_gets > 5) {
-    num_gets = 0;
-    return std::move(hash_insert(backend));
-  } else {
+CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
+  switch (req->id) {
+  case READ:
+    return std::move(traverse_linkedlist(backend));
+  case READ_LOCK:
+    return std::move(lock_traverse_linkedlist(backend));
+  case WRITE:
+    return std::move(random_writes(backend));
+#if defined(WORKLOAD_HASHTABLE)
+  case HASHTABLE:
+    thread_local uint8_t num_gets = 0;
+    if (++num_gets > 4) {
+      num_gets = 0;
+      return std::move(hash_insert(backend));
+    }
+
     return std::move(hash_lookup(backend));
-  }
-#else
-  return std::move(lock_traverse_linkedlist(backend));
 #endif
+  default:
+    die("invalid req id");
+    return std::move(traverse_linkedlist(backend));
+  }
 }
 
 void RMCScheduler::run() {

@@ -1,7 +1,9 @@
 #pragma once
 
 #include "allocator.h"
+#if defined(WORKLOAD_HASHTABLE)
 #include "corohashtable.h"
+#endif
 #include "lib/cuckoo_hash.h"
 #include "onesidedclient.h"
 #include "utils/utils.h"
@@ -254,7 +256,9 @@ protected:
   };
 
 public:
+#if defined(WORKLOAD_HASHTABLE)
   struct cuckoo_hash table;
+#endif
 
   Backend(OneSidedClient &c)
       : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
@@ -265,12 +269,12 @@ public:
   void init() {
     base_laddr = OSClient.get_local_base_addr();
     base_raddr = OSClient.get_remote_base_addr();
-    std::cout << "base_laddr=" << std::hex << base_laddr << "\n";
-    std::cout << "base_raddr=" << std::hex << base_raddr << "\n";
     last_random_addr = base_raddr;
 
+#if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated memory
     cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(base_laddr));
+#endif
   }
 
   auto get_param() noexcept { return AwaitGetParam{}; }
@@ -283,7 +287,7 @@ public:
 
   auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
     uintptr_t raddr = laddr - base_laddr + base_raddr;
-    //std::cout << "read_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
+    // std::cout << "read_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
@@ -301,7 +305,7 @@ public:
 
   auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
     uintptr_t raddr = laddr - base_laddr + base_raddr;
-    //std::cout << "write_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
+    // std::cout << "write_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     OSClient.write_async(raddr, laddr, sz);
     return AwaitRDMAWrite{};

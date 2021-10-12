@@ -14,6 +14,10 @@
 
 static constexpr int NUM_REPS = 1;
 static constexpr const uint32_t NUM_REQS = 100000;
+static std::string server, mode, rmc;
+static int numaccess;
+static unsigned int start_port;
+static float load = 0.0;
 
 void HostClient::connect(const std::string &ip, const unsigned int &port) {
   assert(!rmccready);
@@ -115,7 +119,7 @@ static void get_send_times_exp(std::vector<long long> &send_cycles,
 }
 
 int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
-                        uint32_t num_reqs, long long freq, uint32_t param,
+                        uint32_t num_reqs, long long freq, uint32_t numaccesses,
                         pthread_barrier_t *barrier) {
   assert(rmccready);
 
@@ -135,7 +139,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
                     << " nanoseconds");
 
   for (auto i = 0u; i < maxinflight; i++)
-    arm_call_req(get_req(i), param);
+    arm_call_req(get_req(i), numaccesses);
 
   std::vector<long long> send_cycles;
   get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);
@@ -311,7 +315,7 @@ double benchmark_maxinflight(HostClient &client, uint32_t param,
   // print_stats_maxinflight(durations, maxinflight);
 }
 
-double benchmark_load(HostClient &client, uint32_t param, float load,
+double benchmark_load(HostClient &client, uint32_t numaccesses, float load,
                       pthread_barrier_t *barrier, std::vector<uint32_t> &rtts,
                       uint32_t num_reqs) {
   const uint32_t max = client.get_max_inflight();
@@ -321,33 +325,28 @@ double benchmark_load(HostClient &client, uint32_t param, float load,
   LOG("rdtsc freq=" << freq);
 
   LOG("load: warming up");
-  client.do_load(load, rtts, max, freq, param, barrier);
+  client.do_load(load, rtts, max, freq, numaccesses, barrier);
 
   LOG("load: benchmark start");
-  client.do_load(load, rtts, num_reqs, freq, param, barrier);
+  client.do_load(load, rtts, num_reqs, freq, numaccesses, barrier);
   LOG("load: benchmark end");
   client.last_cmd();
 
   return print_stats_load(rtts, freq);
 }
 
-std::string server, mode;
-int param;
-unsigned int start_port;
-float load = 0.0;
-
 void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
-                               std::vector<double> &durations,
-                               int num_threads) {
+                               std::vector<double> &durations, int num_threads,
+                               Workload workload) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   LOG("START thread=" << thread_id);
   current_tid = 0;
-  HostClient client;
+  HostClient client(workload);
   client.connect(server, start_port + thread_id);
 
   durations[thread_id] = benchmark_maxinflight(
-      client, param, barrier, thread_id, NUM_REQS / num_threads);
+      client, numaccess, barrier, thread_id, NUM_REQS / num_threads);
 
   pthread_barrier_wait(barrier);
   if (thread_id == 0) {
@@ -365,14 +364,14 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
 
 void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
                         std::vector<std::vector<uint32_t>> &rtts,
-                        int num_threads) {
+                        int num_threads, Workload workload) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   current_tid = 0;
-  HostClient client;
+  HostClient client(workload);
   client.connect(server, start_port + tid);
 
-  benchmark_load(client, param, load, barrier, rtts[tid],
+  benchmark_load(client, numaccess, load, barrier, rtts[tid],
                  NUM_REQS / num_threads);
 
   pthread_barrier_wait(barrier);
@@ -399,7 +398,10 @@ int main(int argc, char *argv[]) {
     ("l,load", "send 1 new req every these many microseconds (for mode=load)",
       cxxopts::value<float>()->default_value("0.0"))
     ("t, threads", "number of threads", cxxopts::value<int>())
-    ("param", "param for rmc", cxxopts::value<int>())
+    ("rmc", "rmc workload; choose: readll, readll_lock, writerandom, hash",
+      cxxopts::value<std::string>())
+    ("numaccess", "number of accesses per rmc request for readll, readll_lock, writerandom",
+      cxxopts::value<int>()->default_value("0"))
     ("h,help", "Print usage");
   // clang-format on
 
@@ -416,15 +418,22 @@ int main(int argc, char *argv[]) {
     mode = result["mode"].as<std::string>();
     load = result["load"].as<float>();
     num_threads = result["threads"].as<int>();
-    param = result["param"].as<int>();
+    rmc = result["rmc"].as<std::string>();
+    numaccess = result["numaccess"].as<int>();
 
     if (mode != "load" && mode != "maxinflight") {
       std::cerr << "need to specify mode: load or maxinflight\n";
       die(opts.help());
     } else if (mode == "load" && load <= 0) {
       die("mode=load requires load > 0");
-    } else if (param < 0) {
-      die("param must be > 0");
+    } else if (rmc != "readll" && rmc != "readll_lock" &&
+               rmc != "writerandom" && rmc != "hash") {
+      die("rmc can only be: readll, readll_lock, writerandom, hash");
+    } else if ((rmc == "readll" || rmc == "readll_locked" ||
+                rmc == "writerandom") &&
+               numaccess < 0) {
+      die("for rmcs (readll, readll_locked, writerandom) numaccess must be > "
+          "0");
     } else if (num_threads <= 0) {
       die("threads must be > 0");
     }
@@ -446,6 +455,19 @@ int main(int argc, char *argv[]) {
   // for maxinflight; one duration per thread
   std::vector<double> durations(num_threads);
 
+  Workload workload;
+  if (rmc == "readll")
+    workload = READ;
+  else if (rmc == "readll_lock")
+    workload = READ_LOCK;
+  else if (rmc == "writerandom")
+    workload = WRITE;
+  else if (rmc == "hash")
+    workload = HASHTABLE;
+  else
+    die("bad rmc");
+  LOG("workload set to " << rmc);
+
   if (mode == "load") {
     // distribute load request evenly among all cores
     if (num_threads > 1) {
@@ -456,13 +478,13 @@ int main(int argc, char *argv[]) {
 
     for (auto i = 0; i < num_threads; ++i) {
       std::thread t(thread_launch_load, i, &barrier, std::ref(rtts),
-                    num_threads);
+                    num_threads, workload);
       threads.push_back(std::move(t));
     }
   } else {
     for (auto i = 0; i < num_threads; ++i) {
       std::thread t(thread_launch_maxinflight, i, &barrier, std::ref(durations),
-                    num_threads);
+                    num_threads, workload);
       threads.push_back(std::move(t));
     }
   }

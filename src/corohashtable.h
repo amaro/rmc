@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef WORKLOAD_HASHTABLE
+
 #include "corormc.h"
 #include "lib/cuckoo_hash.h"
 
@@ -133,7 +135,6 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   if (++key_id == KEYS.size())
     key_id = 0;
 
-  //std::cout << "hash_insert() started key=" << key << "\n";
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *item;
@@ -144,7 +145,6 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   // lock as write if we change the data down here
   if (item) {
     // replace old value with same key
-    //std::cout << "lookup for insert success, replace old value\n";
     item->value = value;
     write_unlock();
     co_yield 1;
@@ -161,11 +161,9 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   write_unlock();
 
   if (success) {
-    //std::cout << "insert success for key=" << key << "\n";
     b.table.count++;
     co_yield 1;
   } else {
-    //std::cout << "insert failed for key=" << key << "\n";
     co_yield 0;
   }
 }
@@ -178,7 +176,6 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   if (++key_id == KEYS.size())
     key_id = 0;
 
-  //std::cout << "hash_lookup() started key=" << key << "\n";
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *res;
@@ -187,10 +184,10 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   read_unlock();
 
   if (res) {
-    //std::cout << "lookup successful for key=" << key << "\n";
     co_yield 1;
   } else {
-    //std::cout << "lookup failed for key=" << key << "\n";
     co_yield 0;
   }
 }
+
+#endif // WORKLOAD_HASHTABLE

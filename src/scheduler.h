@@ -15,7 +15,7 @@
 #include <numeric>
 #endif
 
-#if defined(BACKEND_RDMA)
+#if defined(WORKLOAD_HASHTABLE)
 #include "corohashtable.h"
 #endif
 
@@ -109,7 +109,7 @@ public:
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
   void dispatch_new_req(CmdRequest *req);
-  CoroRMC get_rmc();
+  CoroRMC get_rmc(const CallReq *req);
 
   RDMAContext &get_server_context();
 
@@ -152,10 +152,10 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
   long long cycles_coros = get_cycles();
 #endif
 
-  CoroRMC rmc = get_rmc();
-
-  /* set params */
   CallReq *callreq = &req->request.call;
+  CoroRMC rmc = get_rmc(callreq);
+
+  /* set rmc params */
   rmc.get_handle().promise().param =
       *(reinterpret_cast<uint32_t *>(callreq->data));
 

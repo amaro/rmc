@@ -119,13 +119,23 @@ int main(int argc, char *argv[]) {
   }
 
   if (workload != nullptr) {
-    if (strcmp(workload, "read") == 0) {
+#if defined(WORKLOAD_HASHTABLE)
+    if (strcmp(workload, "hash") == 0) {
+      work = HASHTABLE;
+    } else {
+      return usage();
+    }
+#else
+    if (strcmp(workload, "readll") == 0) {
       work = READ;
-    } else if (strcmp(workload, "write") == 0) {
+    } else if (strcmp(workload, "readll_lock") == 0) {
+      work = READ_LOCK;
+    } else if (strcmp(workload, "writerandom") == 0) {
       work = WRITE;
     } else {
       return usage();
     }
+#endif
   } else {
     return usage();
   }

@@ -11,6 +11,7 @@ class HostClient {
   unsigned int pending_unsig_sends;
   uint32_t req_idx;
   uint32_t inflight;
+  Workload workload;
 
   RDMAClient rclient;
 
@@ -38,9 +39,9 @@ class HostClient {
 public:
   // A client only creates one 2-sided QP to communicate to nicserver,
   // and one CQ
-  HostClient()
+  HostClient(Workload workload)
       : rmccready(false), pending_unsig_sends(0), req_idx(0), inflight(0),
-        rclient(1, 1, false) {
+        workload(workload), rclient(1, 1, false) {
     req_buf.reserve(QP_MAX_2SIDED_WRS);
     reply_buf.reserve(QP_MAX_2SIDED_WRS);
     LOG("sizeof(CmdRequest())=" << sizeof(CmdRequest));
@@ -131,6 +132,7 @@ inline void HostClient::parse_rmc_reply(CmdReply *reply) const {
 inline void HostClient::arm_call_req(CmdRequest *req, uint32_t param) {
   req->type = CmdType::CALL_RMC;
   CallReq *callreq = &req->request.call;
+  callreq->id = workload;
   *(reinterpret_cast<uint32_t *>(callreq->data)) = param;
 }
 
