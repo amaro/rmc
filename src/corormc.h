@@ -285,9 +285,9 @@ public:
     return AwaitRDMARead{laddr};
   }
 
+  // TODO: call read() above here
   auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
     uintptr_t raddr = laddr - base_laddr + base_raddr;
-    // std::cout << "read_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
@@ -303,9 +303,9 @@ public:
     return AwaitRDMAWrite{};
   }
 
+  // TODO: call write() above here
   auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
     uintptr_t raddr = laddr - base_laddr + base_raddr;
-    // std::cout << "write_laddr laddr=" << laddr << " raddr=" << raddr << "\n";
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     OSClient.write_async(raddr, laddr, sz);
     return AwaitRDMAWrite{};
@@ -458,28 +458,70 @@ template <> class Backend<LocalMemory> {
   LLNode *linkedlist;
   HugeAllocator huge;
 
+  template <bool suspend> struct AwaitDRAMWrite {
+    void *laddr;
+    void *data;
+    uint32_t sz;
+
+    AwaitDRAMWrite(void *laddr, void *data, uint32_t sz) : laddr(laddr), data(data), sz(sz) {}
+    bool await_ready() { return false; }
+    auto await_suspend(std::coroutine_handle<> coro) {
+      return suspend; // suspend (true) or not (false)
+    }
+    void await_resume() {
+      // copy the data
+      memcpy(reinterpret_cast<void *>(laddr), data, sz);
+    }
+  };
 public:
+#if defined(WORKLOAD_HASHTABLE)
+  struct cuckoo_hash table;
+#endif
+
   Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
     buffer = huge.get();
-    linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
     LOG("Using local DRAM Backend");
   }
 
   ~Backend() { destroy_linkedlist(linkedlist); }
 
-  void init() {}
+  void init() {
+#if defined(WORKLOAD_HASHTABLE)
+    // no need to destroy the table since we are giving it preallocated memory
+    cuckoo_hash_init(&table, 16, static_cast<void *>(buffer));
+#else
+    linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
+#endif
+  }
 
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
-    //__builtin_prefetch(reinterpret_cast<void *>(addr), 0, 0);
-    // return AwaitAddr<true>{addr};
-    return AwaitAddr<false>{addr};
+    // interleaved: uncomment next
+    for (auto cl = 0u; cl < sz; cl += 64)
+      __builtin_prefetch(reinterpret_cast<void *>(addr + cl), 0, 0);
+    return AwaitAddr<true>{addr};
+    // run to completion: uncomment next
+    //return AwaitAddr<false>{addr};
+  }
+
+  // with local memory raddr=laddr
+  auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
+    return read(laddr, sz);
   }
 
   template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
     DIE("not implemented yet");
-    return AwaitVoid<true>{};
+    return AwaitVoid<false>{};
+  }
+
+  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
+    if (sz > 64)
+      DIE("sz > 64 write_laddr()");
+
+    void *addr = reinterpret_cast<void *>(laddr);
+    __builtin_prefetch(addr, 1, 0);
+    return AwaitDRAMWrite<false>{addr, data, sz};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {

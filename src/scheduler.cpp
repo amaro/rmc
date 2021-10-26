@@ -27,13 +27,20 @@ CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
     return std::move(random_writes(backend));
 #if defined(WORKLOAD_HASHTABLE)
   case HASHTABLE:
-    thread_local uint8_t num_gets = 0;
-    if (++num_gets > 4) {
-      num_gets = 0;
-      return std::move(hash_insert(backend));
-    }
+    //thread_local uint8_t num_gets = 0;
+    //if (++num_gets > 1) {
+    //  num_gets = 0;
+    //  return std::move(hash_insert(backend));
+    //}
 
-    return std::move(hash_lookup(backend));
+    //return std::move(hash_lookup(backend));
+    thread_local uint16_t num_gets = 0;
+
+    if (num_gets > 500)
+      return std::move(hash_lookup(backend));
+
+    num_gets++;
+    return std::move(hash_insert(backend));
 #endif
   default:
     die("invalid req id");
@@ -89,7 +96,10 @@ void RMCScheduler::schedule_completion(RDMAClient &rclient) {
 #endif
   thread_local RDMAContext &server_ctx = get_server_context();
 
-  exec_completion(server_ctx);
+  // use exec_completion for run-to-completion
+  // exec_completion(server_ctx);
+  // use exec_interleaved_dram for interleaved
+  exec_interleaved_dram(server_ctx);
   send_poll_replies(server_ctx);
 #ifdef PERF_STATS
   /* we do it here because add_reply() above computes its own duration

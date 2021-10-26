@@ -9,12 +9,12 @@ numqps=$1
 workload=$2
 threads=$3
 
-if [[ ${workload} = "rdma_readll" ]] || [[ ${workload} = "rdma_readll_locked" ]] || [[ ${workload} = "rdma_randomwrite" ]]; then
-    binary=./nicserver
-    workload=${workload#"rdma_"}
-elif [[ ${workload} = "dram_readll" ]] || [[ ${workload} = "dram_readll_locked" ]] || [[ ${workload} = "dram_randomwrite" ]]; then
-    binary=./nicserver_dram
+if [[ ${workload} = "dram_hash" ]]; then
+    binary=./nicserver_dram_hash
     workload=${workload#"dram_"}
+elif [[ ${workload} = "rdma_hash" ]]; then
+    binary=./nicserver_rdma_hash
+    workload=${workload#"rdma_"}
 else
     echo "workload=${workload} not supported in this script"
     exit 2
@@ -35,8 +35,5 @@ cmd() {
 
 for load in ${load}
 do
-    for numnodes in 1 2 4 8 16
-    do
-    	cmd ${numqps} ${workload} ${threads}
-    done
+    cmd ${numqps} ${workload} ${threads}
 done

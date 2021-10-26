@@ -49,6 +49,12 @@ target_compile_options(scheduler_dram_obj PUBLIC "-fno-exceptions")
 target_compile_options(scheduler_dram_obj PUBLIC "-fno-rtti")
 target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
 
+add_library(scheduler_dram_hash_obj OBJECT scheduler.cpp)
+target_compile_options(scheduler_dram_hash_obj PUBLIC "-fcoroutines")
+target_compile_options(scheduler_dram_hash_obj PUBLIC "-fno-exceptions")
+target_compile_options(scheduler_dram_hash_obj PUBLIC "-fno-rtti")
+target_compile_definitions(scheduler_dram_hash_obj PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
+
 add_library(cuckoo_hash_obj OBJECT lib/cuckoo_hash.cpp lib/lookup3.cpp)
 target_compile_options(cuckoo_hash_obj PUBLIC "-fcoroutines")
 target_compile_options(cuckoo_hash_obj PUBLIC "-fno-exceptions")
@@ -120,3 +126,16 @@ target_compile_options(nicserver_dram PUBLIC "-fno-exceptions")
 target_compile_options(nicserver_dram PUBLIC "-fno-rtti")
 target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
 target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
+
+add_executable(nicserver_dram_hash nicserver.cpp
+    $<TARGET_OBJECTS:scheduler_dram_hash_obj>
+    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:rdmaclient_obj>
+    $<TARGET_OBJECTS:rdmaserver_obj>
+    $<TARGET_OBJECTS:rdmapeer_obj>
+    $<TARGET_OBJECTS:cuckoo_hash_obj>)
+target_compile_options(nicserver_dram_hash PUBLIC "-fcoroutines")
+target_compile_options(nicserver_dram_hash PUBLIC "-fno-exceptions")
+target_compile_options(nicserver_dram_hash PUBLIC "-fno-rtti")
+target_compile_definitions(nicserver_dram_hash PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
+target_link_libraries(nicserver_dram_hash mlx5 rdmacm ibverbs pthread)

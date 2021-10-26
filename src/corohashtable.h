@@ -141,11 +141,12 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   co_await write_lock();
   co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &item);
 
-  // TODO: there might be a race here because we might need to take the above
-  // lock as write if we change the data down here
   if (item) {
-    // replace old value with same key
-    item->value = value;
+    // replace old value
+    // item->value = value;
+    value = reinterpret_cast<void *>(0xCAFEFEED);
+    co_await b.write_laddr(reinterpret_cast<uintptr_t>(&item->value), &value,
+                           sizeof(item->value));
     write_unlock();
     co_yield 1;
     co_return;
@@ -184,6 +185,7 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   read_unlock();
 
   if (res) {
+    //std::cout << "value=" << std::hex << res->value << "\n";
     co_yield 1;
   } else {
     co_yield 0;
