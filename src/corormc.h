@@ -9,7 +9,7 @@
 #include "utils/utils.h"
 #include <atomic>
 #include <coroutine>
-#include <shared_mutex>
+#include <pthread.h>
 
 /* TODO: move these to a better place */
 static constexpr const uint16_t PAGE_SIZE = 4096;
@@ -18,10 +18,7 @@ static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
 static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
     RDMA_BUFF_SIZE / sizeof(LLNode);
 
-/* for read-write lock support */
-inline static std::atomic<uint64_t> readers;
-inline static std::atomic<uint64_t> awaiting_writers;
-inline static std::shared_mutex rw_mutex;
+inline static pthread_spinlock_t splock;
 
 /* RMC allocator */
 inline thread_local RMCAllocator allocator;
@@ -520,8 +517,11 @@ public:
       DIE("sz > 64 write_laddr()");
 
     void *addr = reinterpret_cast<void *>(laddr);
+    // interleaved: uncomment next
     __builtin_prefetch(addr, 1, 0);
-    return AwaitDRAMWrite<false>{addr, data, sz};
+    return AwaitDRAMWrite<true>{addr, data, sz};
+    // run to completion: uncomment next
+    //return AwaitDRAMWrite<false>{addr, data, sz};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
@@ -535,28 +535,18 @@ public:
   }
 };
 
-inline CoroRMC read_lock() {
-  while (awaiting_writers.load(std::memory_order_consume) > 0 ||
-         !rw_mutex.try_lock_shared())
-    co_await std::suspend_always{};
-
-  readers++;
+static inline void __attribute__((constructor)) init_lock() {
+  if (pthread_spin_init(&splock, PTHREAD_PROCESS_PRIVATE) != 0)
+    DIE("could not init spin lock");
 }
 
-inline CoroRMC write_lock() {
-  awaiting_writers++;
-  while (!rw_mutex.try_lock())
+inline CoroRMC lock() {
+  while (pthread_spin_trylock(&splock) != 0)
     co_await std::suspend_always{};
 }
 
-static inline void read_unlock() {
-  rw_mutex.unlock_shared();
-  readers--;
-}
-
-static inline void write_unlock() {
-  rw_mutex.unlock();
-  awaiting_writers--;
+static inline void unlock() {
+  pthread_spin_unlock(&splock);
 }
 
 template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
@@ -584,30 +574,15 @@ template <class T> inline CoroRMC random_writes(Backend<T> &b) {
 }
 
 template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
-  thread_local uint32_t num_execs = 0;
   int num_nodes = co_await b.get_param();
   uintptr_t addr = b.get_baseaddr(num_nodes);
   LLNode *node = nullptr;
-  bool lockreads = true;
-
-  if (++num_execs >= 10) {
-    lockreads = false;
-    num_execs = 0;
-  }
 
   for (int i = 0; i < num_nodes; ++i) {
-    if (lockreads)
-      co_await read_lock();
-    else
-      co_await write_lock();
-
+    lock();
     node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
     addr = reinterpret_cast<uintptr_t>(node->next);
-
-    if (lockreads)
-      read_unlock();
-    else
-      write_unlock();
+    unlock();
   }
 
   co_yield 1;

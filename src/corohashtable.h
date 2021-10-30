@@ -138,7 +138,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *item;
-  co_await write_lock();
+  lock();
   co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &item);
 
   if (item) {
@@ -147,7 +147,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
     value = reinterpret_cast<void *>(0xCAFEFEED);
     co_await b.write_laddr(reinterpret_cast<uintptr_t>(&item->value), &value,
                            sizeof(item->value));
-    write_unlock();
+    unlock();
     co_yield 1;
     co_return;
   }
@@ -159,7 +159,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
 
   bool success;
   co_await insert(b, &b.table, &elem, &success);
-  write_unlock();
+  unlock();
 
   if (success) {
     b.table.count++;
@@ -180,9 +180,9 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *res;
-  co_await read_lock();
+  lock();
   co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &res);
-  read_unlock();
+  unlock();
 
   if (res) {
     //std::cout << "value=" << std::hex << res->value << "\n";
