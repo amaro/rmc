@@ -66,8 +66,10 @@ int main(int argc, char *argv[]) {
       work = WRITE;
     } else if (strcmp(workload, "hash") == 0) {
       work = HASHTABLE;
+    } else if (strcmp(workload, "log") == 0) {
+      work = SHAREDLOG;
     } else {
-      std::cerr << "Specify workload=read, write, hash\n";
+      std::cerr << "Specify workload=read, write, hash, log\n";
       return 1;
     }
   } else {

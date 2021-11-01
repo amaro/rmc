@@ -44,6 +44,17 @@ CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
     //  std::cout << "this is last insert\n";
     //return std::move(hash_insert(backend));
 #endif
+#if defined(WORKLOAD_SHAREDLOG)
+  case SHAREDLOG:
+    //thread_local bool read_next = false;
+    //if (read_next) {
+    //    read_next = false;
+    //    return std::move(log_tail(backend));
+    //}
+
+    //read_next = true;
+    return std::move(log_append(backend));
+#endif
   default:
     die("invalid req id");
     return std::move(traverse_linkedlist(backend));

@@ -19,6 +19,10 @@
 #include "corohashtable.h"
 #endif
 
+#if defined(WORKLOAD_SHAREDLOG)
+#include "corosharedlog.h"
+#endif
+
 #include "corormc.h"
 #include "nicserver.h"
 #include "rmc.h"

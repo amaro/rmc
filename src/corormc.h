@@ -4,6 +4,9 @@
 #if defined(WORKLOAD_HASHTABLE)
 #include "corohashtable.h"
 #endif
+#if defined(WORKLOAD_SHAREDLOG)
+#include "log.h"
+#endif
 #include "lib/cuckoo_hash.h"
 #include "onesidedclient.h"
 #include "utils/utils.h"
@@ -257,6 +260,10 @@ public:
   struct cuckoo_hash table;
 #endif
 
+#if defined(WORKLOAD_SHAREDLOG)
+  Log log;
+#endif
+
   Backend(OneSidedClient &c)
       : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
     LOG("Using interleaving RDMA Backend (default)");
@@ -271,6 +278,10 @@ public:
 #if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated memory
     cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(base_laddr));
+#endif
+
+#if defined(WORKLOAD_SHAREDLOG)
+    log.init(base_laddr, RDMA_BUFF_SIZE);
 #endif
   }
 

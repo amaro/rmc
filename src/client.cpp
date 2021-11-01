@@ -398,7 +398,7 @@ int main(int argc, char *argv[]) {
     ("l,load", "send 1 new req every these many microseconds (for mode=load)",
       cxxopts::value<float>()->default_value("0.0"))
     ("t, threads", "number of threads", cxxopts::value<int>())
-    ("rmc", "rmc workload; choose: readll, readll_lock, writerandom, hash",
+    ("rmc", "rmc workload; choose: readll, readll_lock, writerandom, hash, log",
       cxxopts::value<std::string>())
     ("numaccess", "number of accesses per rmc request for readll, readll_lock, writerandom",
       cxxopts::value<int>()->default_value("0"))
@@ -427,8 +427,8 @@ int main(int argc, char *argv[]) {
     } else if (mode == "load" && load <= 0) {
       die("mode=load requires load > 0");
     } else if (rmc != "readll" && rmc != "readll_lock" &&
-               rmc != "writerandom" && rmc != "hash") {
-      die("rmc can only be: readll, readll_lock, writerandom, hash");
+               rmc != "writerandom" && rmc != "hash" && rmc != "log") {
+      die("rmc can only be: readll, readll_lock, writerandom, hash, log");
     } else if ((rmc == "readll" || rmc == "readll_locked" ||
                 rmc == "writerandom") &&
                numaccess < 0) {
@@ -464,6 +464,8 @@ int main(int argc, char *argv[]) {
     workload = WRITE;
   else if (rmc == "hash")
     workload = HASHTABLE;
+  else if (rmc == "log")
+    workload = SHAREDLOG;
   else
     die("bad rmc");
   LOG("workload set to " << rmc);

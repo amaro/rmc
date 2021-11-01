@@ -37,6 +37,12 @@ target_compile_options(scheduler_rdma_hash_obj PUBLIC "-fno-exceptions")
 target_compile_options(scheduler_rdma_hash_obj PUBLIC "-fno-rtti")
 target_compile_definitions(scheduler_rdma_hash_obj PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_HASHTABLE=1)
 
+add_library(scheduler_rdma_log_obj OBJECT scheduler.cpp)
+target_compile_options(scheduler_rdma_log_obj PUBLIC "-fcoroutines")
+target_compile_options(scheduler_rdma_log_obj PUBLIC "-fno-exceptions")
+target_compile_options(scheduler_rdma_log_obj PUBLIC "-fno-rtti")
+target_compile_definitions(scheduler_rdma_log_obj PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_SHAREDLOG=1)
+
 add_library(scheduler_rdmacomp_obj OBJECT scheduler.cpp)
 target_compile_options(scheduler_rdmacomp_obj PUBLIC "-fcoroutines")
 target_compile_options(scheduler_rdmacomp_obj PUBLIC "-fno-exceptions")
@@ -102,6 +108,18 @@ target_compile_options(nicserver_rdma_hash PUBLIC "-fno-exceptions")
 target_compile_options(nicserver_rdma_hash PUBLIC "-fno-rtti")
 target_compile_definitions(nicserver_rdma_hash PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_HASHTABLE=1)
 target_link_libraries(nicserver_rdma_hash mlx5 rdmacm ibverbs pthread)
+
+add_executable(nicserver_rdma_log nicserver.cpp
+    $<TARGET_OBJECTS:scheduler_rdma_log_obj>
+    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:rdmaclient_obj>
+    $<TARGET_OBJECTS:rdmaserver_obj>
+    $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_options(nicserver_rdma_log PUBLIC "-fcoroutines")
+target_compile_options(nicserver_rdma_log PUBLIC "-fno-exceptions")
+target_compile_options(nicserver_rdma_log PUBLIC "-fno-rtti")
+target_compile_definitions(nicserver_rdma_log PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_SHAREDLOG=1)
+target_link_libraries(nicserver_rdma_log mlx5 rdmacm ibverbs pthread)
 
 add_executable(nicserver_rdmacomp nicserver.cpp
     $<TARGET_OBJECTS:scheduler_rdmacomp_obj>

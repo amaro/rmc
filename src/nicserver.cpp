@@ -122,10 +122,13 @@ int main(int argc, char *argv[]) {
 #if defined(WORKLOAD_HASHTABLE)
     if (strcmp(workload, "hash") == 0) {
       work = HASHTABLE;
-    } else {
-      return usage();
-    }
-#else
+    } else
+#endif
+#if defined(WORKLOAD_SHAREDLOG)
+    if (strcmp(workload, "log") == 0) {
+      work = SHAREDLOG;
+    } else
+#endif
     if (strcmp(workload, "readll") == 0) {
       work = READ;
     } else if (strcmp(workload, "readll_lock") == 0) {
@@ -135,7 +138,6 @@ int main(int argc, char *argv[]) {
     } else {
       return usage();
     }
-#endif
   } else {
     return usage();
   }

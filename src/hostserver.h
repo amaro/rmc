@@ -38,7 +38,8 @@ public:
       linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
       break;
     case WRITE: /* fall through */
-    case HASHTABLE:
+    case HASHTABLE: /* fall through */
+    case SHAREDLOG:
       memset(rdma_buffer, 0, RDMA_BUFF_SIZE);
       break;
     }
@@ -52,6 +53,7 @@ public:
       break;
     case WRITE: /* fall through */
     case HASHTABLE:
+    case SHAREDLOG:
       break;
     }
   }
