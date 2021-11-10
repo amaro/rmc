@@ -15,13 +15,10 @@
 #include <numeric>
 #endif
 
-#if defined(WORKLOAD_HASHTABLE)
-#include "corohashtable.h"
-#endif
-
 #include "corormc.h"
 #include "nicserver.h"
 #include "rmc.h"
+#include "rmcs.h"
 
 class NICServer;
 

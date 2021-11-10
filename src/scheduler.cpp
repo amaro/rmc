@@ -34,15 +34,15 @@ CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
     }
 
     return std::move(hash_lookup(backend));
-    //thread_local uint16_t num_gets = 0;
+    // thread_local uint16_t num_gets = 0;
 
-    //if (num_gets > 20)
+    // if (num_gets > 20)
     //  return std::move(hash_lookup(backend));
 
-    //num_gets++;
-    //if (num_gets > 20)
+    // num_gets++;
+    // if (num_gets > 20)
     //  std::cout << "this is last insert\n";
-    //return std::move(hash_insert(backend));
+    // return std::move(hash_insert(backend));
 #endif
   default:
     die("invalid req id");
@@ -99,7 +99,7 @@ void RMCScheduler::schedule_completion(RDMAClient &rclient) {
   thread_local RDMAContext &server_ctx = get_server_context();
 
   // use exec_completion for run-to-completion
-  //exec_completion(server_ctx);
+  // exec_completion(server_ctx);
   // use exec_interleaved_dram for interleaved
   exec_interleaved_dram(server_ctx);
   send_poll_replies(server_ctx);

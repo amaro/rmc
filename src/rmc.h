@@ -1,12 +1,14 @@
 #ifndef RMC_H
 #define RMC_H
 
+static constexpr const uint16_t PAGE_SIZE = 4096;
+static constexpr long RDMA_BUFF_SIZE = 1 << 30;
 /* to store the actual rmc being queried */
-static const unsigned MAX_RMC_PROG_LEN = 56;
+static constexpr unsigned MAX_RMC_PROG_LEN = 56;
 /* rmc arguments */
-static const unsigned MAX_RMC_ARG_LEN = 16;
+static constexpr unsigned MAX_RMC_ARG_LEN = 16;
 /* to store RMC reply results */
-static const unsigned MAX_RMC_REPLY_LEN = 16;
+static constexpr unsigned MAX_RMC_REPLY_LEN = 16;
 
 typedef std::string RMC;
 typedef size_t RMCId;
@@ -55,15 +57,9 @@ struct CmdReply {
   } reply;
 };
 
-struct LLNode {
-  void *next;
-  uint64_t data;
-};
-
 enum Workload { READ, READ_LOCK, WRITE, HASHTABLE };
 
 static_assert(sizeof(CmdRequest) == 64);
 static_assert(sizeof(CmdReply) == 32);
-static_assert(sizeof(LLNode) == 16);
 
 #endif
