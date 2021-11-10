@@ -486,6 +486,10 @@ public:
   struct cuckoo_hash table;
 #endif
 
+#if defined(WORKLOAD_SHAREDLOG)
+  Log log;
+#endif
+
   Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
     buffer = huge.get();
     LOG("Using local DRAM Backend");
@@ -497,6 +501,8 @@ public:
 #if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated memory
     cuckoo_hash_init(&table, 16, static_cast<void *>(buffer));
+#elif defined(WORKLOAD_SHAREDLOG)
+    log.init(reinterpret_cast<uintptr_t>(buffer), huge.HUGE_PAGE_SIZE);
 #else
     linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
 #endif
