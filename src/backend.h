@@ -2,6 +2,9 @@
 
 #include "corormc.h"
 #include "onesidedclient.h"
+#if defined(WORKLOAD_HASHTABLE)
+#include "lib/cuckoo_hash.h"
+#endif
 
 struct LLNode {
   void *next;
@@ -26,6 +29,80 @@ static inline uint32_t get_next_llnode(uint32_t num_skip) noexcept {
   addresses_given++;
   return next_node;
 }
+
+struct AwaitGetParam {
+  CoroRMC::promise_type *promise;
+
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
+    promise = &coro.promise();
+    return false; // don't suspend
+  }
+  int await_resume() { return promise->param; }
+};
+
+template <bool suspend> struct AwaitVoid {
+  AwaitVoid() {}
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<> coro) {
+    return suspend; // suspend (true) or not (false)
+  }
+  void await_resume() {}
+};
+
+/* used when resume returns an address */
+template <bool suspend> struct AwaitAddr {
+  uintptr_t addr;
+
+  AwaitAddr(uintptr_t addr) : addr(addr) {}
+  bool await_ready() { return false; }
+  auto await_suspend(std::coroutine_handle<> coro) {
+    return suspend; // suspend (true) or not (false)
+  }
+  void *await_resume() { return reinterpret_cast<void *>(addr); }
+};
+
+#if defined(LOCATION_CLIENT)
+class RMCLock {
+public:
+  RMCLock() {
+  }
+
+  ~RMCLock() {
+  }
+
+  CoroRMC lock() {
+  }
+
+  void unlock() {
+  }
+};
+#else
+class RMCLock {
+public:
+  RMCLock() {
+    if (pthread_spin_init(&l, PTHREAD_PROCESS_PRIVATE) != 0)
+      DIE("could not init spin lock");
+  }
+
+  ~RMCLock() {
+    pthread_spin_destroy(&l);
+  }
+
+  CoroRMC lock() {
+    while (pthread_spin_trylock(&l) != 0)
+      co_await std::suspend_always{};
+  }
+
+  void unlock() {
+    pthread_spin_unlock(&l);
+  }
+
+private:
+  pthread_spinlock_t l;
+};
+#endif
+
 /* Generic class for Backends; needs full specialization */
 template <class A> class Backend {};
 

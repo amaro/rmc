@@ -1,13 +1,10 @@
 #pragma once
 
 #include "allocator.h"
-#include "lib/cuckoo_hash.h"
 #include "utils/utils.h"
 #include <atomic>
 #include <coroutine>
 #include <pthread.h>
-
-inline static pthread_spinlock_t splock;
 
 /* RMC allocator */
 inline thread_local RMCAllocator allocator;
@@ -142,47 +139,3 @@ private:
   CoroRMC(promise_type &p) : _coroutine(coro_handle::from_promise(p)) {}
   coro_handle _coroutine;
 };
-
-struct AwaitGetParam {
-  CoroRMC::promise_type *promise;
-
-  bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-    promise = &coro.promise();
-    return false; // don't suspend
-  }
-  int await_resume() { return promise->param; }
-};
-
-template <bool suspend> struct AwaitVoid {
-  AwaitVoid() {}
-  bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend; // suspend (true) or not (false)
-  }
-  void await_resume() {}
-};
-
-/* used when resume returns an address */
-template <bool suspend> struct AwaitAddr {
-  uintptr_t addr;
-
-  AwaitAddr(uintptr_t addr) : addr(addr) {}
-  bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend; // suspend (true) or not (false)
-  }
-  void *await_resume() { return reinterpret_cast<void *>(addr); }
-};
-
-static inline void __attribute__((constructor)) init_lock() {
-  if (pthread_spin_init(&splock, PTHREAD_PROCESS_PRIVATE) != 0)
-    DIE("could not init spin lock");
-}
-
-inline CoroRMC lock() {
-  while (pthread_spin_trylock(&splock) != 0)
-    co_await std::suspend_always{};
-}
-
-static inline void unlock() { pthread_spin_unlock(&splock); }
