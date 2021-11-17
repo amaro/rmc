@@ -162,36 +162,39 @@ struct RDMAContext {
     bool signaled;
   };
 
-  struct ReadWriteOp {
+  struct OneSidedOp {
+    enum OpType { INVALID, READ, WRITE, CMP_SWP, FETCH_ADD };
+
     uintptr_t raddr;
     uintptr_t laddr;
     uint32_t len;
-    unsigned int rkey;
-    unsigned int lkey;
-    bool read;
+    uint32_t rkey;
+    uint32_t lkey;
+    uint64_t cmp;
+    uint64_t swp;
+    OpType optype;
 
-    ReadWriteOp() : raddr(0), laddr(0), len(0), rkey(0), lkey(0), read(false) {}
+    OneSidedOp()
+        : raddr(0), laddr(0), len(0), rkey(0), lkey(0), cmp(0), swp(0),
+          optype(INVALID) {}
 
-    void post_unsignaled(ibv_qp_ex *qpx) {
-      qpx->wr_flags = 0;
-      qpx->wr_id = 0;
-
-      if (read)
-        ibv_wr_rdma_read(qpx, rkey, raddr);
-      else
-        ibv_wr_rdma_write(qpx, rkey, raddr);
-
-      ibv_wr_set_sge(qpx, lkey, laddr, len);
-    }
-
-    void post_signaled(ibv_qp_ex *qpx, uint64_t wr_id) {
-      qpx->wr_flags = IBV_SEND_SIGNALED;
+    void post(ibv_qp_ex *qpx, unsigned int flags, uint64_t wr_id) {
+      qpx->wr_flags = flags;
       qpx->wr_id = wr_id;
 
-      if (read)
+      switch (optype) {
+      case READ:
         ibv_wr_rdma_read(qpx, rkey, raddr);
-      else
+        break;
+      case WRITE:
         ibv_wr_rdma_write(qpx, rkey, raddr);
+        break;
+      case CMP_SWP:
+        ibv_wr_atomic_cmp_swp(qpx, rkey, raddr, cmp, swp);
+        break;
+      default:
+        DIE("bad optype");
+      }
 
       ibv_wr_set_sge(qpx, lkey, laddr, len);
     }
@@ -202,7 +205,7 @@ struct RDMAContext {
     ibv_sge sge;
   };
 
-  enum BatchType { SEND, RW };
+  enum BatchType { SEND, ONESIDED };
 
   /* TODO: move this inside SendOp */
   void post_send(SendOp &sendop) {
@@ -231,7 +234,7 @@ public:
   ibv_qp_ex *qpx;
   rdma_event_channel *event_channel;
   SendOp buffered_send;
-  ReadWriteOp buffered_rw;
+  OneSidedOp buffered_onesided;
 
   RDMAContext(unsigned int ctx_id)
       : ctx_id{ctx_id}, connected{false}, outstanding_sends{0},
@@ -280,39 +283,36 @@ public:
     post_send(buffered_send);
   }
 
-  void post_batched_rw(uintptr_t raddr, uintptr_t laddr, uint32_t size,
-                       uint32_t rkey, uint32_t lkey, bool read) {
+  void post_batched_onesided(uintptr_t raddr, uintptr_t laddr, uint32_t size,
+                             uint32_t rkey, uint32_t lkey,
+                             OneSidedOp::OpType optype, uint64_t cmp,
+                             uint64_t swp) {
     if (curr_batch_size > 0)
-      buffered_rw.post_unsignaled(qpx);
+      buffered_onesided.post(qpx, 0, 0);
     else
-      curr_batch_type = BatchType::RW;
+      curr_batch_type = BatchType::ONESIDED;
 
-    buffered_rw.raddr = raddr;
-    buffered_rw.laddr = laddr;
-    buffered_rw.len = size;
-    buffered_rw.rkey = rkey;
-    buffered_rw.lkey = lkey;
-    buffered_rw.read = read;
+    buffered_onesided.raddr = raddr;
+    buffered_onesided.laddr = laddr;
+    buffered_onesided.len = size;
+    buffered_onesided.rkey = rkey;
+    buffered_onesided.lkey = lkey;
+    buffered_onesided.optype = optype;
+
+    if (optype == OneSidedOp::CMP_SWP) {
+      buffered_onesided.cmp = cmp;
+      buffered_onesided.swp = swp;
+    }
 
     curr_batch_size++;
   }
 
-  void post_batched_read(uintptr_t raddr, uintptr_t laddr, uint32_t size,
-                         uint32_t rkey, uint32_t lkey) {
-    post_batched_rw(raddr, laddr, size, rkey, lkey, true);
-  }
-
-  void post_batched_write(uintptr_t raddr, uintptr_t laddr, uint32_t size,
-                          uint32_t rkey, uint32_t lkey) {
-    post_batched_rw(raddr, laddr, size, rkey, lkey, false);
-  }
-
-  void end_batched_rw() {
+  void end_batched_onesided() {
     uint64_t wr_id = ctx_id;
     /* left 32 bits used for ctx_id, right 32 bits batch size */
     wr_id <<= 32;
     wr_id |= curr_batch_size;
-    buffered_rw.post_signaled(qpx, wr_id);
+    buffered_onesided.post(qpx, IBV_SEND_SIGNALED, wr_id);
   }
 
   /* arguments:
@@ -360,8 +360,8 @@ public:
       case BatchType::SEND:
         end_batched_sends();
         break;
-      case BatchType::RW:
-        end_batched_rw();
+      case BatchType::ONESIDED:
+        end_batched_onesided();
         break;
       default:
         DIE("unrecognized batch type");

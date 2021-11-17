@@ -8,7 +8,7 @@ void OneSidedClient::connect(const std::string &ip, const unsigned int &port) {
       rclient.register_mr(req_buf.get(), sizeof(CmdRequest),
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   rdma_mr =
-      rclient.register_mr(rdma_buffer, RDMA_BUFF_SIZE,
+      rclient.register_mr(rdma_buffer, RMCK_TOTAL_BUFF_SZ,
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
 
   onesready = true;

@@ -13,7 +13,7 @@ struct LLNode {
 
 static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
 static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
-    RDMA_BUFF_SIZE / sizeof(LLNode);
+    RMCK_APPS_BUFF_SZ / sizeof(LLNode);
 
 static_assert(sizeof(LLNode) == 16);
 
@@ -62,56 +62,13 @@ template <bool suspend> struct AwaitAddr {
   void *await_resume() { return reinterpret_cast<void *>(addr); }
 };
 
-#if defined(LOCATION_CLIENT)
-class RMCLock {
-public:
-  RMCLock() {
-  }
-
-  ~RMCLock() {
-  }
-
-  CoroRMC lock() {
-  }
-
-  void unlock() {
-  }
-};
-#else
-class RMCLock {
-public:
-  RMCLock() {
-    if (pthread_spin_init(&l, PTHREAD_PROCESS_PRIVATE) != 0)
-      DIE("could not init spin lock");
-  }
-
-  ~RMCLock() {
-    pthread_spin_destroy(&l);
-  }
-
-  CoroRMC lock() {
-    while (pthread_spin_trylock(&l) != 0)
-      co_await std::suspend_always{};
-  }
-
-  void unlock() {
-    pthread_spin_unlock(&l);
-  }
-
-private:
-  pthread_spinlock_t l;
-};
-#endif
-
 /* Generic class for Backends; needs full specialization */
 template <class A> class Backend {};
 
 /* Backend<OneSidedClient> is our main async rdma backend */
 template <> class Backend<OneSidedClient> {
-protected:
+private:
   OneSidedClient &OSClient;
-  uintptr_t base_laddr;
-  uintptr_t base_raddr;
   uintptr_t last_random_addr;
 
   struct AwaitRDMARead {
@@ -157,73 +114,81 @@ protected:
   };
 
 public:
+  uintptr_t apps_base_laddr;
+  uintptr_t apps_base_raddr;
+  uintptr_t rsvd_base_laddr;
+  uintptr_t rsvd_base_raddr;
+
 #if defined(WORKLOAD_HASHTABLE)
   struct cuckoo_hash table;
 #endif
 
   Backend(OneSidedClient &c)
-      : OSClient(c), base_laddr(0), base_raddr(0), last_random_addr(0) {
+      : OSClient(c), last_random_addr(0), apps_base_laddr(0),
+        apps_base_raddr(0), rsvd_base_laddr(0), rsvd_base_raddr(0) {
     LOG("Using interleaving RDMA Backend (default)");
   }
   ~Backend() {}
 
   void init() {
-    base_laddr = OSClient.get_local_base_addr();
-    base_raddr = OSClient.get_remote_base_addr();
-    last_random_addr = base_raddr;
+    apps_base_laddr = OSClient.get_apps_base_laddr();
+    apps_base_raddr = OSClient.get_apps_base_raddr();
+    rsvd_base_laddr = OSClient.get_rsvd_base_laddr();
+    rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
+    last_random_addr = apps_base_raddr;
 
 #if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated memory
-    cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(base_laddr));
+    cuckoo_hash_init(&table, 16, reinterpret_cast<void *>(apps_base_laddr));
 #endif
   }
 
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
-    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
 
-  // TODO: call read() above here
   auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
-    uintptr_t raddr = laddr - base_laddr + base_raddr;
+    uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
     OSClient.read_async(raddr, laddr, sz);
     return AwaitRDMARead{laddr};
   }
 
-  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
-    // static_assert(sizeof(T) <= 8);
-    uintptr_t laddr = base_laddr + (raddr - base_raddr);
-
-    /* copy to laddr first, then issue the write from there */
-    //*(reinterpret_cast<T *>(laddr)) = *data;
-    memcpy(reinterpret_cast<void *>(laddr), data, sizeof(T));
-    OSClient.write_async(raddr, laddr, sizeof(T));
-    return AwaitRDMAWrite{};
-  }
-
-  // TODO: call write() above here
-  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
-    uintptr_t raddr = laddr - base_laddr + base_raddr;
+  auto write(uintptr_t raddr, uintptr_t laddr, const void *data,
+             uint32_t sz) noexcept {
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     OSClient.write_async(raddr, laddr, sz);
     return AwaitRDMAWrite{};
   }
 
-  // TODO: unify with get_random_addr
-  auto get_baseaddr(uint32_t num_nodes) noexcept {
-    uint32_t next_node = get_next_llnode(num_nodes);
-    return base_raddr + next_node * sizeof(LLNode);
+  auto write_raddr(uintptr_t raddr, const void *data, uint32_t sz) noexcept {
+    return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data, sz);
   }
 
-  uintptr_t get_random_addr() {
+  auto write_laddr(uintptr_t laddr, const void *data, uint32_t sz) noexcept {
+    return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
+  }
+
+  // NOTE: cmp_swp does not map 1:1 raddrs to laddrs
+  // raddr is fixed but laddr changes depending on in flight atomic ops
+  auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp) {
+    OSClient.cmp_swp_async(raddr, laddr, cmp, swp);
+    return AwaitRDMARead{laddr};
+  }
+
+  // TODO: unify with get_random_raddr
+  auto get_baseaddr(uint32_t num_nodes) noexcept {
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return apps_base_raddr + next_node * sizeof(LLNode);
+  }
+
+  uintptr_t get_random_raddr() {
     last_random_addr += 248;
     return last_random_addr;
   }
-
-  uintptr_t get_base_raddr() noexcept { return base_raddr; }
 };
 
 /* Backend<SyncRDMA> defines a backend that uses the async rdma backend
@@ -231,23 +196,23 @@ public:
 class SyncRDMA {};
 template <> class Backend<SyncRDMA> {
   OneSidedClient &OSClient;
-  uintptr_t base_laddr;
-  uintptr_t base_raddr;
+  uintptr_t apps_base_laddr;
+  uintptr_t apps_base_raddr;
   RDMAClient &rclient;
   RDMAContext *ctx;
   ibv_cq_ex *send_cq;
 
 public:
   Backend(OneSidedClient &c)
-      : OSClient(c), base_laddr(0), base_raddr(0),
+      : OSClient(c), apps_base_laddr(0), apps_base_raddr(0),
         rclient(OSClient.get_rclient()) {
     LOG("Using run-to-completion RDMA Backend");
   }
   ~Backend() {}
 
   void init() {
-    base_laddr = OSClient.get_local_base_addr();
-    base_raddr = OSClient.get_remote_base_addr();
+    apps_base_laddr = OSClient.get_apps_base_laddr();
+    apps_base_raddr = OSClient.get_apps_base_raddr();
     ctx = &rclient.get_context(0);
     send_cq = rclient.get_send_cq(0);
   }
@@ -255,7 +220,7 @@ public:
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
-    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     rclient.start_batched_ops(ctx);
     OSClient.read_async(raddr, laddr, sz);
     rclient.end_batched_ops();
@@ -264,17 +229,22 @@ public:
     return AwaitAddr<false>{laddr};
   }
 
-  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
-    DIE("not implemented yet");
+  auto write_raddr(uintptr_t raddr, void *data, uint32_t sz) noexcept {
+    DIE("not implemented");
+    return AwaitVoid<true>{};
+  }
+
+  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
+    DIE("not implemented");
     return AwaitVoid<true>{};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
-    return base_raddr + next_node * sizeof(LLNode);
+    return apps_base_raddr + next_node * sizeof(LLNode);
   }
 
-  uintptr_t get_random_addr() {
+  uintptr_t get_random_raddr() {
     DIE("not implemented yet");
     return 0;
   }
@@ -284,13 +254,13 @@ public:
    threads by sleeping before suspending and resuming */
 class Threading {};
 template <> class Backend<Threading> {
-protected:
+private:
   /* one-way delay of switching to a thread */
   static constexpr const uint64_t ONEWAY_DELAY_NS = 200;
 
   OneSidedClient &OSClient;
-  uintptr_t base_laddr;
-  uintptr_t base_raddr;
+  uintptr_t apps_base_laddr;
+  uintptr_t apps_base_raddr;
   long long oneway_delay_cycles;
 
   struct AwaitAddrDelayed {
@@ -311,7 +281,8 @@ protected:
   };
 
 public:
-  Backend(OneSidedClient &c) : OSClient(c), base_laddr(0), base_raddr(0) {
+  Backend(OneSidedClient &c)
+      : OSClient(c), apps_base_laddr(0), apps_base_raddr(0) {
     auto cpufreq = get_freq();
     oneway_delay_cycles = ns_to_cycles(ONEWAY_DELAY_NS, cpufreq);
     LOG("Using threads interleaving RDMA Backend");
@@ -323,14 +294,14 @@ public:
   ~Backend() {}
 
   void init() {
-    base_laddr = OSClient.get_local_base_addr();
-    base_raddr = OSClient.get_remote_base_addr();
+    apps_base_laddr = OSClient.get_apps_base_laddr();
+    apps_base_raddr = OSClient.get_apps_base_raddr();
   }
 
   auto get_param() noexcept { return AwaitGetParam{}; }
 
   auto read(uintptr_t raddr, uint32_t sz) noexcept {
-    uintptr_t laddr = base_laddr + (raddr - base_raddr);
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     OSClient.read_async(raddr, laddr, sz);
     return AwaitAddrDelayed{laddr, oneway_delay_cycles};
   }
@@ -342,10 +313,10 @@ public:
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
     uint32_t next_node = get_next_llnode(num_nodes);
-    return base_raddr + next_node * sizeof(LLNode);
+    return apps_base_raddr + next_node * sizeof(LLNode);
   }
 
-  uintptr_t get_random_addr() {
+  uintptr_t get_random_raddr() {
     DIE("not implemented yet");
     return 0;
   }
@@ -393,7 +364,7 @@ public:
     // no need to destroy the table since we are giving it preallocated memory
     cuckoo_hash_init(&table, 16, static_cast<void *>(buffer));
 #else
-    linkedlist = create_linkedlist<LLNode>(buffer, RDMA_BUFF_SIZE);
+    linkedlist = create_linkedlist<LLNode>(buffer, RMCK_APPS_BUFF_SZ);
 #endif
   }
 
@@ -401,11 +372,11 @@ public:
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
     // interleaved: uncomment next
-    for (auto cl = 0u; cl < sz; cl += 64)
-      __builtin_prefetch(reinterpret_cast<void *>(addr + cl), 0, 0);
-    return AwaitAddr<true>{addr};
+    //for (auto cl = 0u; cl < sz; cl += 64)
+    //  __builtin_prefetch(reinterpret_cast<void *>(addr + cl), 0, 0);
+    //return AwaitAddr<true>{addr};
     // run to completion: uncomment next
-    // return AwaitAddr<false>{addr};
+    return AwaitAddr<false>{addr};
   }
 
   // with local memory raddr=laddr
@@ -413,21 +384,20 @@ public:
     return read(laddr, sz);
   }
 
-  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
+  auto write_raddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
     DIE("not implemented yet");
     return AwaitVoid<false>{};
   }
 
   auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
-    if (sz > 64)
-      DIE("sz > 64 write_laddr()");
+    assert(sz <= 64);
 
     void *addr = reinterpret_cast<void *>(laddr);
     // interleaved: uncomment next
-    __builtin_prefetch(addr, 1, 0);
-    return AwaitDRAMWrite<true>{addr, data, sz};
+    // __builtin_prefetch(addr, 1, 0);
+    // return AwaitDRAMWrite<true>{addr, data, sz};
     // run to completion: uncomment next
-    // return AwaitDRAMWrite<false>{addr, data, sz};
+    return AwaitDRAMWrite<false>{addr, data, sz};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
@@ -435,8 +405,82 @@ public:
     return reinterpret_cast<uintptr_t>(buffer + next_node * sizeof(LLNode));
   }
 
-  uintptr_t get_random_addr() {
+  uintptr_t get_random_raddr() {
     DIE("not implemented yet");
     return 0;
   }
 };
+
+#if defined(LOCATION_CLIENT)
+class RMCLock {
+public:
+  RMCLock() {}
+
+  ~RMCLock() {}
+
+  inline CoroRMC lock(Backend<OneSidedClient> &b) {
+    const uintptr_t lock_raddr = b.rsvd_base_raddr;
+    const uintptr_t lock_laddr = get_lock_laddr(b);
+
+    *(reinterpret_cast<uint64_t *>(lock_laddr)) = 1;
+    co_await b.cmp_swp(lock_raddr, lock_laddr, 0, 1);
+    while (*(reinterpret_cast<uint64_t *>(lock_laddr)) != 0) {
+      co_await b.cmp_swp(lock_raddr, lock_laddr, 0, 1);
+    }
+  }
+
+  inline CoroRMC unlock(Backend<OneSidedClient> &b) {
+    const uint64_t unlocked = 0;
+    const uintptr_t lock_raddr = b.rsvd_base_raddr;
+    const uintptr_t unlock_laddr = get_unlock_laddr(b);
+
+    co_await b.write(lock_raddr, unlock_laddr, &unlocked, sizeof(uint64_t));
+  }
+
+private:
+  inline uintptr_t get_lock_laddr(Backend<OneSidedClient> &b) {
+    static std::atomic<uintptr_t> lock_laddr = 0;
+
+    // use [b.rsvd_base_laddr, b.rsvd_base_laddr + RMCK_RESERVED_BUFF_SZ - 8) to
+    // grant laddr locks
+    if (lock_laddr == 0)
+      lock_laddr = b.rsvd_base_laddr;
+    else
+      lock_laddr += sizeof(uint64_t);
+
+    if (lock_laddr >
+        b.rsvd_base_laddr + RMCK_RESERVED_BUFF_SZ - sizeof(uint64_t))
+      lock_laddr = b.rsvd_base_laddr;
+
+    return lock_laddr;
+  }
+
+  inline uintptr_t get_unlock_laddr(Backend<OneSidedClient> &b) {
+    // unlock laddr
+    return b.rsvd_base_laddr + RMCK_RESERVED_BUFF_SZ - sizeof(uint64_t);
+  }
+};
+#else
+class RMCLock {
+public:
+  RMCLock() {
+    if (pthread_spin_init(&l, PTHREAD_PROCESS_PRIVATE) != 0)
+      DIE("could not init spin lock");
+  }
+
+  ~RMCLock() { pthread_spin_destroy(&l); }
+
+  template <class T> inline CoroRMC lock(Backend<T> &b) {
+    while (pthread_spin_trylock(&l) != 0)
+      co_await std::suspend_always{};
+  }
+
+  template <class T> inline CoroRMC unlock(Backend<T> &b) {
+    pthread_spin_unlock(&l);
+    co_await std::suspend_never{};
+  }
+
+private:
+  pthread_spinlock_t l;
+};
+#endif

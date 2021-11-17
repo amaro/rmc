@@ -21,7 +21,7 @@ template <class T> inline CoroRMC random_writes(Backend<T> &b) {
   uint64_t val = 0xDEADBEEF;
 
   for (auto i = 0u; i < num_writes; ++i) {
-    co_await b.write(b.get_random_addr(), &val);
+    co_await b.write_raddr(b.get_random_raddr(), &val, sizeof(val));
   }
 
   co_yield 1;
@@ -35,10 +35,10 @@ template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
   LLNode *node = nullptr;
 
   for (int i = 0; i < num_nodes; ++i) {
-    rmclock.lock();
+    co_await rmclock.lock(b);
     node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
     addr = reinterpret_cast<uintptr_t>(node->next);
-    rmclock.unlock();
+    co_await rmclock.unlock(b);
   }
 
   co_yield 1;
@@ -180,7 +180,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *item;
-  rmclock.lock();
+  co_await rmclock.lock(b);
   co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &item);
 
   if (item) {
@@ -189,7 +189,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
     value = reinterpret_cast<void *>(0xCAFEFEED);
     co_await b.write_laddr(reinterpret_cast<uintptr_t>(&item->value), &value,
                            sizeof(item->value));
-    rmclock.unlock();
+    co_await rmclock.unlock(b);
     co_yield 1;
     co_return;
   }
@@ -201,7 +201,7 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
 
   bool success;
   co_await insert(b, &b.table, &elem, &success);
-  rmclock.lock();
+  co_await rmclock.unlock(b);
 
   if (success) {
     b.table.count++;
@@ -222,9 +222,9 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   compute_hash(key, KEY_LEN, &h1, &h2);
 
   struct cuckoo_hash_item *res;
-  rmclock.lock();
+  co_await rmclock.lock(b);
   co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &res);
-  rmclock.unlock();
+  co_await rmclock.unlock(b);
 
   if (res) {
     // std::cout << "value=" << std::hex << res->value << "\n";

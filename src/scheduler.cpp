@@ -27,22 +27,22 @@ CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
     return std::move(random_writes(backend));
 #if defined(WORKLOAD_HASHTABLE)
   case HASHTABLE:
-    thread_local uint8_t num_gets = 0;
-    if (++num_gets > 1) {
-      num_gets = 0;
-      return std::move(hash_insert(backend));
-    }
+    //thread_local uint8_t num_gets = 0;
+    //if (++num_gets > 1) {
+    //  num_gets = 0;
+    //  return std::move(hash_insert(backend));
+    //}
 
-    return std::move(hash_lookup(backend));
-    // thread_local uint16_t num_gets = 0;
+    //return std::move(hash_lookup(backend));
+    thread_local uint16_t num_gets = 0;
 
-    // if (num_gets > 20)
-    //  return std::move(hash_lookup(backend));
+    if (num_gets > 20)
+     return std::move(hash_lookup(backend));
 
-    // num_gets++;
-    // if (num_gets > 20)
-    //  std::cout << "this is last insert\n";
-    // return std::move(hash_insert(backend));
+    num_gets++;
+    if (num_gets > 20)
+      std::cout << "this is last insert\n";
+    return std::move(hash_insert(backend));
 #endif
   default:
     die("invalid req id");

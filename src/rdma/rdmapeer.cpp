@@ -65,8 +65,9 @@ void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided) {
   qp_attrs.cap.max_inline_data = QP_ATTRS_MAX_INLINE_DATA;
 
   if (onesided)
-    qp_attrs.send_ops_flags |=
-        IBV_QP_EX_WITH_RDMA_READ | IBV_QP_EX_WITH_RDMA_WRITE;
+    qp_attrs.send_ops_flags |= IBV_QP_EX_WITH_RDMA_READ |
+                               IBV_QP_EX_WITH_RDMA_WRITE |
+                               IBV_QP_EX_WITH_ATOMIC_CMP_AND_SWP;
   else
     qp_attrs.send_ops_flags |= IBV_WR_SEND;
 

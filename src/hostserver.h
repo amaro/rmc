@@ -31,16 +31,9 @@ public:
     rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
 
-    switch (workload) {
-    case READ:
-    case READ_LOCK:
-      linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
-      break;
-    case WRITE: /* fall through */
-    case HASHTABLE:
-      memset(rdma_buffer, 0, RDMA_BUFF_SIZE);
-      break;
-    }
+    /* HugeAllogator memsets buffer to 0. Init hostserver memory here */
+    if (workload == READ_LOCK)
+      linkedlist = create_linkedlist<LLNode>(rdma_buffer, RMCK_APPS_BUFF_SZ);
   }
 
   ~HostServer() {
