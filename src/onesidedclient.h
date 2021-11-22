@@ -1,13 +1,15 @@
 #ifndef ONE_SIDED_CLIENT_H
 #define ONE_SIDED_CLIENT_H
 
-#include "hostserver.h"
+#include "allocator.h"
 #include "rdma/rdmaclient.h"
 #include "rdma/rdmapeer.h"
 #include "rmc.h"
 #include <coroutine>
 
 class OneSidedClient {
+  using OpType = RDMAContext::OneSidedOp::OpType;
+
   RDMAClient rclient;
 
   bool onesready;
@@ -33,10 +35,13 @@ public:
   void connect(const std::string &ip, const unsigned int &port);
   void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);
   void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size);
+  void cmp_swp_async(uintptr_t raddr, uintptr_t laddr, uint64_t cmp,
+                     uint64_t swp);
   template <typename T> int poll_reads_atmost(int max, T &&comp_func);
-  char *get_rdma_buffer();
-  uintptr_t get_remote_base_addr();
-  uintptr_t get_local_base_addr();
+  uintptr_t get_rsvd_base_raddr();
+  uintptr_t get_rsvd_base_laddr();
+  uintptr_t get_apps_base_raddr();
+  uintptr_t get_apps_base_laddr();
 
   RDMAClient &get_rclient();
 };
@@ -59,12 +64,13 @@ inline void OneSidedClient::recv_rdma_mr() {
    so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::read_async(uintptr_t remote_addr,
                                        uintptr_t local_addr, uint32_t size) {
+
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
-  ctx->post_batched_read(remote_addr, local_addr, size, host_mr.rkey,
-                         rdma_mr->lkey);
+  ctx->post_batched_onesided(remote_addr, local_addr, size, host_mr.rkey,
+                             rdma_mr->lkey, OpType::READ, 0, 0);
 }
 
 inline void OneSidedClient::write_async(uintptr_t remote_addr,
@@ -73,8 +79,18 @@ inline void OneSidedClient::write_async(uintptr_t remote_addr,
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
-  ctx->post_batched_write(remote_addr, local_addr, size, host_mr.rkey,
-                          rdma_mr->lkey);
+  ctx->post_batched_onesided(remote_addr, local_addr, size, host_mr.rkey,
+                             rdma_mr->lkey, OpType::WRITE, 0, 0);
+}
+
+inline void OneSidedClient::cmp_swp_async(uintptr_t raddr, uintptr_t laddr,
+                                          uint64_t cmp, uint64_t swp) {
+  assert(onesready);
+  RDMAContext *ctx = rclient.get_batch_ctx();
+  assert(ctx != nullptr);
+
+  ctx->post_batched_onesided(raddr, laddr, 8, host_mr.rkey, rdma_mr->lkey,
+                             OpType::CMP_SWP, cmp, swp);
 }
 
 template <typename T>
@@ -85,14 +101,20 @@ inline int OneSidedClient::poll_reads_atmost(int max, T &&comp_func) {
       max, rclient.get_send_compqueue(current_tid), comp_func);
 }
 
-inline char *OneSidedClient::get_rdma_buffer() { return rdma_buffer; }
-
-inline uintptr_t OneSidedClient::get_remote_base_addr() {
+inline uintptr_t OneSidedClient::get_rsvd_base_raddr() {
   return reinterpret_cast<uintptr_t>(host_mr.addr);
 }
 
-inline uintptr_t OneSidedClient::get_local_base_addr() {
-  return reinterpret_cast<uintptr_t>(rdma_mr->addr);
+inline uintptr_t OneSidedClient::get_rsvd_base_laddr() {
+  return reinterpret_cast<uintptr_t>(rdma_buffer);
+}
+
+inline uintptr_t OneSidedClient::get_apps_base_raddr() {
+  return get_rsvd_base_raddr() + RMCK_RESERVED_BUFF_SZ;
+}
+
+inline uintptr_t OneSidedClient::get_apps_base_laddr() {
+  return get_rsvd_base_laddr() + RMCK_RESERVED_BUFF_SZ;
 }
 
 inline RDMAClient &OneSidedClient::get_rclient() { return rclient; }

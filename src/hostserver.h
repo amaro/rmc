@@ -3,7 +3,7 @@
 
 #include "allocator.h"
 #include "rdma/rdmaserver.h"
-#include "rmc.h"
+#include "rmcs.h"
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -25,24 +25,15 @@ class HostServer {
 
 public:
   /* TODO: move these to a config.h or something */
-  static constexpr const long RDMA_BUFF_SIZE = 1 << 30;
 
   HostServer(uint16_t num_qps, Workload work)
       : rserver(num_qps, true), hsready(false), workload(work) {
     rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
 
-    switch (workload) {
-    case READ:
-    case READ_LOCK:
-      linkedlist = create_linkedlist<LLNode>(rdma_buffer, RDMA_BUFF_SIZE);
-      break;
-    case WRITE: /* fall through */
-    case HASHTABLE: /* fall through */
-    case SHAREDLOG:
-      memset(rdma_buffer, 0, RDMA_BUFF_SIZE);
-      break;
-    }
+    /* HugeAllogator memsets buffer to 0. Init hostserver memory here */
+    if (workload == READ_LOCK)
+      linkedlist = create_linkedlist<LLNode>(rdma_buffer, RMCK_APPS_BUFF_SZ);
   }
 
   ~HostServer() {
