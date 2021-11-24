@@ -32,7 +32,7 @@ public:
     req_buf = std::make_unique<CmdRequest>();
 
     /* HugeAllogator memsets buffer to 0. Init hostserver memory here */
-    if (workload == READ_LOCK)
+    if (workload == READ || workload == READ_LOCK)
       linkedlist = create_linkedlist<LLNode>(rdma_buffer, RMCK_APPS_BUFF_SZ);
   }
 
