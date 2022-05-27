@@ -372,11 +372,11 @@ public:
 
   auto read(uintptr_t addr, uint32_t sz) noexcept {
     // interleaved: uncomment next
-    //for (auto cl = 0u; cl < sz; cl += 64)
-    //  __builtin_prefetch(reinterpret_cast<void *>(addr + cl), 0, 0);
-    //return AwaitAddr<true>{addr};
+    for (auto cl = 0u; cl < sz; cl += 64)
+      __builtin_prefetch(reinterpret_cast<void *>(addr + cl), 0, 0);
+    return AwaitAddr<true>{addr};
     // run to completion: uncomment next
-    return AwaitAddr<false>{addr};
+    // return AwaitAddr<false>{addr};
   }
 
   // with local memory raddr=laddr
@@ -394,10 +394,10 @@ public:
 
     void *addr = reinterpret_cast<void *>(laddr);
     // interleaved: uncomment next
-    // __builtin_prefetch(addr, 1, 0);
-    // return AwaitDRAMWrite<true>{addr, data, sz};
+    __builtin_prefetch(addr, 1, 0);
+    return AwaitDRAMWrite<true>{addr, data, sz};
     // run to completion: uncomment next
-    return AwaitDRAMWrite<false>{addr, data, sz};
+    // return AwaitDRAMWrite<false>{addr, data, sz};
   }
 
   auto get_baseaddr(uint32_t num_nodes) noexcept {
