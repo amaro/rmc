@@ -7,7 +7,7 @@ class RDMAClient : public RDMAPeer {
   const bool onesided;
   void handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id);
 
-public:
+ public:
   RDMAClient(uint16_t num_qps, uint16_t num_cqs, bool onesided)
       : RDMAPeer(num_qps, num_cqs), onesided(onesided) {}
 

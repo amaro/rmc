@@ -1,22 +1,21 @@
 #pragma once
 
-#include "logger.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <random>
 
+#include "logger.h"
+
 static constexpr int RANDOM_SEED = 123;
 
-#define TEST_NZ(x)                                                             \
-  do {                                                                         \
-    if ((x))                                                                   \
-      die("error: " #x " failed (returned non-zero).");                        \
+#define TEST_NZ(x)                                             \
+  do {                                                         \
+    if ((x)) die("error: " #x " failed (returned non-zero)."); \
   } while (0)
-#define TEST_Z(x)                                                              \
-  do {                                                                         \
-    if (!(x))                                                                  \
-      die("error: " #x " failed (returned zero/null).");                       \
+#define TEST_Z(x)                                                \
+  do {                                                           \
+    if (!(x)) die("error: " #x " failed (returned zero/null)."); \
   } while (0)
 
 typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
@@ -34,8 +33,21 @@ inline long long time_end(const time_point &start) {
 }
 
 inline void die(const std::string &msg) {
-  LOG(msg);
+  printf("%s\n", msg.c_str());
   exit(1);
+}
+
+template <typename T>
+inline void rt_assert(T &&assertion, const char *msg) {
+  if (!assertion)
+    die(std::string("error: assertion failed: ") + msg);
+}
+
+template <typename T>
+inline void rt_assert_errno(T &&assertion, const char *msg) {
+  if (!assertion)
+    die(std::string("error: assertion failed: ") + msg + std::string(" ") +
+        strerror(errno));
 }
 
 template <typename T>
@@ -75,13 +87,11 @@ inline void cpu_relax() {
 }
 
 inline void spinloop_cycles(const long long cycles) {
-  if (cycles == 0)
-    return;
+  if (cycles == 0) return;
 
   auto start = get_cycles();
 
-  while (get_cycles() - start < cycles)
-    cpu_relax();
+  while (get_cycles() - start < cycles) cpu_relax();
 }
 
 inline long long get_freq() {
@@ -112,25 +122,23 @@ inline long long get_freq() {
 
 template <typename T>
 inline void inc_with_wraparound(T &ref, const T &maxvalue) {
-  if (++ref >= maxvalue)
-    ref = 0;
+  if (++ref >= maxvalue) ref = 0;
 }
 
 inline void dec_with_wraparound(uint32_t &ref, const uint32_t &maxvalue) {
   /* check for underflow */
-  if (--ref > maxvalue)
-    ref = maxvalue - 1;
+  if (--ref > maxvalue) ref = maxvalue - 1;
 }
 
-/* creates a randomized linked list over an already allocated *buffer */
+/* creates a randomized linked list over an already allocated *buffer
+    TODO: find a better place for this. */
 template <typename T>
 inline T *create_linkedlist(void *buffer, size_t bufsize) {
   size_t num_nodes = bufsize / sizeof(T);
   std::vector<T *> indices(num_nodes);
   T *linkedlist = new (buffer) T[num_nodes];
 
-  for (auto i = 0u; i < num_nodes; ++i)
-    indices[i] = &linkedlist[i];
+  for (auto i = 0u; i < num_nodes; ++i) indices[i] = &linkedlist[i];
 
   LOG("Shuffling " << num_nodes << " linked list nodes");
   auto rng = std::default_random_engine{RANDOM_SEED};
@@ -151,6 +159,7 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
 
 /* stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new
  */
-template <typename T> inline void destroy_linkedlist(T *linkedlist) {
+template <typename T>
+inline void destroy_linkedlist(T *linkedlist) {
   linkedlist->~T();
 }

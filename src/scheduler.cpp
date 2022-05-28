@@ -19,34 +19,32 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 
 CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
   switch (req->id) {
-  case READ:
-    return std::move(traverse_linkedlist(backend));
-  case READ_LOCK:
-    return std::move(lock_traverse_linkedlist(backend));
-  case WRITE:
-    return std::move(random_writes(backend));
+    case READ:
+      return std::move(traverse_linkedlist(backend));
+    case READ_LOCK:
+      return std::move(lock_traverse_linkedlist(backend));
+    case WRITE:
+      return std::move(random_writes(backend));
 #if defined(WORKLOAD_HASHTABLE)
-  case HASHTABLE:
-    //thread_local uint8_t num_gets = 0;
-    //if (++num_gets > 1) {
-    //  num_gets = 0;
-    //  return std::move(hash_insert(backend));
-    //}
+    case HASHTABLE:
+      // thread_local uint8_t num_gets = 0;
+      // if (++num_gets > 1) {
+      //  num_gets = 0;
+      //  return std::move(hash_insert(backend));
+      //}
 
-    //return std::move(hash_lookup(backend));
-    thread_local uint16_t num_gets = 0;
+      // return std::move(hash_lookup(backend));
+      thread_local uint16_t num_gets = 0;
 
-    if (num_gets > 20)
-     return std::move(hash_lookup(backend));
+      if (num_gets > 20) return std::move(hash_lookup(backend));
 
-    num_gets++;
-    if (num_gets > 20)
-      std::cout << "this is last insert\n";
-    return std::move(hash_insert(backend));
+      num_gets++;
+      if (num_gets > 20) std::cout << "this is last insert\n";
+      return std::move(hash_insert(backend));
 #endif
-  default:
-    die("invalid req id");
-    return std::move(traverse_linkedlist(backend));
+    default:
+      die("invalid req id");
+      return std::move(traverse_linkedlist(backend));
   }
 }
 

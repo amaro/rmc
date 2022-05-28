@@ -29,7 +29,7 @@ void RDMAClient::connect_to_server(const std::string &ip,
         handle_addr_resolved(ctx, event->id);
       } else if (event->event == RDMA_CM_EVENT_ROUTE_RESOLVED) {
         LOG("route resolved");
-        connect_or_accept(ctx, true); // connect
+        connect_or_accept(ctx, true);  // connect
       } else if (event->event == RDMA_CM_EVENT_ESTABLISHED) {
         handle_conn_established(ctx);
         break;
@@ -47,8 +47,7 @@ void RDMAClient::handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id) {
   assert(!ctx.connected);
   LOG("address resolved");
 
-  if (!pds_cqs_created)
-    create_pds_cqs(cm_id->verbs, onesided);
+  if (!pds_cqs_created) create_pds_cqs(cm_id->verbs, onesided);
 
   ctx.cm_id = cm_id;
   create_qps(ctx, onesided);
@@ -59,8 +58,7 @@ void RDMAClient::handle_addr_resolved(RDMAContext &ctx, rdma_cm_id *cm_id) {
 void RDMAClient::disconnect_all() {
   dereg_mrs();
 
-  for (auto &ctx : contexts)
-    ctx.disconnect();
+  for (auto &ctx : contexts) ctx.disconnect();
 
   destroy_pds_cqs();
 }

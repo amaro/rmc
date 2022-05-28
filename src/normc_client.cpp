@@ -1,9 +1,10 @@
+#include <fstream>
+
 #include "onesidedclient.h"
 #include "rmc.h"
 #include "utils/cxxopts.h"
 #include "utils/logger.h"
 #include "utils/utils.h"
-#include <fstream>
 
 const int NUM_REPS = 100;
 const std::vector<int> BUFF_SIZES = {1024,  2048,  4096,   8192,   16384,
@@ -12,8 +13,7 @@ const std::vector<int> BUFF_SIZES = {1024,  2048,  4096,   8192,   16384,
 void print_durations(std::ofstream &stream, int bufsize,
                      const std::vector<long long> &durations) {
   stream << "bufsize=" << bufsize << "\n";
-  for (const long long &d : durations)
-    stream << d << "\n";
+  for (const long long &d : durations) stream << d << "\n";
 }
 
 void benchmark(std::string server, unsigned int port, std::string ofile) {
@@ -25,8 +25,7 @@ void benchmark(std::string server, unsigned int port, std::string ofile) {
 
   // warm up
   const int &bufsize = BUFF_SIZES[0];
-  for (size_t rep = 0; rep < NUM_REPS; ++rep)
-    client.readhost(0, bufsize);
+  for (size_t rep = 0; rep < NUM_REPS; ++rep) client.readhost(0, bufsize);
 
   // real thing
   for (size_t bufidx = 0; bufidx < BUFF_SIZES.size(); ++bufidx) {
@@ -66,8 +65,7 @@ int main(int argc, char *argv[]) {
   try {
     auto result = opts.parse(argc, argv);
 
-    if (result.count("help"))
-      die(opts.help());
+    if (result.count("help")) die(opts.help());
 
     server = result["server"].as<std::string>();
     port = result["port"].as<int>();

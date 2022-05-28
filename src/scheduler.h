@@ -2,12 +2,13 @@
 
 //#define PERF_STATS
 
+#include <inttypes.h>
+#include <rdma/rdma_cma.h>
+
 #include <cassert>
 #include <cstdlib>
 #include <deque>
-#include <inttypes.h>
 #include <iostream>
-#include <rdma/rdma_cma.h>
 #include <unordered_map>
 #include <vector>
 
@@ -86,16 +87,21 @@ class RMCScheduler {
   std::vector<uint16_t> debug_vec_hostcomps;
 #endif
 
-public:
-  static constexpr int MAX_NEW_REQS_PER_ITER = 16; // do not change this
+ public:
+  static constexpr int MAX_NEW_REQS_PER_ITER = 16;  // do not change this
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   static constexpr uint16_t MAX_EXECS_COMPLETION = 8;
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
   RMCScheduler(NICServer &nicserver, Workload work, uint16_t num_qps)
-      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps), req_idx(0),
-        reply_idx(0), pending_replies(0), recvd_disconnect(false) {
+      : ns(nicserver),
+        backend(ns.onesidedclient),
+        num_qps(num_qps),
+        req_idx(0),
+        reply_idx(0),
+        pending_replies(0),
+        recvd_disconnect(false) {
     LOG("RMCScheduler batchsize=" << MAX_HOSTMEM_BSIZE << " num_qps=" << num_qps
                                   << " tid=" << current_tid);
   }
@@ -133,11 +139,9 @@ inline RDMAContext &RMCScheduler::get_server_context() {
 }
 
 inline bool RMCScheduler::executing(RDMAClient &rclient) {
-  if (!runqueue.empty())
-    return true;
+  if (!runqueue.empty()) return true;
 
-  if (!rclient.memqueues_empty())
-    return true;
+  if (!rclient.memqueues_empty()) return true;
 
   return false;
 }
@@ -165,18 +169,18 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 
 inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
   switch (req->type) {
-  case CmdType::GET_RMCID:
-    return req_get_rmc_id(req);
-  case CmdType::CALL_RMC:
-    return req_new_rmc(req);
-  case CmdType::LAST_CMD:
-    this->recvd_disconnect = true;
+    case CmdType::GET_RMCID:
+      return req_get_rmc_id(req);
+    case CmdType::CALL_RMC:
+      return req_new_rmc(req);
+    case CmdType::LAST_CMD:
+      this->recvd_disconnect = true;
 #ifdef PERF_STATS
-    debug_start = false;
+      debug_start = false;
 #endif
-    return;
-  default:
-    DIE("unrecognized CmdRequest type");
+      return;
+    default:
+      DIE("unrecognized CmdRequest type");
   }
 }
 
@@ -227,8 +231,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
       }
     }
 
-    if (batch_started)
-      rclient.end_batched_ops();
+    if (batch_started) rclient.end_batched_ops();
   }
 }
 
@@ -261,8 +264,7 @@ inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
       }
     }
 
-    for (auto i = resumes - 1; i >= 0; i--)
-      runqueue.push_front(reordervec[i]);
+    for (auto i = resumes - 1; i >= 0; i--) runqueue.push_front(reordervec[i]);
 
     if (prefetching) {
       prefetching = false;
@@ -299,8 +301,7 @@ inline void RMCScheduler::add_reply(promise_handle rmc,
   long long cycles = get_cycles();
 #endif
 
-  if (!pending_replies)
-    server_ctx.start_batch();
+  if (!pending_replies) server_ctx.start_batch();
 
   pending_replies = true;
   CmdReply *reply = ns.get_reply(this->reply_idx);
@@ -349,16 +350,14 @@ inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx) {
   long long cycles = get_cycles();
 #endif
 
-  if (this->recvd_disconnect)
-    return;
+  if (this->recvd_disconnect) return;
 
   new_reqs = ns.rserver.poll_batched_atmost(MAX_NEW_REQS_PER_ITER,
                                             ns.rserver.get_recv_compqueue(0),
                                             [](size_t) constexpr->void{});
 
 #ifdef PERF_STATS
-  if (!debug_start && new_reqs > 0)
-    debug_start = true;
+  if (!debug_start && new_reqs > 0) debug_start = true;
 #endif
   if (new_reqs > 0) {
     auto prev_req_idx = this->req_idx;
@@ -411,8 +410,7 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
       ns.onesidedclient.poll_reads_atmost(MAX_HOSTMEM_POLL, add_to_reordervec);
   (void)comps;
 
-  for (auto i = rmc_comps - 1; i >= 0; i--)
-    runqueue.push_front(reordervec[i]);
+  for (auto i = rmc_comps - 1; i >= 0; i--) runqueue.push_front(reordervec[i]);
 
 #ifdef PERF_STATS
   debug_cycles_hostcomps = get_cycles() - cycles;
@@ -422,8 +420,7 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
 
 inline void RMCScheduler::debug_capture_stats() {
 #ifdef PERF_STATS
-  if (!debug_start)
-    return;
+  if (!debug_start) return;
 
   debug_vec_cycles.push_back(debug_cycles);
   debug_vec_cycles_execs.push_back(debug_cycles_execs);

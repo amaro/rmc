@@ -18,9 +18,10 @@
 #ifndef _CUCKOO_HASH_H
 #define _CUCKOO_HASH_H 1
 
-#include <cstdint>
 #include <stdbool.h>
 #include <stddef.h>
+
+#include <cstdint>
 
 #define CUCKOO_HASH_FAILED (reinterpret_cast<struct cuckoo_hash_item *>(-1))
 
@@ -56,7 +57,8 @@ extern "C" {
   Return true on success, false if initialization failed (memory
   exhausted).
 */
-bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power, void *buffer);
+bool cuckoo_hash_init(struct cuckoo_hash *hash, unsigned char power,
+                      void *buffer);
 
 /*
   cuckoo_hash_destroy(hash):
@@ -135,9 +137,8 @@ void cuckoo_hash_remove(struct cuckoo_hash *hash,
   Normally you do not call this function directly, but use
   cuckoo_hash_each() loop instead.
 */
-struct cuckoo_hash_item *
-cuckoo_hash_next(const struct cuckoo_hash *hash,
-                 const struct cuckoo_hash_item *hash_item);
+struct cuckoo_hash_item *cuckoo_hash_next(
+    const struct cuckoo_hash *hash, const struct cuckoo_hash_item *hash_item);
 
 /*
   cuckoo_hash_each(it, hash):
@@ -169,9 +170,9 @@ cuckoo_hash_next(const struct cuckoo_hash *hash,
   (including the new one) may not be visited at all.  In other words,
   don't do this.
 */
-#define cuckoo_hash_each(it, hash)                                             \
-  (it) = cuckoo_hash_next((hash), NULL);                                       \
-  (it) != NULL;                                                                \
+#define cuckoo_hash_each(it, hash)       \
+  (it) = cuckoo_hash_next((hash), NULL); \
+  (it) != NULL;                          \
   (it) = cuckoo_hash_next((hash), (it))
 
 void compute_hash(const void *key, size_t key_len, uint32_t *h1, uint32_t *h2);
@@ -181,10 +182,8 @@ inline struct _cuckoo_hash_elem *bin_at(const struct cuckoo_hash *hash,
 }
 bool grow_table(struct cuckoo_hash *hash);
 bool grow_bin_size(struct cuckoo_hash *hash);
-bool undo_insert(struct cuckoo_hash *hash,
-                        struct _cuckoo_hash_elem *item, size_t max_depth,
-                        uint32_t offset, int phase);
-
+bool undo_insert(struct cuckoo_hash *hash, struct _cuckoo_hash_elem *item,
+                 size_t max_depth, uint32_t offset, int phase);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -12,12 +12,16 @@ namespace logger {
 
 struct None {};
 
-template <typename First, typename Second> struct Pair {
+template <typename First, typename Second>
+struct Pair {
   First first;
   Second second;
 };
 
-template <typename List> struct LogData { List list; };
+template <typename List>
+struct LogData {
+  List list;
+};
 
 template <typename Begin, typename Value>
 LogData<Pair<Begin, const Value &>> operator<<(LogData<Begin> begin,
@@ -52,13 +56,13 @@ void logandie(const char *file, int line, const LogData<List> &data) {
   exit(1);
 }
 
-} // namespace logger
+}  // namespace logger
 
-/*#define LOG(x)                                                                 \
-  (logger::log(__FILE__, __LINE__, logger::LogData<logger::None>() << x)) */
+/*#define LOG(x) \ (logger::log(__FILE__, __LINE__,
+  logger::LogData<logger::None>() << x)) */
 #define LOG(x)
 
-#define DIE(x)                                                                 \
+#define DIE(x) \
   (logger::logandie(__FILE__, __LINE__, logger::LogData<logger::None>() << x))
 
 #endif

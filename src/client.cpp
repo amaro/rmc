@@ -1,12 +1,14 @@
+#include "client.h"
+
+#include <pthread.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <fstream>
-#include <pthread.h>
 #include <queue>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
-#include "client.h"
 #include "rmc.h"
 #include "utils/cxxopts.h"
 #include "utils/logger.h"
@@ -65,8 +67,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   long long duration = 0;
   static auto noop = [](size_t) constexpr->void{};
 
-  for (auto i = 0u; i < maxinflight; i++)
-    arm_call_req(get_req(i), param);
+  for (auto i = 0u; i < maxinflight; i++) arm_call_req(get_req(i), param);
 
   pthread_barrier_wait(barrier);
 
@@ -135,11 +136,9 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
   ibv_cq_ex *send_cq = rclient.get_send_cq(0);
 
-  LOG("will issue " << num_reqs << " requests every " << wait_in_nsec
-                    << " nanoseconds");
+  printf("will issue %u requests every %lu nanoseconds\n", num_reqs, wait_in_nsec);
 
-  for (auto i = 0u; i < maxinflight; i++)
-    arm_call_req(get_req(i), numaccesses);
+  for (auto i = 0u; i < maxinflight; i++) arm_call_req(get_req(i), numaccesses);
 
   std::vector<long long> send_cycles;
   get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);
@@ -196,9 +195,9 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
     load_handle_reps(start_times, rtts, polled, rtt_idx);
   }
 
-  LOG("max concurrent=" << curr_max_inflight);
-  LOG("late=" << late);
-  LOG("max late ns=" << cycles_to_ns(max_late_cycles, freq));
+  printf("max concurrent=%u\n", curr_max_inflight);
+  printf("late=%u\n", late);
+  printf("max late ns=%lld\n", cycles_to_ns(max_late_cycles, freq));
   return 0;
 }
 
@@ -211,8 +210,7 @@ void HostClient::load_send_request() {
 void HostClient::load_handle_reps(std::queue<long long> &start_times,
                                   std::vector<uint32_t> &rtts, uint32_t polled,
                                   uint32_t &rtt_idx) {
-  if (polled == 0)
-    return;
+  if (polled == 0) return;
 
   long long end = get_cycles();
 
@@ -240,12 +238,12 @@ void HostClient::disconnect() {
   rmccready = false;
 }
 
-template <typename T> double get_avg(std::vector<T> &durations) {
+template <typename T>
+double get_avg(std::vector<T> &durations) {
   double avg = 0;
   T sum = 1;
 
-  for (T &d : durations)
-    sum += d;
+  for (T &d : durations) sum += d;
 
   avg = sum / (double)durations.size();
   return avg;
@@ -284,8 +282,7 @@ void print_stats_maxinflight(std::vector<long long> &durations,
 double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
   double median = 0;
 
-  for (auto &d : durations)
-    d = cycles_to_ns(d, freq);
+  for (auto &d : durations) d = cycles_to_ns(d, freq);
 
   unsigned int remove = durations.size() * 0.1;
   auto d2 = std::vector<long long>(durations.begin() + remove, durations.end());
@@ -301,14 +298,13 @@ double benchmark_maxinflight(HostClient &client, uint32_t param,
   const uint32_t max = client.get_max_inflight();
   double duration;
 
-  LOG("get_max_inflight()=" << max);
-
-  LOG("maxinflight: warming up");
+  printf("get_max_inflight()=%u\n", max);
+  printf("maxinflight: warming up\n");
   client.do_maxinflight(max * 10, param, barrier, tid);
 
-  LOG("maxinflight: benchmark start");
+  printf("maxinflight: benchmark start\n");
   duration = client.do_maxinflight(num_reqs, param, barrier, tid);
-  LOG("maxinflight: benchmark end");
+  printf("maxinflight: benchmark end\n");
 
   client.last_cmd();
   return duration;
@@ -321,15 +317,15 @@ double benchmark_load(HostClient &client, uint32_t numaccesses, float load,
   const uint32_t max = client.get_max_inflight();
   const long long freq = get_freq();
 
-  LOG("get_max_inflight()=" << max);
-  LOG("rdtsc freq=" << freq);
+  printf("get_max_inflight()=%d\n", max);
+  printf("rdtsc freq=%lld\n", freq);
 
-  LOG("load: warming up");
+  printf("load: warming up\n");
   client.do_load(load, rtts, max, freq, numaccesses, barrier);
 
-  LOG("load: benchmark start");
+  printf("load: benchmark start\n");
   client.do_load(load, rtts, num_reqs, freq, numaccesses, barrier);
-  LOG("load: benchmark end");
+  printf("load: benchmark end\n");
   client.last_cmd();
 
   return print_stats_load(rtts, freq);
@@ -340,7 +336,7 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
                                Workload workload) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
-  LOG("START thread=" << thread_id);
+  printf("START thread=%d\n", thread_id);
   current_tid = 0;
   HostClient client(workload);
   client.connect(server, start_port + thread_id);
@@ -351,8 +347,7 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
   pthread_barrier_wait(barrier);
   if (thread_id == 0) {
     double max = 0;
-    for (double &d : durations)
-      max = std::max(d, max);
+    for (double &d : durations) max = std::max(d, max);
 
     double ops = NUM_REQS / (max / (double)1000000000);
     std::cout << "max duration=" << max << "\n";
@@ -380,8 +375,7 @@ void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
     std::cout << "start rtts\n";
     size_t num_threads = rtts.size();
     for (auto i = 0u; i < num_threads; ++i)
-      for (const auto &rtt : rtts[i])
-        std::cout << rtt << "\n";
+      for (const auto &rtt : rtts[i]) std::cout << rtt << "\n";
     std::cout << "end rtts\n";
   }
 }
@@ -410,8 +404,7 @@ int main(int argc, char *argv[]) {
   try {
     auto result = opts.parse(argc, argv);
 
-    if (result.count("help"))
-      die(opts.help());
+    if (result.count("help")) die(opts.help());
 
     server = result["server"].as<std::string>();
     start_port = result["port"].as<int>();
@@ -446,7 +439,7 @@ int main(int argc, char *argv[]) {
   pthread_barrier_t barrier;
   TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
 
-  LOG("will launch " << num_threads << " threads");
+  printf("will launch %d threads\n", num_threads);
 
   // for load; one rtt vector per thread
   std::vector<std::vector<uint32_t>> rtts(
@@ -466,14 +459,14 @@ int main(int argc, char *argv[]) {
     workload = HASHTABLE;
   else
     die("bad rmc");
-  LOG("workload set to " << rmc);
+  printf("workload set to=%s\n", rmc.c_str());
 
   if (mode == "load") {
     // distribute load request evenly among all cores
     if (num_threads > 1) {
       load = load * num_threads;
-      LOG("adjusting load using multiple cores");
-      LOG("each core will issue a req every " << load << " us");
+      printf("adjusting load using multiple cores\n");
+      printf("each core will issue a req every %f us\n", load);
     }
 
     for (auto i = 0; i < num_threads; ++i) {
@@ -489,6 +482,5 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  for (auto i = 0; i < num_threads; ++i)
-    threads[i].join();
+  for (auto i = 0; i < num_threads; ++i) threads[i].join();
 }

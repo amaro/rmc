@@ -6,7 +6,7 @@
 class RDMAServer : public RDMAPeer {
   bool onesided;
 
-public:
+ public:
   // num_cqs always 1 here
   RDMAServer(uint16_t num_qps, bool onesided)
       : RDMAPeer(num_qps, 1), onesided(onesided) {}

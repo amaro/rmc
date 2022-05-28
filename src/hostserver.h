@@ -1,12 +1,13 @@
 #ifndef HOST_SERVER_H
 #define HOST_SERVER_H
 
-#include "allocator.h"
-#include "rdma/rdmaserver.h"
-#include "rmcs.h"
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+
+#include "allocator.h"
+#include "rdma/rdmaserver.h"
+#include "rmcs.h"
 
 class HostServer {
   RDMAServer rserver;
@@ -23,7 +24,7 @@ class HostServer {
 
   void send_rdma_mr();
 
-public:
+ public:
   /* TODO: move these to a config.h or something */
 
   HostServer(uint16_t num_qps, Workload work)
@@ -38,13 +39,13 @@ public:
 
   ~HostServer() {
     switch (workload) {
-    case READ:
-    case READ_LOCK:
-      destroy_linkedlist(linkedlist);
-      break;
-    case WRITE: /* fall through */
-    case HASHTABLE:
-      break;
+      case READ:
+      case READ_LOCK:
+        destroy_linkedlist(linkedlist);
+        break;
+      case WRITE: /* fall through */
+      case HASHTABLE:
+        break;
     }
   }
 

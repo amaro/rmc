@@ -1,16 +1,18 @@
 #pragma once
 
-#include "allocator.h"
-#include "utils/utils.h"
+#include <pthread.h>
+
 #include <atomic>
 #include <coroutine>
-#include <pthread.h>
+
+#include "allocator.h"
+#include "utils/utils.h"
 
 /* RMC allocator */
 inline thread_local RMCAllocator allocator;
 
 class CoroRMC {
-public:
+ public:
   /*
   based on:
       https://www.modernescpp.com/index.php/c-20-an-infinite-data-stream-with-coroutines
@@ -47,8 +49,8 @@ public:
     struct final_awaiter {
       bool await_ready() noexcept { return false; }
 
-      std::coroutine_handle<>
-      await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+      std::coroutine_handle<> await_suspend(
+          std::coroutine_handle<promise_type> h) noexcept {
         // if there is a continuation to resume, resume it but clear it first
         // so that the scheduler doesn't attempt to resume it anymore.
         if (h.promise().continuation) {
@@ -59,7 +61,7 @@ public:
           h.promise().continuation.promise().continuation = {};
           return h.promise().continuation;
         } else {
-          return std::noop_coroutine(); // return to scheduler
+          return std::noop_coroutine();  // return to scheduler
         }
       }
 
@@ -84,7 +86,7 @@ public:
 
   /* Awaiter for other CoroRMCs */
   class RMCAwaiter {
-  public:
+   public:
     bool await_ready() noexcept { return false; }
 
     coro_handle await_suspend(coro_handle callee) noexcept {
@@ -101,7 +103,7 @@ public:
 
     void await_resume() noexcept {}
 
-  private:
+   private:
     friend CoroRMC;
     explicit RMCAwaiter(coro_handle h) noexcept : called(h) {}
 
@@ -135,7 +137,7 @@ public:
 
   auto get_handle() { return _coroutine; }
 
-private:
+ private:
   CoroRMC(promise_type &p) : _coroutine(coro_handle::from_promise(p)) {}
   coro_handle _coroutine;
 };

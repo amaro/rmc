@@ -1,10 +1,11 @@
 #ifndef RMC_CLIENT_H
 #define RMC_CLIENT_H
 
-#include "rdma/rdmaclient.h"
-#include "rmc.h"
 #include <algorithm>
 #include <cstdint>
+
+#include "rdma/rdmaclient.h"
+#include "rmc.h"
 
 class HostClient {
   bool rmccready;
@@ -36,12 +37,16 @@ class HostClient {
   void parse_rmc_reply(CmdReply *reply) const;
   void arm_call_req(CmdRequest *req, uint32_t param);
 
-public:
+ public:
   // A client only creates one 2-sided QP to communicate to nicserver,
   // and one CQ
   HostClient(Workload workload)
-      : rmccready(false), pending_unsig_sends(0), req_idx(0), inflight(0),
-        workload(workload), rclient(1, 1, false) {
+      : rmccready(false),
+        pending_unsig_sends(0),
+        req_idx(0),
+        inflight(0),
+        workload(workload),
+        rclient(1, 1, false) {
     req_buf.reserve(QP_MAX_2SIDED_WRS);
     reply_buf.reserve(QP_MAX_2SIDED_WRS);
     LOG("sizeof(CmdRequest())=" << sizeof(CmdRequest));

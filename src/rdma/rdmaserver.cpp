@@ -33,8 +33,7 @@ void RDMAServer::connect_from_client(int port) {
 
       rdma_ack_cm_event(event);
 
-      if (should_break)
-        break;
+      if (should_break) break;
     }
 
     contexts.push_back(std::move(ctx));
@@ -53,11 +52,11 @@ void RDMAServer::disconnect_events() {
       event = &event_copy;
 
       switch (event->event) {
-      case RDMA_CM_EVENT_DISCONNECTED:
-        ctx.disconnect();
-        return;
-      default:
-        die("unknown or unexpected event at disconnect_events().");
+        case RDMA_CM_EVENT_DISCONNECTED:
+          ctx.disconnect();
+          return;
+        default:
+          die("unknown or unexpected event at disconnect_events().");
       }
     }
   }
@@ -70,11 +69,10 @@ void RDMAServer::handle_conn_request(RDMAContext &ctx, rdma_cm_id *cm_id) {
   assert(!ctx.connected);
   LOG("connect request");
 
-  if (!pds_cqs_created)
-    create_pds_cqs(cm_id->verbs, onesided);
+  if (!pds_cqs_created) create_pds_cqs(cm_id->verbs, onesided);
 
   ctx.cm_id = cm_id;
   create_qps(ctx, onesided);
 
-  connect_or_accept(ctx, false); // accept
+  connect_or_accept(ctx, false);  // accept
 }

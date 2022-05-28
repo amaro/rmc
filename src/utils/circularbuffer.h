@@ -8,24 +8,23 @@
  * fixed-size queue based on
  * https://embeddedartistry.com/blog/2017/05/17/creating-a-circular-buffer-in-c-and-c/
  */
-template <class T, uint32_t N> class CircularBuffer {
-public:
+template <class T, uint32_t N>
+class CircularBuffer {
+ public:
   explicit CircularBuffer() : buffer(std::unique_ptr<T[]>(new T[N])) {}
 
   /* pushes at the head and increments head */
   void push(T item) {
     buffer[head] = std::move(item);
 
-    if (isfull)
-      DIE("circular buffer is full");
+    if (isfull) DIE("circular buffer is full");
 
     inc_with_wraparound(head, N);
     isfull = head == tail;
   }
 
   T pop_front() {
-    if (empty())
-      DIE("circular buffer is empty");
+    if (empty()) DIE("circular buffer is empty");
 
     // Read data and advance the tail (we now have a free space)
     auto val = std::move(buffer[tail]);
@@ -36,8 +35,7 @@ public:
   }
 
   T pop_back() {
-    if (empty())
-      DIE("circular buffer is empty");
+    if (empty()) DIE("circular buffer is empty");
 
     // decrement head (so it points to data), and read data
     // this implies we are not full
@@ -78,7 +76,7 @@ public:
     return size;
   }
 
-private:
+ private:
   std::unique_ptr<T[]> buffer;
   uint32_t head = 0;
   uint32_t tail = 0;

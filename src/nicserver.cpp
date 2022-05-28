@@ -1,8 +1,10 @@
-#include <thread>
+#include "nicserver.h"
+
 #include <unistd.h>
 
+#include <thread>
+
 #include "allocator.h"
-#include "nicserver.h"
 #include "scheduler.h"
 #include "utils/utils.h"
 
@@ -100,21 +102,21 @@ int main(int argc, char *argv[]) {
   /* server address, num queue pairs, workload, threads */
   while ((c = getopt(argc, argv, "s:q:w:t:")) != -1) {
     switch (c) {
-    case 's':
-      hostaddr = optarg;
-      break;
-    case 'q':
-      numqps = atoi(optarg);
-      break;
-    case 'w':
-      workload = optarg;
-      break;
-    case 't':
-      num_threads = atoi(optarg);
-      break;
-    case '?':
-    default:
-      return usage();
+      case 's':
+        hostaddr = optarg;
+        break;
+      case 'q':
+        numqps = atoi(optarg);
+        break;
+      case 'w':
+        workload = optarg;
+        break;
+      case 't':
+        num_threads = atoi(optarg);
+        break;
+      case '?':
+      default:
+        return usage();
     }
   }
 
@@ -167,8 +169,7 @@ int main(int argc, char *argv[]) {
     threads.push_back(std::move(t));
   }
 
-  for (auto i = 0; i < num_threads; ++i)
-    threads[i].join();
+  for (auto i = 0; i < num_threads; ++i) threads[i].join();
 
   LOG("bye.");
 }

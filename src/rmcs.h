@@ -3,7 +3,8 @@
 #include "backend.h"
 #include "rmc.h"
 
-template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
+template <class T>
+inline CoroRMC traverse_linkedlist(Backend<T> &b) {
   int num_nodes = co_await b.get_param();
   uintptr_t addr = b.get_baseaddr(num_nodes);
   LLNode *node = nullptr;
@@ -16,7 +17,8 @@ template <class T> inline CoroRMC traverse_linkedlist(Backend<T> &b) {
   co_yield 1;
 }
 
-template <class T> inline CoroRMC random_writes(Backend<T> &b) {
+template <class T>
+inline CoroRMC random_writes(Backend<T> &b) {
   const uint32_t num_writes = co_await b.get_param();
   uint64_t val = 0xDEADBEEF;
 
@@ -29,7 +31,8 @@ template <class T> inline CoroRMC random_writes(Backend<T> &b) {
 
 inline static RMCLock rmclock;
 
-template <class T> inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
+template <class T>
+inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
   int num_nodes = co_await b.get_param();
   uintptr_t addr = b.get_baseaddr(num_nodes);
   LLNode *node = nullptr;
@@ -142,8 +145,7 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
       item->hash1 = victim.hash2;
       item->hash2 = victim.hash1;
 
-      if (++offset == hash->bin_size)
-        offset = 0;
+      if (++offset == hash->bin_size) offset = 0;
     }
 
     ++phase;
@@ -168,14 +170,14 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
   }
 }
 
-template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
+template <class T>
+inline CoroRMC hash_insert(Backend<T> &b) {
   thread_local uint8_t key_id = 0;
   uint32_t h1, h2;
   void *value = reinterpret_cast<void *>(0xDEADBEEF);
   const void *key = &KEYS[key_id];
 
-  if (++key_id == KEYS.size())
-    key_id = 0;
+  if (++key_id == KEYS.size()) key_id = 0;
 
   compute_hash(key, KEY_LEN, &h1, &h2);
 
@@ -211,13 +213,13 @@ template <class T> inline CoroRMC hash_insert(Backend<T> &b) {
   }
 }
 
-template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
+template <class T>
+inline CoroRMC hash_lookup(Backend<T> &b) {
   thread_local uint8_t key_id = 0;
   uint32_t h1, h2;
   const void *key = &KEYS[key_id];
 
-  if (++key_id == KEYS.size())
-    key_id = 0;
+  if (++key_id == KEYS.size()) key_id = 0;
 
   compute_hash(key, KEY_LEN, &h1, &h2);
 
@@ -234,4 +236,4 @@ template <class T> inline CoroRMC hash_lookup(Backend<T> &b) {
   }
 }
 
-#endif // WORKLOAD_HASHTABLE
+#endif  // WORKLOAD_HASHTABLE

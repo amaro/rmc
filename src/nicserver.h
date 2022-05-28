@@ -1,13 +1,14 @@
 #ifndef NIC_SERVER_H
 #define NIC_SERVER_H
 
+#include <cstdint>
+#include <functional>
+#include <unordered_map>
+
 #include "hostserver.h"
 #include "onesidedclient.h"
 #include "rdma/rdmaserver.h"
 #include "rmc.h"
-#include <cstdint>
-#include <functional>
-#include <unordered_map>
 
 class RMCScheduler;
 
@@ -35,7 +36,7 @@ class NICServer {
   CmdRequest *get_req(size_t req_idx);
   CmdReply *get_reply(size_t req_idx);
 
-public:
+ public:
   NICServer(OneSidedClient &client, RDMAServer &server)
       : onesidedclient(client), rserver(server), nsready(false) {
     req_buf.reserve(QP_MAX_2SIDED_WRS);

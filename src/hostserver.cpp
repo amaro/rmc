@@ -1,6 +1,7 @@
+#include "hostserver.h"
+
 #include <unistd.h>
 
-#include "hostserver.h"
 #include "utils/utils.h"
 
 void HostServer::connect_and_block(int port) {
@@ -46,16 +47,16 @@ int main(int argc, char *argv[]) {
   /* num queue pairs, workload */
   while ((c = getopt(argc, argv, "q:w:")) != -1) {
     switch (c) {
-    case 'q':
-      numqps = atoi(optarg);
-      break;
-    case 'w':
-      workload = optarg;
-      break;
-    case '?':
-    default:
-      std::cerr << "Usage: -q numqps -w workload\n";
-      return 1;
+      case 'q':
+        numqps = atoi(optarg);
+        break;
+      case 'w':
+        workload = optarg;
+        break;
+      case '?':
+      default:
+        std::cerr << "Usage: -q numqps -w workload\n";
+        return 1;
     }
   }
 

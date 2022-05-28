@@ -1,11 +1,12 @@
 #ifndef ONE_SIDED_CLIENT_H
 #define ONE_SIDED_CLIENT_H
 
+#include <coroutine>
+
 #include "allocator.h"
 #include "rdma/rdmaclient.h"
 #include "rdma/rdmapeer.h"
 #include "rmc.h"
-#include <coroutine>
 
 class OneSidedClient {
   using OpType = RDMAContext::OneSidedOp::OpType;
@@ -13,17 +14,17 @@ class OneSidedClient {
   RDMAClient rclient;
 
   bool onesready;
-  ibv_mr host_mr;     // host's memory region; remote addr and rkey
-  ibv_mr *req_buf_mr; // to send Cmd requests
-  ibv_mr *rdma_mr;    // for 1:1 mapping of host's rdma buffer
+  ibv_mr host_mr;      // host's memory region; remote addr and rkey
+  ibv_mr *req_buf_mr;  // to send Cmd requests
+  ibv_mr *rdma_mr;     // for 1:1 mapping of host's rdma buffer
   std::unique_ptr<CmdRequest> req_buf;
   char *rdma_buffer;
   HugeAllocator huge;
 
-  void disconnect(); // TODO: do we need this?
+  void disconnect();  // TODO: do we need this?
   void recv_rdma_mr();
 
-public:
+ public:
   OneSidedClient(uint16_t num_qps, uint16_t num_cqs)
       : rclient(num_qps, num_cqs, true), onesready(false) {
     rdma_buffer = huge.get();
@@ -37,7 +38,8 @@ public:
   void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size);
   void cmp_swp_async(uintptr_t raddr, uintptr_t laddr, uint64_t cmp,
                      uint64_t swp);
-  template <typename T> int poll_reads_atmost(int max, T &&comp_func);
+  template <typename T>
+  int poll_reads_atmost(int max, T &&comp_func);
   uintptr_t get_rsvd_base_raddr();
   uintptr_t get_rsvd_base_laddr();
   uintptr_t get_apps_base_raddr();
@@ -64,7 +66,6 @@ inline void OneSidedClient::recv_rdma_mr() {
    so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::read_async(uintptr_t remote_addr,
                                        uintptr_t local_addr, uint32_t size) {
-
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
