@@ -58,7 +58,7 @@ inline void OneSidedClient::recv_rdma_mr() {
 
   assert(req_buf->type == SET_RDMA_MR);
   memcpy(&host_mr, &req_buf->request.rdma_mr.mr, sizeof(ibv_mr));
-  LOG("received SET_RDMA_MR; rkey=" << host_mr.rkey);
+  printf("received SET_RDMA_MR; rkey=%u\n", host_mr.rkey);
 }
 
 /* assumes the mapping from host memory to nic memory is 1:1; i.e.

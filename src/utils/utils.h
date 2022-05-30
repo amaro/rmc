@@ -1,11 +1,12 @@
 #pragma once
 
+#include <stdarg.h>
+#include <stdio.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <random>
-
-#include "logger.h"
 
 static constexpr int RANDOM_SEED = 123;
 
@@ -32,22 +33,25 @@ inline long long time_end(const time_point &start) {
   return time_end(start, end);
 }
 
-inline void die(const std::string &msg) {
-  printf("%s\n", msg.c_str());
+inline void __attribute__((format(printf, 1, 2))) __attribute__((noreturn))
+die(const char *fmt, ...) {
+  va_list arg;
+  va_start(arg, fmt);
+  vprintf(fmt, arg);
+  va_end(arg);
   exit(1);
 }
-
 template <typename T>
-inline void rt_assert(T &&assertion, const char *msg) {
-  if (!assertion)
-    die(std::string("error: assertion failed: ") + msg);
-}
-
-template <typename T>
-inline void rt_assert_errno(T &&assertion, const char *msg) {
-  if (!assertion)
-    die(std::string("error: assertion failed: ") + msg + std::string(" ") +
-        strerror(errno));
+inline void __attribute__((format(printf, 2, 3)))
+rt_assert(T &&assertion, const char *fmt, ...) {
+  if (!assertion) {
+    va_list arg;
+    printf("assertion failed: ");
+    va_start(arg, fmt);
+    vprintf(fmt, arg);
+    va_end(arg);
+    exit(1);
+  }
 }
 
 template <typename T>
@@ -140,7 +144,7 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
 
   for (auto i = 0u; i < num_nodes; ++i) indices[i] = &linkedlist[i];
 
-  LOG("Shuffling " << num_nodes << " linked list nodes");
+  printf("Shuffling %lu linked list nodes\n", num_nodes);
   auto rng = std::default_random_engine{RANDOM_SEED};
   std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
 

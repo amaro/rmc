@@ -23,7 +23,7 @@
 
 #include <cstdint>
 
-#include "utils/logger.h"
+#include "../utils/utils.h"
 
 void compute_hash(const void *key, size_t key_len, uint32_t *h1, uint32_t *h2) {
   extern void hashlittle2(const void *key, size_t length, uint32_t *pc,
@@ -112,67 +112,66 @@ void cuckoo_hash_remove(struct cuckoo_hash *hash,
 }
 
 bool grow_table(struct cuckoo_hash *hash) {
-  DIE("grow_table() called, hash cout=" << hash->count);
-  size_t size = ((size_t)hash->bin_size << hash->power) * sizeof(*hash->table);
-  struct _cuckoo_hash_elem *table =
-      reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size * 2));
-  if (!table) return false;
+  die("grow_table() called, hash count=%lu\n", hash->count);
+  // size_t size = ((size_t)hash->bin_size << hash->power) *
+  // sizeof(*hash->table); struct _cuckoo_hash_elem *table =
+  //    reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size * 2));
+  // if (!table) return false;
 
-  hash->table = table;
-  memcpy((char *)hash->table + size, hash->table, size);
-  ++hash->power;
+  // hash->table = table;
+  // memcpy((char *)hash->table + size, hash->table, size);
+  //++hash->power;
 
-  return true;
+  return false;
 }
 
 bool grow_bin_size(struct cuckoo_hash *hash) {
-  DIE("grow_bin_size() called");
-  size_t size = ((size_t)hash->bin_size << hash->power) * sizeof(*hash->table);
-  uint32_t bin_count = 1U << hash->power;
-  size_t add = bin_count * sizeof(*hash->table);
-  struct _cuckoo_hash_elem *table =
-      reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size + add));
-  if (!table) return false;
+  die("grow_bin_size() called\n");
+  // size_t size = ((size_t)hash->bin_size << hash->power) *
+  // sizeof(*hash->table); uint32_t bin_count = 1U << hash->power; size_t add =
+  // bin_count * sizeof(*hash->table); struct _cuckoo_hash_elem *table =
+  //    reinterpret_cast<_cuckoo_hash_elem *>(realloc(hash->table, size + add));
+  // if (!table) return false;
 
-  hash->table = table;
-  for (uint32_t bin = bin_count - 1; bin > 0; --bin) {
-    struct _cuckoo_hash_elem *old = bin_at(hash, bin);
-    struct _cuckoo_hash_elem *nnew = old + bin;
-    memmove(nnew, old, hash->bin_size * sizeof(*hash->table));
-    memset(nnew + hash->bin_size, 0, sizeof(*hash->table));
-  }
-  memset(hash->table + hash->bin_size, 0, sizeof(*hash->table));
+  // hash->table = table;
+  // for (uint32_t bin = bin_count - 1; bin > 0; --bin) {
+  //  struct _cuckoo_hash_elem *old = bin_at(hash, bin);
+  //  struct _cuckoo_hash_elem *nnew = old + bin;
+  //  memmove(nnew, old, hash->bin_size * sizeof(*hash->table));
+  //  memset(nnew + hash->bin_size, 0, sizeof(*hash->table));
+  //}
+  // memset(hash->table + hash->bin_size, 0, sizeof(*hash->table));
 
-  ++hash->bin_size;
+  //++hash->bin_size;
 
-  return true;
+  return false;
 }
 
 bool undo_insert(struct cuckoo_hash *hash, struct _cuckoo_hash_elem *item,
                  size_t max_depth, uint32_t offset, int phase) {
-  DIE("undo insert");
-  uint32_t mask = (1U << hash->power) - 1;
+  die("undo insert\n");
+  // uint32_t mask = (1U << hash->power) - 1;
 
-  for (size_t depth = 0; depth < max_depth * phase; ++depth) {
-    if (offset-- == 0) offset = hash->bin_size - 1;
+  // for (size_t depth = 0; depth < max_depth * phase; ++depth) {
+  //  if (offset-- == 0) offset = hash->bin_size - 1;
 
-    uint32_t h2m = item->hash2 & mask;
-    struct _cuckoo_hash_elem *beg = bin_at(hash, h2m);
+  //  uint32_t h2m = item->hash2 & mask;
+  //  struct _cuckoo_hash_elem *beg = bin_at(hash, h2m);
 
-    struct _cuckoo_hash_elem victim = beg[offset];
+  //  struct _cuckoo_hash_elem victim = beg[offset];
 
-    beg[offset].hash_item = item->hash_item;
-    beg[offset].hash1 = item->hash2;
-    beg[offset].hash2 = item->hash1;
+  //  beg[offset].hash_item = item->hash_item;
+  //  beg[offset].hash1 = item->hash2;
+  //  beg[offset].hash2 = item->hash1;
 
-    uint32_t h1m = victim.hash1 & mask;
-    if (h1m != h2m) {
-      assert(depth >= max_depth);
-      return true;
-    }
+  //  uint32_t h1m = victim.hash1 & mask;
+  //  if (h1m != h2m) {
+  //    assert(depth >= max_depth);
+  //    return true;
+  //  }
 
-    *item = victim;
-  }
+  //  *item = victim;
+  //}
 
   return false;
 }

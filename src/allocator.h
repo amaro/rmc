@@ -1,8 +1,9 @@
 #pragma once
 
-#include <cstring>
 #include <stdlib.h>
 #include <sys/mman.h>
+
+#include <cstring>
 
 #include "utils/utils.h"
 
@@ -52,8 +53,7 @@ struct HugeAllocator {
     ptr = static_cast<char *>(
         mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
              MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0));
-    if (ptr == MAP_FAILED)
-      DIE("huge allocation failed");
+    rt_assert(ptr != MAP_FAILED, "huge allocation failed");
     std::memset(ptr, 0, HUGE_PAGE_SIZE);
   }
 

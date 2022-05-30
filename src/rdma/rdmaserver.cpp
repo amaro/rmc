@@ -17,7 +17,7 @@ void RDMAServer::connect_from_client(int port) {
     TEST_NZ(rdma_bind_addr(listener, (sockaddr *)&addr));
     TEST_NZ(rdma_listen(listener, 1));
 
-    LOG("listening on port: " << port);
+    printf("listening on port: %d\n", port);
 
     while (rdma_get_cm_event(ctx.event_channel, &event) == 0) {
       bool should_break = false;
@@ -67,7 +67,7 @@ void RDMAServer::disconnect_events() {
 
 void RDMAServer::handle_conn_request(RDMAContext &ctx, rdma_cm_id *cm_id) {
   assert(!ctx.connected);
-  LOG("connect request");
+  puts("connect request");
 
   if (!pds_cqs_created) create_pds_cqs(cm_id->verbs, onesided);
 

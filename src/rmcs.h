@@ -165,7 +165,7 @@ inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
     *last = *item;
     *success = true;
   } else {
-    DIE("undo_insert here");
+    die("undo_insert here\n");
     // return undo_insert(hash, item, max_depth, offset, phase);
   }
 }

@@ -20,7 +20,7 @@ void RDMAPeer::create_pds_cqs(ibv_context *verbs, bool onesided) {
   }
 
   pds_cqs_created = true;
-  LOG("created pds and " << num_cqs << " cqs; onesided=" << onesided);
+  printf("created pds and %u cqs; onesided=%d\n", num_cqs, onesided);
 }
 
 void RDMAPeer::destroy_pds_cqs() {
@@ -75,9 +75,8 @@ void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided) {
   ctx.cm_id->qp = ctx.qp;
   ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
 
-  LOG("created onesided=" << onesided << " qp=" << ctx.qp
-                          << " bound to send_cq=" << send_cq
-                          << " and recv_cq=" << recv_cq);
+  printf("created onesided=%d qp=%p bound to send_cq=%p and recv_cq=%p\n",
+         onesided, ctx.qp, send_cq, recv_cq);
   num_created_qps++;
 }
 
@@ -101,7 +100,7 @@ void RDMAPeer::connect_or_accept(RDMAContext &ctx, bool connect) {
 void RDMAPeer::dereg_mrs() {
   assert(!registered_mrs.empty());
 
-  LOG("dereg_mrs()");
+  puts("dereg_mrs()");
   for (ibv_mr *curr_mr : registered_mrs) ibv_dereg_mr(curr_mr);
 
   registered_mrs.clear();
@@ -109,6 +108,6 @@ void RDMAPeer::dereg_mrs() {
 
 void RDMAPeer::handle_conn_established(RDMAContext &ctx) {
   assert(!ctx.connected);
-  LOG("connection established");
+  puts("connection established");
   ctx.connected = true;
 }

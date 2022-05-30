@@ -62,7 +62,7 @@ inline void HostServer::send_rdma_mr() {
                     req_buf_mr->lkey);
   // there's only one CQ
   rserver.poll_exactly(1, rserver.get_send_cq(0));
-  LOG("sent SET_RDMA_MR");
+  printf("sent SET_RDMA_MR\n");
 }
 
 #endif

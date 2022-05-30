@@ -8,7 +8,6 @@
 #include <cassert>
 #include <cstdlib>
 #include <deque>
-#include <iostream>
 #include <unordered_map>
 #include <vector>
 
@@ -102,8 +101,8 @@ class RMCScheduler {
         reply_idx(0),
         pending_replies(0),
         recvd_disconnect(false) {
-    LOG("RMCScheduler batchsize=" << MAX_HOSTMEM_BSIZE << " num_qps=" << num_qps
-                                  << " tid=" << current_tid);
+    printf("RMCScheduler batchsize=%u num_qps=%u tid=%u\n", MAX_HOSTMEM_BSIZE,
+           num_qps, current_tid);
   }
 
   ~RMCScheduler() {}
@@ -126,7 +125,7 @@ inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc) {
 
   if (id_rmc_map.find(id) == id_rmc_map.end()) {
     id_rmc_map.insert({id, rmc});
-    LOG("registered new id=" << id << "for rmc=" << rmc);
+    printf("registered new id=%lu for rmc=%s\n", id, rmc.c_str());
   }
 
   return id;
@@ -180,7 +179,7 @@ inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
 #endif
       return;
     default:
-      DIE("unrecognized CmdRequest type");
+      die("unrecognized CmdRequest type\n");
   }
 }
 

@@ -36,38 +36,42 @@ struct AwaitGetParam {
   bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
-    return false; // don't suspend
+    return false;  // don't suspend
   }
   int await_resume() { return promise->param; }
 };
 
-template <bool suspend> struct AwaitVoid {
+template <bool suspend>
+struct AwaitVoid {
   AwaitVoid() {}
   bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend; // suspend (true) or not (false)
+    return suspend;  // suspend (true) or not (false)
   }
   void await_resume() {}
 };
 
 /* used when resume returns an address */
-template <bool suspend> struct AwaitAddr {
+template <bool suspend>
+struct AwaitAddr {
   uintptr_t addr;
 
   AwaitAddr(uintptr_t addr) : addr(addr) {}
   bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend; // suspend (true) or not (false)
+    return suspend;  // suspend (true) or not (false)
   }
   void *await_resume() { return reinterpret_cast<void *>(addr); }
 };
 
 /* Generic class for Backends; needs full specialization */
-template <class A> class Backend {};
+template <class A>
+class Backend {};
 
 /* Backend<OneSidedClient> is our main async rdma backend */
-template <> class Backend<OneSidedClient> {
-private:
+template <>
+class Backend<OneSidedClient> {
+ private:
   OneSidedClient &OSClient;
   uintptr_t last_random_addr;
 
@@ -82,11 +86,10 @@ private:
 
       // this is a read coming from a nested CoroRMC, need the caller's
       // promise
-      if (promise->continuation)
-        promise = &promise->continuation.promise();
+      if (promise->continuation) promise = &promise->continuation.promise();
 
       promise->waiting_mem_access = true;
-      return true; // suspend (true)
+      return true;  // suspend (true)
     }
     void *await_resume() {
       promise->waiting_mem_access = false;
@@ -104,16 +107,15 @@ private:
 
       // this is a write coming from a nested CoroRMC, need the caller's
       // promise
-      if (promise->continuation)
-        promise = &promise->continuation.promise();
+      if (promise->continuation) promise = &promise->continuation.promise();
 
       promise->waiting_mem_access = true;
-      return true; // suspend (true)
+      return true;  // suspend (true)
     }
     void await_resume() { promise->waiting_mem_access = false; }
   };
 
-public:
+ public:
   uintptr_t apps_base_laddr;
   uintptr_t apps_base_raddr;
   uintptr_t rsvd_base_laddr;
@@ -124,9 +126,13 @@ public:
 #endif
 
   Backend(OneSidedClient &c)
-      : OSClient(c), last_random_addr(0), apps_base_laddr(0),
-        apps_base_raddr(0), rsvd_base_laddr(0), rsvd_base_raddr(0) {
-    LOG("Using interleaving RDMA Backend (default)");
+      : OSClient(c),
+        last_random_addr(0),
+        apps_base_laddr(0),
+        apps_base_raddr(0),
+        rsvd_base_laddr(0),
+        rsvd_base_raddr(0) {
+    printf("Using interleaving RDMA Backend (default)\n");
   }
   ~Backend() {}
 
@@ -194,7 +200,8 @@ public:
 /* Backend<SyncRDMA> defines a backend that uses the async rdma backend
    synchronously */
 class SyncRDMA {};
-template <> class Backend<SyncRDMA> {
+template <>
+class Backend<SyncRDMA> {
   OneSidedClient &OSClient;
   uintptr_t apps_base_laddr;
   uintptr_t apps_base_raddr;
@@ -202,11 +209,13 @@ template <> class Backend<SyncRDMA> {
   RDMAContext *ctx;
   ibv_cq_ex *send_cq;
 
-public:
+ public:
   Backend(OneSidedClient &c)
-      : OSClient(c), apps_base_laddr(0), apps_base_raddr(0),
+      : OSClient(c),
+        apps_base_laddr(0),
+        apps_base_raddr(0),
         rclient(OSClient.get_rclient()) {
-    LOG("Using run-to-completion RDMA Backend");
+    printf("Using run-to-completion RDMA Backend\n");
   }
   ~Backend() {}
 
@@ -230,12 +239,12 @@ public:
   }
 
   auto write_raddr(uintptr_t raddr, void *data, uint32_t sz) noexcept {
-    DIE("not implemented");
+    die("not implemented\n");
     return AwaitVoid<true>{};
   }
 
   auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
-    DIE("not implemented");
+    die("not implemented");
     return AwaitVoid<true>{};
   }
 
@@ -245,7 +254,7 @@ public:
   }
 
   uintptr_t get_random_raddr() {
-    DIE("not implemented yet");
+    die("not implemented yet");
     return 0;
   }
 };
@@ -253,8 +262,9 @@ public:
 /* Backend<Threading> defines a backend that simulates context switching
    threads by sleeping before suspending and resuming */
 class Threading {};
-template <> class Backend<Threading> {
-private:
+template <>
+class Backend<Threading> {
+ private:
   /* one-way delay of switching to a thread */
   static constexpr const uint64_t ONEWAY_DELAY_NS = 200;
 
@@ -280,15 +290,15 @@ private:
     }
   };
 
-public:
+ public:
   Backend(OneSidedClient &c)
       : OSClient(c), apps_base_laddr(0), apps_base_raddr(0) {
     auto cpufreq = get_freq();
     oneway_delay_cycles = ns_to_cycles(ONEWAY_DELAY_NS, cpufreq);
-    LOG("Using threads interleaving RDMA Backend");
-    LOG("CPU freq=" << cpufreq);
-    LOG("One-way delay in ns=" << ONEWAY_DELAY_NS
-                               << ". Delay in cycles=" << oneway_delay_cycles);
+    printf("Using threads interleaving RDMA Backend\n");
+    printf("CPU freq=%lld\n", cpufreq);
+    printf("One-way delay in ns=%lu; delay in cycles=%lld\n", ONEWAY_DELAY_NS,
+           oneway_delay_cycles);
   }
 
   ~Backend() {}
@@ -306,8 +316,9 @@ public:
     return AwaitAddrDelayed{laddr, oneway_delay_cycles};
   }
 
-  template <typename T> auto write(uintptr_t raddr, T *data) noexcept {
-    DIE("not implemented yet");
+  template <typename T>
+  auto write(uintptr_t raddr, T *data) noexcept {
+    die("not implemented yet");
     return AwaitVoid<true>{};
   }
 
@@ -317,7 +328,7 @@ public:
   }
 
   uintptr_t get_random_raddr() {
-    DIE("not implemented yet");
+    die("not implemented yet");
     return 0;
   }
 };
@@ -325,12 +336,14 @@ public:
 /* Backend<LocalMemory> defines a DRAM backend that runs coroutines to
  * completion */
 class LocalMemory {};
-template <> class Backend<LocalMemory> {
+template <>
+class Backend<LocalMemory> {
   char *buffer;
   LLNode *linkedlist;
   HugeAllocator huge;
 
-  template <bool suspend> struct AwaitDRAMWrite {
+  template <bool suspend>
+  struct AwaitDRAMWrite {
     void *laddr;
     void *data;
     uint32_t sz;
@@ -339,7 +352,7 @@ template <> class Backend<LocalMemory> {
         : laddr(laddr), data(data), sz(sz) {}
     bool await_ready() { return false; }
     auto await_suspend(std::coroutine_handle<> coro) {
-      return suspend; // suspend (true) or not (false)
+      return suspend;  // suspend (true) or not (false)
     }
     void await_resume() {
       // copy the data
@@ -347,14 +360,14 @@ template <> class Backend<LocalMemory> {
     }
   };
 
-public:
+ public:
 #if defined(WORKLOAD_HASHTABLE)
   struct cuckoo_hash table;
 #endif
 
   Backend(OneSidedClient &c) : buffer(nullptr), linkedlist(nullptr) {
     buffer = huge.get();
-    LOG("Using local DRAM Backend");
+    printf("Using local DRAM Backend\n");
   }
 
   ~Backend() { destroy_linkedlist(linkedlist); }
@@ -385,7 +398,7 @@ public:
   }
 
   auto write_raddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
-    DIE("not implemented yet");
+    die("not implemented yet");
     return AwaitVoid<false>{};
   }
 
@@ -406,14 +419,14 @@ public:
   }
 
   uintptr_t get_random_raddr() {
-    DIE("not implemented yet");
+    die("not implemented yet");
     return 0;
   }
 };
 
 #if defined(LOCATION_CLIENT)
 class RMCLock {
-public:
+ public:
   RMCLock() {}
 
   ~RMCLock() {}
@@ -437,7 +450,7 @@ public:
     co_await b.write(lock_raddr, unlock_laddr, &unlocked, sizeof(uint64_t));
   }
 
-private:
+ private:
   inline uintptr_t get_lock_laddr(Backend<OneSidedClient> &b) {
     static std::atomic<uintptr_t> lock_laddr = 0;
 
@@ -462,25 +475,26 @@ private:
 };
 #else
 class RMCLock {
-public:
+ public:
   RMCLock() {
     if (pthread_spin_init(&l, PTHREAD_PROCESS_PRIVATE) != 0)
-      DIE("could not init spin lock");
+      die("could not init spin lock");
   }
 
   ~RMCLock() { pthread_spin_destroy(&l); }
 
-  template <class T> inline CoroRMC lock(Backend<T> &b) {
-    while (pthread_spin_trylock(&l) != 0)
-      co_await std::suspend_always{};
+  template <class T>
+  inline CoroRMC lock(Backend<T> &b) {
+    while (pthread_spin_trylock(&l) != 0) co_await std::suspend_always{};
   }
 
-  template <class T> inline CoroRMC unlock(Backend<T> &b) {
+  template <class T>
+  inline CoroRMC unlock(Backend<T> &b) {
     pthread_spin_unlock(&l);
     co_await std::suspend_never{};
   }
 
-private:
+ private:
   pthread_spinlock_t l;
 };
 #endif

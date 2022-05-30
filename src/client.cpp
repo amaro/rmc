@@ -11,7 +11,6 @@
 
 #include "rmc.h"
 #include "utils/cxxopts.h"
-#include "utils/logger.h"
 #include "utils/utils.h"
 
 static constexpr int NUM_REPS = 1;
@@ -136,7 +135,8 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
   ibv_cq_ex *send_cq = rclient.get_send_cq(0);
 
-  printf("will issue %u requests every %lu nanoseconds\n", num_reqs, wait_in_nsec);
+  printf("will issue %u requests every %lu nanoseconds\n", num_reqs,
+         wait_in_nsec);
 
   for (auto i = 0u; i < maxinflight; i++) arm_call_req(get_req(i), numaccesses);
 
@@ -404,7 +404,7 @@ int main(int argc, char *argv[]) {
   try {
     auto result = opts.parse(argc, argv);
 
-    if (result.count("help")) die(opts.help());
+    if (result.count("help")) die("%s\n", opts.help().c_str());
 
     server = result["server"].as<std::string>();
     start_port = result["port"].as<int>();
@@ -416,7 +416,7 @@ int main(int argc, char *argv[]) {
 
     if (mode != "load" && mode != "maxinflight") {
       std::cerr << "need to specify mode: load or maxinflight\n";
-      die(opts.help());
+      die("%s\n", opts.help().c_str());
     } else if (mode == "load" && load <= 0) {
       die("mode=load requires load > 0");
     } else if (rmc != "readll" && rmc != "readll_lock" &&
@@ -432,7 +432,7 @@ int main(int argc, char *argv[]) {
     }
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
-    die(opts.help());
+    die("%s\n", opts.help().c_str());
   }
 
   std::vector<std::thread> threads;

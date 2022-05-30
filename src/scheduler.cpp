@@ -39,7 +39,7 @@ CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
       if (num_gets > 20) return std::move(hash_lookup(backend));
 
       num_gets++;
-      if (num_gets > 20) std::cout << "this is last insert\n";
+      if (num_gets > 20) printf("this is last insert\n");
       return std::move(hash_insert(backend));
 #endif
     default:

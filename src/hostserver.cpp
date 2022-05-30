@@ -17,7 +17,7 @@ void HostServer::connect_and_block(int port) {
           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_ATOMIC |
           IBV_ACCESS_RELAXED_ORDERING);
 
-  LOG("rdma_mr rkey=" << rdma_mr->rkey);
+  printf("rdma_mr rkey=%u\n", rdma_mr->rkey);
   /* req_buf holds outgoing requests to nicserver */
   req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), 0);
 
@@ -30,7 +30,7 @@ void HostServer::connect_and_block(int port) {
 void HostServer::disconnect() {
   assert(hsready);
 
-  LOG("received disconnect req");
+  printf("received disconnect req\n");
   rserver.disconnect_events();
   hsready = false;
 }
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
         break;
       case '?':
       default:
-        std::cerr << "Usage: -q numqps -w workload\n";
+        die("Usage: -q numqps -w workload\n");
         return 1;
     }
   }
@@ -69,15 +69,15 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(workload, "hash") == 0) {
       work = HASHTABLE;
     } else {
-      std::cerr << "Specify workload=read, write, hash\n";
+      die("Specify workload=read, write, hash\n");
       return 1;
     }
   } else {
-    std::cerr << "Usage: -q numqps -w workload\n";
+    die("Usage: -q numqps -w workload\n");
     return 1;
   }
 
-  std::cout << "Workload=" << workload << "\n";
+  printf("Workload=%s\n", workload);
 
   // HostServer creates as many qps as requested and 1 cq
   // qps here are for nicserver to connect to

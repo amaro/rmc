@@ -49,8 +49,8 @@ class HostClient {
         rclient(1, 1, false) {
     req_buf.reserve(QP_MAX_2SIDED_WRS);
     reply_buf.reserve(QP_MAX_2SIDED_WRS);
-    LOG("sizeof(CmdRequest())=" << sizeof(CmdRequest));
-    LOG("sizeof(CmdReply())=" << sizeof(CmdReply));
+    printf("sizeof(CmdRequest())=%lu\n", sizeof(CmdRequest));
+    printf("sizeof(CmdReply())=%lu\n", sizeof(CmdReply));
 
     for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
       req_buf.push_back(CmdRequest());
@@ -131,7 +131,7 @@ inline CmdReply *HostClient::get_reply(size_t rep_idx) {
 inline void HostClient::parse_rmc_reply(CmdReply *reply) const {
   // CallReply *callreply = &reply->reply.call;
   // size_t hash = std::stoull(callreply->data);
-  // LOG("hash at client=" << hash);
+  // printf("hash at client=" << hash);
 }
 
 inline void HostClient::arm_call_req(CmdRequest *req, uint32_t param) {

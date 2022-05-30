@@ -8,6 +8,10 @@
 #include "scheduler.h"
 #include "utils/utils.h"
 
+static char *hostaddr = nullptr;
+static int32_t hostport, clientport, num_threads, qps_per_thread;
+static Workload work;
+
 void NICServer::connect(const unsigned int &port) {
   assert(!nsready);
   rserver.connect_from_client(port);
@@ -45,14 +49,14 @@ void NICServer::init(RMCScheduler &sched, uint16_t tid) {
 void NICServer::disconnect() {
   assert(nsready);
 
-  LOG("received disconnect req tid=" << current_tid);
+  printf("received disconnect req tid=%u\n", current_tid);
   rserver.disconnect_events();
   nsready = false;
 }
 
 void NICServer::start(RMCScheduler &sched, const unsigned int &clientport,
                       uint16_t tid) {
-  LOG("waiting for hostclient to connect.");
+  printf("waiting for hostclient to connect.\n");
   connect(clientport);
   init(sched, tid);
 }
@@ -65,15 +69,11 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
                             num_reqs);
 }
 
-char *hostaddr = nullptr;
-int32_t hostport, clientport, num_threads, qps_per_thread;
-Workload work;
-
 void thread_launch(OneSidedClient &osc, uint16_t thread_id,
                    pthread_barrier_t *barrier) {
   // 1 qp and 1 cq for client-nicserver communication
   current_tid = thread_id;
-  LOG("START thread current_tid=" << current_tid);
+  printf("START thread current_tid=%u\n", current_tid);
 
   RDMAServer rserver(1, false);
   NICServer nicserver(osc, rserver);
@@ -81,7 +81,7 @@ void thread_launch(OneSidedClient &osc, uint16_t thread_id,
   RMCScheduler sched(nicserver, work, qps_per_thread);
   pthread_barrier_wait(barrier);
   nicserver.start(sched, clientport + thread_id, thread_id);
-  LOG("EXIT thread current_tid=" << current_tid);
+  printf("EXIT thread current_tid=%u\n", current_tid);
 }
 
 int main(int argc, char *argv[]) {
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
   numqps = 0;
 
   auto usage = []() -> int {
-    std::cerr << "Usage: -s hostaddr -q numqps -w workload -t numthreads\n";
+    printf("Usage: -s hostaddr -q numqps -w workload -t numthreads\n");
     return 1;
   };
 
@@ -145,15 +145,13 @@ int main(int argc, char *argv[]) {
   if (numqps <= 0 || strcmp(hostaddr, "") == 0 || num_threads <= 0)
     return usage();
 
-  if (numqps % num_threads != 0) {
-    std::cerr << "number of qps \% num_threads must equal 0\n";
-    return 1;
-  }
+  rt_assert(numqps % num_threads == 0, "numqps%%num_threads==%d\n",
+            numqps % num_threads);
   qps_per_thread = numqps / num_threads;
 
-  LOG("Workload=" << workload);
-  LOG("hostaddr=" << hostaddr << " numqps=" << numqps);
-  LOG("threads=" << num_threads);
+  printf("Workload=%s\n", workload);
+  printf("hostaddr=%s numqps=%d\n", hostaddr, numqps);
+  printf("threads=%d\n", num_threads);
 
   std::vector<std::thread> threads;
   pthread_barrier_t barrier;
@@ -171,5 +169,5 @@ int main(int argc, char *argv[]) {
 
   for (auto i = 0; i < num_threads; ++i) threads[i].join();
 
-  LOG("bye.");
+  printf("bye.");
 }

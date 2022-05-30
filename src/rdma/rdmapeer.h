@@ -23,6 +23,7 @@ static constexpr uint32_t QP_MAX_1SIDED_WRS = 16;
 static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
 /* TODO: try larger values of batched recvs */
 static constexpr uint32_t MAX_BATCHED_RECVS = 16;
+/* TODO: find a better place for this */
 inline thread_local uint16_t current_tid;
 
 /* wraps ibv_cq_ex's with batched polling */
@@ -42,8 +43,7 @@ struct CompQueue {
         poll_started = true;
         return ret;
       default:
-        DIE("ibv_start_poll() returned=" << ret);
-        return -1;
+        die("ibv_start_poll() returned %d\n", ret);
     }
   }
 
@@ -203,7 +203,7 @@ struct RDMAContext {
           ibv_wr_atomic_cmp_swp(qpx, rkey, raddr, cmp, swp);
           break;
         default:
-          DIE("bad optype");
+          die("bad optype\n");
       }
 
       ibv_wr_set_sge(qpx, lkey, laddr, len);
@@ -272,8 +272,8 @@ struct RDMAContext {
   }
 
   void post_batched_send(void *laddr, unsigned int len, unsigned int lkey) {
-    if (outstanding_sends >= QP_MAX_2SIDED_WRS)
-      DIE("ctx.outstanding_sends=" << outstanding_sends);
+    rt_assert(outstanding_sends < QP_MAX_2SIDED_WRS, "outstanding_sends=%u\n",
+              outstanding_sends);
 
     /* if this is not the first WR within the batch, post the previously
      * buffered send */
@@ -341,7 +341,7 @@ struct RDMAContext {
     ibv_recv_wr *bad_wr = nullptr;
     int err = 0;
 
-    if (total_reqs > MAX_BATCHED_RECVS) DIE("total_reqs > MAX_BATCHED_RECVS");
+    rt_assert(total_reqs <= MAX_BATCHED_RECVS, "total_reqs=%u\n", total_reqs);
 
     for (auto i = 0u; i < total_reqs; ++i) {
       recv_batch[i].sge.addr = ((uintptr_t)laddr) + i * req_len;
@@ -357,8 +357,8 @@ struct RDMAContext {
         recv_batch[i].wr.next = &recv_batch[i + 1].wr;
     }
 
-    if ((err = ibv_post_recv(qp, &recv_batch[0].wr, &bad_wr)) != 0)
-      DIE("post_recv() returned " << err);
+    err = ibv_post_recv(qp, &recv_batch[0].wr, &bad_wr);
+    rt_assert(err == 0, "ibv_post_recv() returned %d\n", err);
   }
 
   void start_batch() {
@@ -378,7 +378,7 @@ struct RDMAContext {
           end_batched_onesided();
           break;
         default:
-          DIE("unrecognized batch type");
+          die("unrecognized batch type\n");
       }
     }
 
@@ -389,7 +389,7 @@ struct RDMAContext {
 
 inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions) {
   ibv_mr *mr = ibv_reg_mr(pd, addr, len, permissions);
-  if (!mr) die("could not register mr");
+  if (!mr) die("could not register mr\n");
 
   registered_mrs.push_back(mr);
   return mr;
@@ -407,8 +407,8 @@ inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
   wr.sg_list = &sge;
   wr.num_sge = 1;
 
-  if ((err = ibv_post_recv(ctx.qp, &wr, &bad_wr)) != 0)
-    DIE("post_recv() returned " << err);
+  err = ibv_post_recv(ctx.qp, &wr, &bad_wr);
+  rt_assert(err == 0, "ibv_post_recv() returned %d\n", err);
 }
 
 inline void RDMAPeer::post_batched_recv(RDMAContext &ctx, ibv_mr *mr,
@@ -462,8 +462,8 @@ inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
   ibv_wr_send(ctx.qpx);
   ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t)laddr, len);
 
-  if ((ret = ibv_wr_complete(ctx.qpx)) != 0)
-    DIE("ibv_wr_complete failed=" << ret << "\n");
+  ret = ibv_wr_complete(ctx.qpx);
+  rt_assert(ret == 0, "ibv_wr_complete() returned %d\n", ret);
 
   inc_with_wraparound(this->unsignaled_sends, MAX_UNSIGNALED_SENDS);
   return signaled;
@@ -528,7 +528,7 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq,
     if (ret == ENOENT)
       return 0;
     else
-      DIE("ibv_start_poll() returned " << ret);
+      die("ibv_start_poll() returned %d\n", ret);
   }
 
   do {
@@ -537,11 +537,11 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq,
         if (ret == ENOENT)
           goto end_poll;
         else
-          DIE("ibv_next_poll() returned " << ret);
+          die("ibv_next_poll() returned %d\n", ret);
       }
     }
 
-    if (cq->status != IBV_WC_SUCCESS) DIE("cqe->status=" << cq->status);
+    rt_assert(cq->status == IBV_WC_SUCCESS, "cqe->status=%d\n", cq->status);
 
     /* the post-completion function takes wr_id,
      * for reads, this is the ctx_id,
@@ -579,11 +579,11 @@ inline unsigned int RDMAPeer::poll_batched_atmost(unsigned int max,
     if (ret == ENOENT)
       goto end_poll;
     else if (ret != 0)
-      DIE("ibv_next_poll() returned " << ret);
+      die("ibv_next_poll() returned %d\n", ret);
 
   read:
-    if (comp_queue.cqx->status != IBV_WC_SUCCESS)
-      DIE("cqe->status=" << comp_queue.cqx->status);
+    rt_assert(comp_queue.cqx->status == IBV_WC_SUCCESS, "cqe->status=%d\n",
+              comp_queue.cqx->status);
 
     /* the post-completion function takes wr_id,
      * for reads, this is the ctx_id,
@@ -609,7 +609,7 @@ inline void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq) {
     if (ret == ENOENT)
       continue;
     else
-      DIE("ibv_start_poll() returned " << ret);
+      die("ibv_start_poll() returned %d\n", ret);
   }
 
   do {
@@ -618,12 +618,11 @@ inline void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq) {
         if (ret == ENOENT)
           continue;
         else
-          DIE("ibv_next_poll() returned " << ret);
+          die("ibv_next_poll() returned %d\n", ret);
       }
     }
 
-    if (cq->status != IBV_WC_SUCCESS) DIE("cqe->status=" << cq->status);
-
+    rt_assert(cq->status == IBV_WC_SUCCESS, "cqe->status=%d\n", cq->status);
     polled++;
   } while (polled < target);
 
