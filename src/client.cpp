@@ -435,6 +435,8 @@ int main(int argc, char *argv[]) {
     die("%s\n", opts.help().c_str());
   }
 
+  set_env_var("MLX5_SINGLE_THREADED", "1");
+
   std::vector<std::thread> threads;
   pthread_barrier_t barrier;
   TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));

@@ -19,7 +19,7 @@ do
 	for rep in {1..5}
 	do
 		echo "numnodes=${numnodes} rep=${rep}" | tee -a ${output}
-		sudo MLX5_SINGLE_THREADED=1 taskset -c ${cpus} chrt -f 99 ./client -s ${ip} \
+		sudo taskset -c ${cpus} chrt -f 99 ./client -s ${ip} \
 			--mode maxinflight --param ${numnodes} -t ${threads} | tee -a ${output}
 		sleep 20
 	done

@@ -28,7 +28,7 @@ do
     for numnodes in 1 2 4 8 16
     do
         echo "load=${load} num_nodes=${numnodes}" | tee -a ${output}
-        sudo MLX5_SINGLE_THREADED=1 taskset -c ${cpus} chrt -f 99 ${binary} -s ${ip} -o out \
+        sudo taskset -c ${cpus} chrt -f 99 ${binary} -s ${ip} -o out \
             --mode load --load ${load} --numaccess ${numnodes} -t ${threads} --rmc ${workload} | tee -a ${output}
         sleep 25
     done

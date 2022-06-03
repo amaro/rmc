@@ -62,14 +62,14 @@ int main(int argc, char *argv[]) {
 
   Workload work = READ;
   if (workload != nullptr) {
-    if (strcmp(workload, "read") == 0) {
+    if (strcmp(workload, "readll") == 0) {
       work = READ;
-    } else if (strcmp(workload, "write") == 0) {
+    } else if (strcmp(workload, "writerandom") == 0) {
       work = WRITE;
     } else if (strcmp(workload, "hash") == 0) {
       work = HASHTABLE;
     } else {
-      die("Specify workload=read, write, hash\n");
+      die("Specify workload=readll, writerandom, hash\n");
       return 1;
     }
   } else {

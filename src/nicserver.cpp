@@ -56,7 +56,7 @@ void NICServer::disconnect() {
 
 void NICServer::start(RMCScheduler &sched, const unsigned int &clientport,
                       uint16_t tid) {
-  printf("waiting for hostclient to connect.\n");
+  puts("waiting for hostclient to connect.");
   connect(clientport);
   init(sched, tid);
 }
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
   numqps = 0;
 
   auto usage = []() -> int {
-    printf("Usage: -s hostaddr -q numqps -w workload -t numthreads\n");
+    puts("Usage: -s hostaddr -q numqps -w workload -t numthreads");
     return 1;
   };
 
@@ -153,6 +153,9 @@ int main(int argc, char *argv[]) {
   printf("hostaddr=%s numqps=%d\n", hostaddr, numqps);
   printf("threads=%d\n", num_threads);
 
+  set_env_var("MLX5_SCATTER_TO_CQE", "1");
+  set_env_var("MLX5_SINGLE_THREADED", "1");
+
   std::vector<std::thread> threads;
   pthread_barrier_t barrier;
   TEST_NZ(pthread_barrier_init(&barrier, nullptr, num_threads));
@@ -169,5 +172,5 @@ int main(int argc, char *argv[]) {
 
   for (auto i = 0; i < num_threads; ++i) threads[i].join();
 
-  printf("bye.");
+  puts("bye.");
 }

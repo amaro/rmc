@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <algorithm>
 #include <chrono>
@@ -41,6 +42,7 @@ die(const char *fmt, ...) {
   va_end(arg);
   exit(1);
 }
+
 template <typename T>
 inline void __attribute__((format(printf, 2, 3)))
 rt_assert(T &&assertion, const char *fmt, ...) {
@@ -132,6 +134,12 @@ inline void inc_with_wraparound(T &ref, const T &maxvalue) {
 inline void dec_with_wraparound(uint32_t &ref, const uint32_t &maxvalue) {
   /* check for underflow */
   if (--ref > maxvalue) ref = maxvalue - 1;
+}
+
+inline void set_env_var(const char *name, const char *value) {
+  int ret = setenv(name, value, 1);
+  rt_assert(ret == 0, "setenv() returned %d\n", ret);
+  printf("ENV %s = %s\n", name, value);
 }
 
 /* creates a randomized linked list over an already allocated *buffer
