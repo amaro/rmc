@@ -17,7 +17,7 @@
 
 #include "corormc.h"
 #include "nicserver.h"
-#include "rmc.h"
+#include "rpc.h"
 #include "rmcs.h"
 
 class NICServer;

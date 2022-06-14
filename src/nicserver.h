@@ -8,7 +8,7 @@
 #include "hostserver.h"
 #include "onesidedclient.h"
 #include "rdma/rdmaserver.h"
-#include "rmc.h"
+#include "rpc.h"
 
 class RMCScheduler;
 

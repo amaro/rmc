@@ -1,7 +1,17 @@
 #pragma once
 
 #include "backend.h"
-#include "rmc.h"
+#include "config.h"
+
+//enum RMCType
+//
+//inline void init_rmcs() {
+//
+//}
+//
+//inline void exit_rmcs() {
+//
+//}
 
 template <class T>
 inline CoroRMC traverse_linkedlist(Backend<T> &b) {

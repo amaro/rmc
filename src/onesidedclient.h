@@ -6,7 +6,7 @@
 #include "allocator.h"
 #include "rdma/rdmaclient.h"
 #include "rdma/rdmapeer.h"
-#include "rmc.h"
+#include "rpc.h"
 
 class OneSidedClient {
   using OpType = RDMAContext::OneSidedOp::OpType;

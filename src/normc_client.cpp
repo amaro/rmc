@@ -1,7 +1,7 @@
 #include <fstream>
 
 #include "onesidedclient.h"
-#include "rmc.h"
+#include "rpc.h"
 #include "utils/cxxopts.h"
 #include "utils/logger.h"
 #include "utils/utils.h"

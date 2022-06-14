@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-#include "rmc.h"
+#include "rpc.h"
 #include "utils/cxxopts.h"
 #include "utils/utils.h"
 

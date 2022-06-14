@@ -5,7 +5,7 @@
 #include <cstdint>
 
 #include "rdma/rdmaclient.h"
-#include "rmc.h"
+#include "rpc.h"
 
 class HostClient {
   bool rmccready;
