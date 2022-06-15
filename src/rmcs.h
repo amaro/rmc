@@ -3,15 +3,12 @@
 #include "backend.h"
 #include "config.h"
 
-//enum RMCType
-//
-//inline void init_rmcs() {
-//
-//}
-//
-//inline void exit_rmcs() {
-//
-//}
+enum RMCType {
+  TRAVERSE_LL,
+  LOCKED_TRAVERSE_LL,
+  RANDOM_WRITES,
+  HASHTABLE
+};
 
 template <class T>
 inline CoroRMC traverse_linkedlist(Backend<T> &b) {

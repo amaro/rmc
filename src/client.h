@@ -6,13 +6,14 @@
 
 #include "rdma/rdmaclient.h"
 #include "rpc.h"
+#include "rmcs.h"
 
 class HostClient {
   bool rmccready;
   unsigned int pending_unsig_sends;
   uint32_t req_idx;
   uint32_t inflight;
-  Workload workload;
+  RMCType workload;
 
   RDMAClient rclient;
 
@@ -40,7 +41,7 @@ class HostClient {
  public:
   // A client only creates one 2-sided QP to communicate to nicserver,
   // and one CQ
-  HostClient(Workload workload)
+  HostClient(RMCType workload)
       : rmccready(false),
         pending_unsig_sends(0),
         req_idx(0),

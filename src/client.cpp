@@ -333,7 +333,7 @@ double benchmark_load(HostClient &client, uint32_t numaccesses, float load,
 
 void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
                                std::vector<double> &durations, int num_threads,
-                               Workload workload) {
+                               RMCType workload) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   printf("START thread=%d\n", thread_id);
@@ -359,7 +359,7 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
 
 void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
                         std::vector<std::vector<uint32_t>> &rtts,
-                        int num_threads, Workload workload) {
+                        int num_threads, RMCType workload) {
   // we create one HostClient per thread, so in each client we have 1 QP and 1
   // CQ. therefore, we don't need thread_ids to select QPs and CQs here
   current_tid = 0;
@@ -450,13 +450,13 @@ int main(int argc, char *argv[]) {
   // for maxinflight; one duration per thread
   std::vector<double> durations(num_threads);
 
-  Workload workload;
+  RMCType workload;
   if (rmc == "readll")
-    workload = READ;
+    workload = TRAVERSE_LL;
   else if (rmc == "readll_lock")
-    workload = READ_LOCK;
+    workload = LOCKED_TRAVERSE_LL;
   else if (rmc == "writerandom")
-    workload = WRITE;
+    workload = RANDOM_WRITES;
   else if (rmc == "hash")
     workload = HASHTABLE;
   else

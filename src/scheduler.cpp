@@ -19,11 +19,11 @@ void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 
 CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
   switch (req->id) {
-    case READ:
+    case TRAVERSE_LL:
       return std::move(traverse_linkedlist(backend));
-    case READ_LOCK:
+    case LOCKED_TRAVERSE_LL:
       return std::move(lock_traverse_linkedlist(backend));
-    case WRITE:
+    case RANDOM_WRITES:
       return std::move(random_writes(backend));
 #if defined(WORKLOAD_HASHTABLE)
     case HASHTABLE:

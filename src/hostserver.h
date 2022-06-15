@@ -18,7 +18,7 @@ class HostServer {
   // no reply_buf since we don't need one right now.
   ibv_mr *rdma_mr;
   ibv_mr *req_buf_mr;
-  const Workload workload;
+  const RMCType workload;
   LLNode *linkedlist;
   HugeAllocator huge;
 
@@ -27,23 +27,23 @@ class HostServer {
  public:
   /* TODO: move these to a config.h or something */
 
-  HostServer(uint16_t num_qps, Workload work)
+  HostServer(uint16_t num_qps, RMCType work)
       : rserver(num_qps, true), hsready(false), workload(work) {
     rdma_buffer = huge.get();
     req_buf = std::make_unique<CmdRequest>();
 
     /* HugeAllogator memsets buffer to 0. Init hostserver memory here */
-    if (workload == READ || workload == READ_LOCK)
+    if (workload == TRAVERSE_LL || workload == LOCKED_TRAVERSE_LL)
       linkedlist = create_linkedlist<LLNode>(rdma_buffer, RMCK_APPS_BUFF_SZ);
   }
 
   ~HostServer() {
     switch (workload) {
-      case READ:
-      case READ_LOCK:
+      case TRAVERSE_LL:
+      case LOCKED_TRAVERSE_LL:
         destroy_linkedlist(linkedlist);
         break;
-      case WRITE: /* fall through */
+      case RANDOM_WRITES: /* fall through */
       case HASHTABLE:
         break;
     }

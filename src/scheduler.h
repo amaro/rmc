@@ -93,7 +93,7 @@ class RMCScheduler {
   static constexpr uint16_t MAX_EXECS_COMPLETION = 8;
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
-  RMCScheduler(NICServer &nicserver, Workload work, uint16_t num_qps)
+  RMCScheduler(NICServer &nicserver, RMCType work, uint16_t num_qps)
       : ns(nicserver),
         backend(ns.onesidedclient),
         num_qps(num_qps),

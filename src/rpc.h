@@ -49,7 +49,5 @@ struct CmdReply {
   } reply;
 };
 
-enum Workload { READ, READ_LOCK, WRITE, HASHTABLE };
-
 static_assert(sizeof(CmdRequest) == 64);
 static_assert(sizeof(CmdReply) == 32);

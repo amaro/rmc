@@ -10,7 +10,7 @@
 
 static char *hostaddr = nullptr;
 static int32_t hostport, clientport, num_threads, qps_per_thread;
-static Workload work;
+static RMCType work;
 
 void NICServer::connect(const unsigned int &port) {
   assert(!nsready);
@@ -129,11 +129,11 @@ int main(int argc, char *argv[]) {
     }
 #else
     if (strcmp(workload, "readll") == 0) {
-      work = READ;
+      work = TRAVERSE_LL;
     } else if (strcmp(workload, "readll_lock") == 0) {
-      work = READ_LOCK;
+      work = LOCKED_TRAVERSE_LL;
     } else if (strcmp(workload, "writerandom") == 0) {
-      work = WRITE;
+      work = RANDOM_WRITES;
     } else {
       return usage();
     }

@@ -60,21 +60,19 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  Workload work = READ;
+  RMCType work = TRAVERSE_LL;
   if (workload != nullptr) {
     if (strcmp(workload, "readll") == 0) {
-      work = READ;
+      // nothing
     } else if (strcmp(workload, "writerandom") == 0) {
-      work = WRITE;
+      work = RANDOM_WRITES;
     } else if (strcmp(workload, "hash") == 0) {
       work = HASHTABLE;
     } else {
       die("Specify workload=readll, writerandom, hash\n");
-      return 1;
     }
   } else {
     die("Usage: -q numqps -w workload\n");
-    return 1;
   }
 
   printf("Workload=%s\n", workload);
