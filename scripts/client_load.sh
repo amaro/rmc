@@ -12,7 +12,7 @@ workload=$4
 
 binary=./client
 
-if [[ ${workload} != "readll" ]] && [[ ${workload} != "readll_locked" ]] && [[ ${workload} != "randomwrite" ]]; then
+if [[ ${workload} != "readll" ]] && [[ ${workload} != "readll_lock" ]] && [[ ${workload} != "writerandom" ]]; then
     echo "workload=${workload} not supported in this script"
     exit 2
 fi

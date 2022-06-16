@@ -9,10 +9,10 @@ numqps=$1
 workload=$2
 threads=$3
 
-if [[ ${workload} = "rdma_readll" ]] || [[ ${workload} = "rdma_readll_locked" ]] || [[ ${workload} = "rdma_randomwrite" ]]; then
+if [[ ${workload} = "rdma_readll" ]] || [[ ${workload} = "rdma_readll_lock" ]] || [[ ${workload} = "rdma_writerandom" ]]; then
     binary=./nicserver
     workload=${workload#"rdma_"}
-elif [[ ${workload} = "dram_readll" ]] || [[ ${workload} = "dram_readll_locked" ]] || [[ ${workload} = "dram_randomwrite" ]]; then
+elif [[ ${workload} = "dram_readll" ]] || [[ ${workload} = "dram_readll_lock" ]] || [[ ${workload} = "dram_writerandom" ]]; then
     binary=./nicserver_dram
     workload=${workload#"dram_"}
 else
