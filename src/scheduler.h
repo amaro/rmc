@@ -8,7 +8,6 @@
 #include <cassert>
 #include <cstdlib>
 #include <deque>
-#include <unordered_map>
 #include <vector>
 
 #ifdef PERF_STATS
@@ -17,8 +16,8 @@
 
 #include "corormc.h"
 #include "nicserver.h"
-#include "rpc.h"
 #include "rmcs.h"
+#include "rpc.h"
 
 class NICServer;
 
@@ -37,7 +36,6 @@ class RMCScheduler {
   static_assert(false, "Need to select a backend");
 #endif
 
-  std::unordered_map<RMCId, RMC> id_rmc_map;
   /* RMCs ready to be run */
   std::deque<std::coroutine_handle<>> runqueue;
 
@@ -50,8 +48,6 @@ class RMCScheduler {
      finish executing before disconnecting */
   bool recvd_disconnect;
 
-  RMCId get_rmc_id(const RMC &rmc);
-  void req_get_rmc_id(CmdRequest *req);
   void req_new_rmc(CmdRequest *req);
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
   void exec_interleaved_dram(RDMAContext &server_ctx);
@@ -111,7 +107,6 @@ class RMCScheduler {
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
   void dispatch_new_req(CmdRequest *req);
-  CoroRMC get_rmc(const CallReq *req);
 
   RDMAContext &get_server_context();
 
@@ -119,17 +114,6 @@ class RMCScheduler {
   void debug_allocate();
   void debug_print_stats();
 };
-
-inline RMCId RMCScheduler::get_rmc_id(const RMC &rmc) {
-  RMCId id = std::hash<RMC>{}(rmc);
-
-  if (id_rmc_map.find(id) == id_rmc_map.end()) {
-    id_rmc_map.insert({id, rmc});
-    printf("registered new id=%lu for rmc=%s\n", id, rmc.c_str());
-  }
-
-  return id;
-}
 
 // used for communication to client, returns context[0] for all threads,
 // but since we have per-thread rserver, this is safe.
@@ -153,7 +137,7 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #endif
 
   CallReq *callreq = &req->request.call;
-  CoroRMC rmc = get_rmc(callreq);
+  CoroRMC rmc = get_handler(callreq->id, backend);
 
   /* set rmc params */
   rmc.get_handle().promise().param =
@@ -169,7 +153,7 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
   switch (req->type) {
     case CmdType::GET_RMCID:
-      return req_get_rmc_id(req);
+      die("not implemented");
     case CmdType::CALL_RMC:
       return req_new_rmc(req);
     case CmdType::LAST_CMD:

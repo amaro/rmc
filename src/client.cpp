@@ -32,27 +32,27 @@ void HostClient::connect(const std::string &ip, const unsigned int &port) {
   rmccready = true;
 }
 
-/* get_rmc_id() doesn't batch requests */
-RMCId HostClient::get_rmc_id(const RMC &rmc) {
-  assert(rmccready);
-
-  CmdRequest *req = get_req(0);
-  CmdReply *reply = get_reply(0);
-
-  post_recv_reply(reply);
-
-  /* get_id request */
-  req->type = CmdType::GET_RMCID;
-  rmc.copy(req->request.getid.rmc, sizeof(req->request.getid.rmc));
-  post_send_req(req);
-
-  rclient.poll_exactly(1, rclient.get_send_cq(0));
-  rclient.poll_exactly(1, rclient.get_recv_cq(0));
-
-  /* read CmdReply */
-  assert(reply->type == CmdType::GET_RMCID);
-  return reply->reply.getid.id;
-}
+// kept here as example on how to issue one req at a time
+// RMCId HostClient::get_rmc_id(const RMC &rmc) {
+//  assert(rmccready);
+//
+//  CmdRequest *req = get_req(0);
+//  CmdReply *reply = get_reply(0);
+//
+//  post_recv_reply(reply);
+//
+//  /* get_id request */
+//  req->type = CmdType::GET_RMCID;
+//  rmc.copy(req->request.getid.rmc, sizeof(req->request.getid.rmc));
+//  post_send_req(req);
+//
+//  rclient.poll_exactly(1, rclient.get_send_cq(0));
+//  rclient.poll_exactly(1, rclient.get_recv_cq(0));
+//
+//  /* read CmdReply */
+//  assert(reply->type == CmdType::GET_RMCID);
+//  return reply->reply.getid.id;
+//}
 
 // tid here is only for debugging purposes
 long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
@@ -454,7 +454,7 @@ int main(int argc, char *argv[]) {
   if (rmc == "readll")
     workload = TRAVERSE_LL;
   else if (rmc == "readll_lock")
-    workload = LOCKED_TRAVERSE_LL;
+    workload = LOCK_TRAVERSE_LL;
   else if (rmc == "writerandom")
     workload = RANDOM_WRITES;
   else if (rmc == "hash")

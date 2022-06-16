@@ -5,8 +5,8 @@
 #include <cstdint>
 
 #include "rdma/rdmaclient.h"
-#include "rpc.h"
 #include "rmcs.h"
+#include "rpc.h"
 
 class HostClient {
   bool rmccready;
@@ -64,13 +64,12 @@ class HostClient {
   /* 1. post recv for id
      2. send rmc to server; wait for 1.
      3. return id */
-  RMCId get_rmc_id(const RMC &rmc);
+  // RMCId get_rmc_id(const RMC &rmc);
 
   long long do_maxinflight(uint32_t num_reqs, uint32_t param,
                            pthread_barrier_t *barrier, uint16_t tid);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
               long long freq, uint32_t param, pthread_barrier_t *barrier);
-  int call_one_rmc(const RMCId &id, const size_t arg, long long &duration);
 
   /* cmd to initiate disconnect */
   void last_cmd();

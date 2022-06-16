@@ -425,6 +425,7 @@ class Backend<LocalMemory> {
 };
 
 #if defined(LOCATION_CLIENT)
+/* When runtime is located at the client */
 class RMCLock {
  public:
   RMCLock() {}
@@ -474,6 +475,8 @@ class RMCLock {
   }
 };
 #else
+/* When runtime is located at SmartNIC or server, we can use atomics to local
+ * memory */
 class RMCLock {
  public:
   RMCLock() {

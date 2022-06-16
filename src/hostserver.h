@@ -33,14 +33,14 @@ class HostServer {
     req_buf = std::make_unique<CmdRequest>();
 
     /* HugeAllogator memsets buffer to 0. Init hostserver memory here */
-    if (workload == TRAVERSE_LL || workload == LOCKED_TRAVERSE_LL)
+    if (workload == TRAVERSE_LL || workload == LOCK_TRAVERSE_LL)
       linkedlist = create_linkedlist<LLNode>(rdma_buffer, RMCK_APPS_BUFF_SZ);
   }
 
   ~HostServer() {
     switch (workload) {
       case TRAVERSE_LL:
-      case LOCKED_TRAVERSE_LL:
+      case LOCK_TRAVERSE_LL:
         destroy_linkedlist(linkedlist);
         break;
       case RANDOM_WRITES: /* fall through */

@@ -1,52 +1,20 @@
 #include "scheduler.h"
 
-/* Compute the id for this rmc, if it doesn't exist, register it in map.
-   Return the id */
-void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
-  assert(ns.nsready);
-  assert(req->type == CmdType::GET_RMCID);
-
-  RMC rmc(req->request.getid.rmc);
-  RMCId id = this->get_rmc_id(rmc);
-
-  /* use buffer 0 for get rmc id reply */
-  CmdReply *reply = ns.get_reply(0);
-  reply->type = CmdType::GET_RMCID;
-  reply->reply.getid.id = id;
-  ns.post_send_reply(reply);
-  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
-}
-
-CoroRMC RMCScheduler::get_rmc(const CallReq *req) {
-  switch (req->id) {
-    case TRAVERSE_LL:
-      return std::move(traverse_linkedlist(backend));
-    case LOCKED_TRAVERSE_LL:
-      return std::move(lock_traverse_linkedlist(backend));
-    case RANDOM_WRITES:
-      return std::move(random_writes(backend));
-#if defined(WORKLOAD_HASHTABLE)
-    case HASHTABLE:
-      // thread_local uint8_t num_gets = 0;
-      // if (++num_gets > 1) {
-      //  num_gets = 0;
-      //  return std::move(hash_insert(backend));
-      //}
-
-      // return std::move(hash_lookup(backend));
-      thread_local uint16_t num_gets = 0;
-
-      if (num_gets > 20) return std::move(hash_lookup(backend));
-
-      num_gets++;
-      if (num_gets > 20) printf("this is last insert\n");
-      return std::move(hash_insert(backend));
-#endif
-    default:
-      die("invalid req id");
-      return std::move(traverse_linkedlist(backend));
-  }
-}
+// kept here as an example on how to handle one req at a time
+//void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
+//  assert(ns.nsready);
+//  assert(req->type == CmdType::GET_RMCID);
+//
+//  RMC rmc(req->request.getid.rmc);
+//  RMCId id = this->get_rmc_id(rmc);
+//
+//  /* use buffer 0 for get rmc id reply */
+//  CmdReply *reply = ns.get_reply(0);
+//  reply->type = CmdType::GET_RMCID;
+//  reply->reply.getid.id = id;
+//  ns.post_send_reply(reply);
+//  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
+//}
 
 void RMCScheduler::run() {
   backend.init();

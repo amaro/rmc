@@ -3,59 +3,110 @@
 #include "backend.h"
 #include "config.h"
 
-enum RMCType {
-  TRAVERSE_LL,
-  LOCKED_TRAVERSE_LL,
-  RANDOM_WRITES,
-  HASHTABLE
+enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
+
+class RMCTraverseLL {
+  bool inited = false;
+
+ public:
+  template <class T>
+  CoroRMC handler(Backend<T> &b) {
+    int num_nodes = co_await b.get_param();
+    uintptr_t addr = b.get_baseaddr(num_nodes);
+    LLNode *node = nullptr;
+
+    for (int i = 0; i < num_nodes; ++i) {
+      node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+      addr = reinterpret_cast<uintptr_t>(node->next);
+    }
+
+    co_yield 1;
+  }
+
+  template <class T>
+  void init(Backend<T> &b) {
+    inited = true;
+  }
+
+  template <class T>
+  void exit(Backend<T> &b) {
+    inited = false;
+  }
+
+  bool is_inited() { return inited; }
 };
 
-template <class T>
-inline CoroRMC traverse_linkedlist(Backend<T> &b) {
-  int num_nodes = co_await b.get_param();
-  uintptr_t addr = b.get_baseaddr(num_nodes);
-  LLNode *node = nullptr;
+class RMCLockTraverseLL {
+  bool inited = false;
+  RMCLock rmclock;
 
-  for (int i = 0; i < num_nodes; ++i) {
-    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
-    addr = reinterpret_cast<uintptr_t>(node->next);
+ public:
+  template <class T>
+  CoroRMC handler(Backend<T> &b) {
+    int num_nodes = co_await b.get_param();
+    uintptr_t addr = b.get_baseaddr(num_nodes);
+    LLNode *node = nullptr;
+
+    for (int i = 0; i < num_nodes; ++i) {
+      co_await rmclock.lock(b);
+      node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+      addr = reinterpret_cast<uintptr_t>(node->next);
+      co_await rmclock.unlock(b);
+    }
+
+    co_yield 1;
   }
 
-  co_yield 1;
-}
-
-template <class T>
-inline CoroRMC random_writes(Backend<T> &b) {
-  const uint32_t num_writes = co_await b.get_param();
-  uint64_t val = 0xDEADBEEF;
-
-  for (auto i = 0u; i < num_writes; ++i) {
-    co_await b.write_raddr(b.get_random_raddr(), &val, sizeof(val));
+  template <class T>
+  void init(Backend<T> &b) {
+    inited = true;
   }
 
-  co_yield 1;
-}
-
-inline static RMCLock rmclock;
-
-template <class T>
-inline CoroRMC lock_traverse_linkedlist(Backend<T> &b) {
-  int num_nodes = co_await b.get_param();
-  uintptr_t addr = b.get_baseaddr(num_nodes);
-  LLNode *node = nullptr;
-
-  for (int i = 0; i < num_nodes; ++i) {
-    co_await rmclock.lock(b);
-    node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
-    addr = reinterpret_cast<uintptr_t>(node->next);
-    co_await rmclock.unlock(b);
+  template <class T>
+  void exit(Backend<T> &b) {
+    inited = false;
   }
 
-  co_yield 1;
-}
+  bool is_inited() { return inited; }
+};
+
+class RMCRandomWrites {
+  bool inited = false;
+
+ public:
+  template <class T>
+  CoroRMC handler(Backend<T> &b) {
+    const uint32_t num_writes = co_await b.get_param();
+    uint64_t val = 0xDEADBEEF;
+
+    for (auto i = 0u; i < num_writes; ++i) {
+      co_await b.write_raddr(b.get_random_raddr(), &val, sizeof(val));
+    }
+
+    co_yield 1;
+  }
+
+  template <class T>
+  void init(Backend<T> &b) {
+    inited = true;
+  }
+
+  template <class T>
+  void exit(Backend<T> &b) {
+    inited = false;
+  }
+
+  bool is_inited() { return inited; }
+};
+
+inline static RMCTraverseLL traversell;
+inline static RMCLockTraverseLL locktraversell;
+inline static RMCRandomWrites randomwrites;
 
 #ifdef WORKLOAD_HASHTABLE
 #include "lib/cuckoo_hash.h"
+
+inline static RMCLock rmclock;
 
 // in an actual implementation, keys come from requests
 inline const std::vector<int> KEYS{1, 2, 3, 4, 5, 6, 8, 9, 10};
@@ -244,3 +295,35 @@ inline CoroRMC hash_lookup(Backend<T> &b) {
 }
 
 #endif  // WORKLOAD_HASHTABLE
+
+template <class T>
+inline CoroRMC get_handler(RMCType type, Backend<T> &b) {
+  switch (type) {
+    case TRAVERSE_LL:
+      return std::move(traversell.handler(b));
+    case LOCK_TRAVERSE_LL:
+      return std::move(locktraversell.handler(b));
+    case RANDOM_WRITES:
+      return std::move(randomwrites.handler(b));
+#if defined(WORKLOAD_HASHTABLE)
+    /* TODO: fix this mess */
+    case HASHTABLE:
+      // thread_local uint8_t num_gets = 0;
+      // if (++num_gets > 1) {
+      //  num_gets = 0;
+      //  return std::move(hash_insert(backend));
+      //}
+
+      // return std::move(hash_lookup(backend));
+      thread_local uint16_t num_gets = 0;
+
+      if (num_gets > 20) return std::move(hash_lookup(b));
+
+      num_gets++;
+      if (num_gets > 20) printf("this is last insert\n");
+      return std::move(hash_insert(b));
+#endif
+    default:
+      die("no handler for rmctype: %d", type);
+  }
+}

@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
     if (strcmp(workload, "readll") == 0) {
       work = TRAVERSE_LL;
     } else if (strcmp(workload, "readll_lock") == 0) {
-      work = LOCKED_TRAVERSE_LL;
+      work = LOCK_TRAVERSE_LL;
     } else if (strcmp(workload, "writerandom") == 0) {
       work = RANDOM_WRITES;
     } else {
