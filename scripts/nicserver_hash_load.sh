@@ -1,22 +1,20 @@
 #!/bin/bash
 
 if [[ $# -ne 3 ]]; then
-    echo "Requires numqps, workload, threads"
+    echo "Requires numqps, threads, backend"
     exit 2
 fi
 
 numqps=$1
-workload=$2
-threads=$3
+threads=$2
+backend=$3
 
-if [[ ${workload} = "dram_hash" ]]; then
-    binary=./nicserver_dram_hash
-    workload=${workload#"dram_"}
-elif [[ ${workload} = "rdma_hash" ]]; then
+if [[ ${backend} = "rdma" ]]; then
     binary=./nicserver_rdma_hash
-    workload=${workload#"rdma_"}
+elif [[ ${workload} = "rdma" ]]; then
+    binary=./nicserver_dram_hash
 else
-    echo "workload=${workload} not supported in this script"
+    echo "backend=${backend} not supported in this script"
     exit 2
 fi
 
@@ -27,7 +25,7 @@ define_load
 
 set -x
 cmd() {
-    sudo taskset -c ${cpus} chrt -f 99 ${binary} -s 10.10.1.1 -q $1 -w $2 -t $3
+    sudo taskset -c ${cpus} chrt -f 99 ${binary} -s 10.10.1.1 -q $1 -t $2
     sleep 10
 }
 

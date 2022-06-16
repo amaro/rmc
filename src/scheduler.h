@@ -41,12 +41,12 @@ class RMCScheduler {
 
   // num_qps per thread
   const uint16_t num_qps;
-  unsigned int req_idx;
-  uint32_t reply_idx;
-  bool pending_replies;
+  unsigned int req_idx = 0;
+  uint32_t reply_idx = 0;
+  bool pending_replies = false;
   /* true if we received a disconnect req, so we are waiting for rmcs to
      finish executing before disconnecting */
-  bool recvd_disconnect;
+  bool recvd_disconnect = false;
 
   void req_new_rmc(CmdRequest *req);
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
@@ -89,14 +89,10 @@ class RMCScheduler {
   static constexpr uint16_t MAX_EXECS_COMPLETION = 8;
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
-  RMCScheduler(NICServer &nicserver, RMCType work, uint16_t num_qps)
+  RMCScheduler(NICServer &nicserver, uint16_t num_qps)
       : ns(nicserver),
         backend(ns.onesidedclient),
-        num_qps(num_qps),
-        req_idx(0),
-        reply_idx(0),
-        pending_replies(0),
-        recvd_disconnect(false) {
+        num_qps(num_qps) {
     printf("RMCScheduler batchsize=%u num_qps=%u tid=%u\n", MAX_HOSTMEM_BSIZE,
            num_qps, current_tid);
   }

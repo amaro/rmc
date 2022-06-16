@@ -10,7 +10,6 @@
 
 static char *hostaddr = nullptr;
 static int32_t hostport, clientport, num_threads, qps_per_thread;
-static RMCType work;
 
 void NICServer::connect(const unsigned int &port) {
   assert(!nsready);
@@ -78,14 +77,13 @@ void thread_launch(OneSidedClient &osc, uint16_t thread_id,
   RDMAServer rserver(1, false);
   NICServer nicserver(osc, rserver);
 
-  RMCScheduler sched(nicserver, work, qps_per_thread);
+  RMCScheduler sched(nicserver, qps_per_thread);
   pthread_barrier_wait(barrier);
   nicserver.start(sched, clientport + thread_id, thread_id);
   printf("EXIT thread current_tid=%u\n", current_tid);
 }
 
 int main(int argc, char *argv[]) {
-  char *workload = nullptr;
   int32_t numqps;
   int c;
 
@@ -95,21 +93,18 @@ int main(int argc, char *argv[]) {
   numqps = 0;
 
   auto usage = []() -> int {
-    puts("Usage: -s hostaddr -q numqps -w workload -t numthreads");
+    puts("Usage: -s hostaddr -q numqps -t numthreads");
     return 1;
   };
 
-  /* server address, num queue pairs, workload, threads */
-  while ((c = getopt(argc, argv, "s:q:w:t:")) != -1) {
+  /* server address, num queue pairs, threads */
+  while ((c = getopt(argc, argv, "s:q:t:")) != -1) {
     switch (c) {
       case 's':
         hostaddr = optarg;
         break;
       case 'q':
         numqps = atoi(optarg);
-        break;
-      case 'w':
-        workload = optarg;
         break;
       case 't':
         num_threads = atoi(optarg);
@@ -120,28 +115,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (workload != nullptr) {
-#if defined(WORKLOAD_HASHTABLE)
-    if (strcmp(workload, "hash") == 0) {
-      work = HASHTABLE;
-    } else {
-      return usage();
-    }
-#else
-    if (strcmp(workload, "readll") == 0) {
-      work = TRAVERSE_LL;
-    } else if (strcmp(workload, "readll_lock") == 0) {
-      work = LOCK_TRAVERSE_LL;
-    } else if (strcmp(workload, "writerandom") == 0) {
-      work = RANDOM_WRITES;
-    } else {
-      return usage();
-    }
-#endif
-  } else {
-    return usage();
-  }
-
   if (numqps <= 0 || strcmp(hostaddr, "") == 0 || num_threads <= 0)
     return usage();
 
@@ -149,7 +122,6 @@ int main(int argc, char *argv[]) {
             numqps % num_threads);
   qps_per_thread = numqps / num_threads;
 
-  printf("Workload=%s\n", workload);
   printf("hostaddr=%s numqps=%d\n", hostaddr, numqps);
   printf("threads=%d\n", num_threads);
 
