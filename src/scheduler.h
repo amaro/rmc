@@ -27,7 +27,7 @@ class RMCScheduler {
   NICServer &ns;
 
 #if defined(BACKEND_RDMA)
-  Backend<OneSidedClient> backend;
+  CoopRDMA backend;
 #elif defined(BACKEND_DRAM)
   Backend<LocalMemory> backend;
 #elif defined(BACKEND_RDMA_COMP)
@@ -90,9 +90,7 @@ class RMCScheduler {
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
   RMCScheduler(NICServer &nicserver, uint16_t num_qps)
-      : ns(nicserver),
-        backend(ns.onesidedclient),
-        num_qps(num_qps) {
+      : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps) {
     printf("RMCScheduler batchsize=%u num_qps=%u tid=%u\n", MAX_HOSTMEM_BSIZE,
            num_qps, current_tid);
   }
@@ -133,7 +131,7 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #endif
 
   CallReq *callreq = &req->request.call;
-  CoroRMC rmc = get_handler(callreq->id, backend);
+  CoroRMC rmc = get_handler(callreq->id, &backend);
 
   /* set rmc params */
   rmc.get_handle().promise().param =

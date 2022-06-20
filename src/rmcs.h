@@ -9,31 +9,26 @@ class RMCTraverseLL {
   bool inited = false;
 
  public:
-  template <class T>
-  CoroRMC handler(Backend<T> &b) {
-    int num_nodes = co_await b.get_param();
-    uintptr_t addr = b.get_baseaddr(num_nodes);
+  CoroRMC handler(const BackendBase *b) const {
+    int num_nodes = co_await b->get_param();
+    uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
 
     for (int i = 0; i < num_nodes; ++i) {
-      node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+      node = static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode)));
       addr = reinterpret_cast<uintptr_t>(node->next);
     }
 
     co_yield 1;
   }
 
-  template <class T>
-  void init(Backend<T> &b) {
+  void init(const BackendBase *b) {
     inited = true;
   }
 
-  template <class T>
-  void exit(Backend<T> &b) {
+  void exit(const BackendBase *b) {
     inited = false;
   }
-
-  bool is_inited() { return inited; }
 };
 
 class RMCLockTraverseLL {
@@ -41,15 +36,14 @@ class RMCLockTraverseLL {
   RMCLock rmclock;
 
  public:
-  template <class T>
-  CoroRMC handler(Backend<T> &b) {
-    int num_nodes = co_await b.get_param();
-    uintptr_t addr = b.get_baseaddr(num_nodes);
+  CoroRMC handler(const BackendBase *b) {
+    int num_nodes = co_await b->get_param();
+    uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await rmclock.lock(b);
-      node = static_cast<LLNode *>(co_await b.read(addr, sizeof(LLNode)));
+      node = static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode)));
       addr = reinterpret_cast<uintptr_t>(node->next);
       co_await rmclock.unlock(b);
     }
@@ -57,46 +51,41 @@ class RMCLockTraverseLL {
     co_yield 1;
   }
 
-  template <class T>
-  void init(Backend<T> &b) {
+  void init(const BackendBase *b) {
     inited = true;
   }
 
-  template <class T>
-  void exit(Backend<T> &b) {
+  void exit(const BackendBase *b) {
     inited = false;
   }
-
-  bool is_inited() { return inited; }
 };
 
 class RMCRandomWrites {
+  static constexpr uint64_t val = 0xDEADBEEF;
   bool inited = false;
+  uintptr_t random_addr = 0;
 
  public:
-  template <class T>
-  CoroRMC handler(Backend<T> &b) {
-    const uint32_t num_writes = co_await b.get_param();
-    uint64_t val = 0xDEADBEEF;
+  CoroRMC handler(const BackendBase *b) {
+    rt_assert(inited, "write RMC not inited"); // TODO: remove
+    const uint32_t num_writes = co_await b->get_param();
 
     for (auto i = 0u; i < num_writes; ++i) {
-      co_await b.write_raddr(b.get_random_raddr(), &val, sizeof(val));
+      co_await b->write_raddr(random_addr, &val, sizeof(val));
+      random_addr += 248;
     }
 
     co_yield 1;
   }
 
-  template <class T>
-  void init(Backend<T> &b) {
+  void init_runtime(void *buffer) {
     inited = true;
+    random_addr = reinterpret_cast<uintptr_t>(buffer);
   }
 
-  template <class T>
-  void exit(Backend<T> &b) {
-    inited = false;
-  }
+  void init_server(void *buffer) {
 
-  bool is_inited() { return inited; }
+  }
 };
 
 inline static RMCTraverseLL traversell;
@@ -296,8 +285,7 @@ inline CoroRMC hash_lookup(Backend<T> &b) {
 
 #endif  // WORKLOAD_HASHTABLE
 
-template <class T>
-inline CoroRMC get_handler(RMCType type, Backend<T> &b) {
+inline CoroRMC get_handler(RMCType type, const BackendBase *b) {
   switch (type) {
     case TRAVERSE_LL:
       return std::move(traversell.handler(b));
