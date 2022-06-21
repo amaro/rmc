@@ -124,10 +124,12 @@ class BackendBase {
   virtual AwaitRead read(uintptr_t raddr, uint32_t sz) const = 0;
   virtual AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const = 0;
   virtual AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
-                     uint32_t sz) const = 0;
+                           uint32_t sz) const = 0;
   /* TODO: when we introduce remote memory stack, these won't be needed */
-  virtual AwaitWrite write_raddr(uintptr_t raddr, const void *data, uint32_t sz) const = 0;
-  virtual AwaitWrite write_laddr(uintptr_t laddr, const void *data, uint32_t sz) const = 0;
+  virtual AwaitWrite write_raddr(uintptr_t raddr, const void *data,
+                                 uint32_t sz) const = 0;
+  virtual AwaitWrite write_laddr(uintptr_t laddr, const void *data,
+                                 uint32_t sz) const = 0;
 
   /* we should be able to get rid of these with per-RMC class state */
   virtual uintptr_t get_baseaddr(uint32_t num_nodes) const = 0;
@@ -148,7 +150,7 @@ class CoopRDMA : public BackendBase {
 #endif
 
   CoopRDMA(OneSidedClient &c) : BackendBase(c) {
-    printf("Using interleaving RDMA Backend (default)\n");
+    printf("BACKEND: Cooperative RDMA (default)\n");
   }
 
   ~CoopRDMA() {}
@@ -178,17 +180,20 @@ class CoopRDMA : public BackendBase {
     return AwaitRead{laddr};
   }
 
-  AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data, uint32_t sz) const override {
+  AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
+                   uint32_t sz) const override {
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     OSClient.write_async(raddr, laddr, sz);
     return AwaitWrite{};
   }
 
-  AwaitWrite write_raddr(uintptr_t raddr, const void *data, uint32_t sz) const override {
+  AwaitWrite write_raddr(uintptr_t raddr, const void *data,
+                         uint32_t sz) const override {
     return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data, sz);
   }
 
-  AwaitWrite write_laddr(uintptr_t laddr, const void *data, uint32_t sz) const override {
+  AwaitWrite write_laddr(uintptr_t laddr, const void *data,
+                         uint32_t sz) const override {
     return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
   }
 
@@ -485,9 +490,9 @@ class CoopRDMA : public BackendBase {
 
 /* Backend<Threading> defines a backend that simulates context switching
    threads by sleeping before suspending and resuming */
-//class Threading {};
-//template <>
-//class Backend<Threading> {
+// class Threading {};
+// template <>
+// class Backend<Threading> {
 // private:
 //  /* one-way delay of switching to a thread */
 //  static constexpr const uint64_t ONEWAY_DELAY_NS = 200;
@@ -559,9 +564,9 @@ class CoopRDMA : public BackendBase {
 //
 ///* Backend<LocalMemory> defines a DRAM backend that runs coroutines to
 // * completion */
-//class LocalMemory {};
-//template <>
-//class Backend<LocalMemory> {
+// class LocalMemory {};
+// template <>
+// class Backend<LocalMemory> {
 //  char *buffer;
 //  LLNode *linkedlist;
 //  HugeAllocator huge;

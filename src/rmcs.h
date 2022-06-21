@@ -5,11 +5,18 @@
 
 enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
-class RMCTraverseLL {
+struct RMCBase {
+  virtual ~RMCBase() {}
+  virtual CoroRMC handler(const BackendBase *b) = 0;
+};
+
+class RMCTraverseLL : public RMCBase {
   bool inited = false;
 
  public:
-  CoroRMC handler(const BackendBase *b) const {
+  ~RMCTraverseLL() {}
+
+  CoroRMC handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
@@ -22,21 +29,19 @@ class RMCTraverseLL {
     co_yield 1;
   }
 
-  void init(const BackendBase *b) {
-    inited = true;
-  }
+  void init(const BackendBase *b) { inited = true; }
 
-  void exit(const BackendBase *b) {
-    inited = false;
-  }
+  void exit(const BackendBase *b) { inited = false; }
 };
 
-class RMCLockTraverseLL {
+class RMCLockTraverseLL : public RMCBase {
   bool inited = false;
   RMCLock rmclock;
 
  public:
-  CoroRMC handler(const BackendBase *b) {
+  ~RMCLockTraverseLL() {}
+
+  CoroRMC handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
@@ -51,23 +56,21 @@ class RMCLockTraverseLL {
     co_yield 1;
   }
 
-  void init(const BackendBase *b) {
-    inited = true;
-  }
+  void init(const BackendBase *b) { inited = true; }
 
-  void exit(const BackendBase *b) {
-    inited = false;
-  }
+  void exit(const BackendBase *b) { inited = false; }
 };
 
-class RMCRandomWrites {
+class RMCRandomWrites : public RMCBase {
   static constexpr uint64_t val = 0xDEADBEEF;
   bool inited = false;
   uintptr_t random_addr = 0;
 
  public:
-  CoroRMC handler(const BackendBase *b) {
-    rt_assert(inited, "write RMC not inited"); // TODO: remove
+  ~RMCRandomWrites() {}
+
+  CoroRMC handler(const BackendBase *b) override {
+    rt_assert(inited, "write RMC not inited");  // TODO: remove
     const uint32_t num_writes = co_await b->get_param();
 
     for (auto i = 0u; i < num_writes; ++i) {
@@ -83,14 +86,8 @@ class RMCRandomWrites {
     random_addr = reinterpret_cast<uintptr_t>(buffer);
   }
 
-  void init_server(void *buffer) {
-
-  }
+  void init_server(void *buffer) {}
 };
-
-inline static RMCTraverseLL traversell;
-inline static RMCLockTraverseLL locktraversell;
-inline static RMCRandomWrites randomwrites;
 
 #ifdef WORKLOAD_HASHTABLE
 #include "lib/cuckoo_hash.h"
@@ -285,33 +282,35 @@ inline CoroRMC hash_lookup(Backend<T> &b) {
 
 #endif  // WORKLOAD_HASHTABLE
 
+inline static RMCTraverseLL traversell;
+inline static RMCLockTraverseLL locktraversell;
+inline static RMCRandomWrites randomwrites;
+
+static constexpr std::array<std::pair<RMCType, RMCBase *>, 3> rmc_values{
+    {std::make_pair(TRAVERSE_LL, &traversell),
+     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
+     std::make_pair(RANDOM_WRITES, &randomwrites)}};
+static constexpr auto rmc_map =
+    StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
+
 inline CoroRMC get_handler(RMCType type, const BackendBase *b) {
-  switch (type) {
-    case TRAVERSE_LL:
-      return std::move(traversell.handler(b));
-    case LOCK_TRAVERSE_LL:
-      return std::move(locktraversell.handler(b));
-    case RANDOM_WRITES:
-      return std::move(randomwrites.handler(b));
+  return std::move(rmc_map.at(type)->handler(b));
 #if defined(WORKLOAD_HASHTABLE)
-    /* TODO: fix this mess */
-    case HASHTABLE:
-      // thread_local uint8_t num_gets = 0;
-      // if (++num_gets > 1) {
-      //  num_gets = 0;
-      //  return std::move(hash_insert(backend));
-      //}
+  /* TODO: fix this mess */
+  case HASHTABLE:
+    // thread_local uint8_t num_gets = 0;
+    // if (++num_gets > 1) {
+    //  num_gets = 0;
+    //  return std::move(hash_insert(backend));
+    //}
 
-      // return std::move(hash_lookup(backend));
-      thread_local uint16_t num_gets = 0;
+    // return std::move(hash_lookup(backend));
+    thread_local uint16_t num_gets = 0;
 
-      if (num_gets > 20) return std::move(hash_lookup(b));
+    if (num_gets > 20) return std::move(hash_lookup(b));
 
-      num_gets++;
-      if (num_gets > 20) printf("this is last insert\n");
-      return std::move(hash_insert(b));
+    num_gets++;
+    if (num_gets > 20) printf("this is last insert\n");
+    return std::move(hash_insert(b));
 #endif
-    default:
-      die("no handler for rmctype: %d", type);
-  }
 }
