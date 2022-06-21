@@ -67,16 +67,16 @@ class RDMAPeer {
   // cqs are distributed evenly across qps
   // e.g., if num_qps=4 and num_cqs=2, cq=0 is assigned to qp=0 and qp=1
   // and cq=1 is assigned to qp=2 and qp=3
-  std::unique_ptr<CompQueue[]> send_cqs;
-  std::unique_ptr<CompQueue[]> recv_cqs;
+  const std::unique_ptr<CompQueue[]> send_cqs;
+  const std::unique_ptr<CompQueue[]> recv_cqs;
   std::vector<RDMAContext *> curr_batch_ctxs;
 
-  bool pds_cqs_created;
-  uint32_t unsignaled_sends;
-  uint16_t num_qps;
-  uint16_t num_created_qps;
-  uint16_t num_cqs;
-  uint16_t qps_per_thread;
+  bool pds_cqs_created = false;
+  uint32_t unsignaled_sends = 0;
+  uint16_t num_created_qps = 0;
+  const uint16_t num_qps;
+  const uint16_t num_cqs;
+  const uint16_t qps_per_thread;
 
   std::list<ibv_mr *> registered_mrs;
 
@@ -98,10 +98,7 @@ class RDMAPeer {
       : send_cqs(std::unique_ptr<CompQueue[]>(new CompQueue[num_cqs])),
         recv_cqs(std::unique_ptr<CompQueue[]>(new CompQueue[num_cqs])),
         curr_batch_ctxs(num_cqs),
-        pds_cqs_created(false),
-        unsignaled_sends(0),
         num_qps(num_qps),
-        num_created_qps(0),
         num_cqs(num_cqs),
         qps_per_thread(num_qps / num_cqs) {
     static_assert(MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);

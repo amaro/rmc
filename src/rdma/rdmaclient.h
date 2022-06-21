@@ -11,6 +11,8 @@ class RDMAClient : public RDMAPeer {
   RDMAClient(uint16_t num_qps, uint16_t num_cqs, bool onesided)
       : RDMAPeer(num_qps, num_cqs), onesided(onesided) {}
 
+  ~RDMAClient() {}
+
   /* client multi step connection establishment,
      assumes caller is client. Blocks until connection established */
   void connect_to_server(const std::string &ip, const unsigned int &port);
