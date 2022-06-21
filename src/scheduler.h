@@ -31,7 +31,7 @@ class RMCScheduler {
 #elif defined(BACKEND_DRAM)
   Backend<LocalMemory> backend;
 #elif defined(BACKEND_RDMA_COMP)
-  Backend<SyncRDMA> backend;
+  CompRDMA backend;
 #else
   static_assert(false, "Need to select a backend");
 #endif

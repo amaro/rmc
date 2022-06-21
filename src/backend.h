@@ -69,9 +69,12 @@ struct AwaitAddr {
 // specialize for other backends
 struct AwaitRead {
   uintptr_t addr;
+  bool should_suspend;
+  // to handle continuations (e.g., locks)
   CoroRMC::promise_type *promise;
 
-  AwaitRead(uintptr_t addr) : addr(addr) {}
+  AwaitRead(uintptr_t addr, bool suspend)
+      : addr(addr), should_suspend(suspend) {}
   constexpr bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
@@ -81,7 +84,7 @@ struct AwaitRead {
     if (promise->continuation) promise = &promise->continuation.promise();
 
     promise->waiting_mem_access = true;
-    return true;  // suspend (true)
+    return should_suspend;  // true = suspend; false = don't
   }
   void *await_resume() {
     promise->waiting_mem_access = false;
@@ -92,9 +95,10 @@ struct AwaitRead {
 // TODO: AwaitWrite follows the reqs of RDMA backend as of now. Need to
 // specialize for other backends
 struct AwaitWrite {
+  bool should_suspend;
   CoroRMC::promise_type *promise;
 
-  AwaitWrite() {}
+  AwaitWrite(bool suspend) : should_suspend(suspend) {}
   constexpr bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
@@ -104,7 +108,7 @@ struct AwaitWrite {
     if (promise->continuation) promise = &promise->continuation.promise();
 
     promise->waiting_mem_access = true;
-    return true;  // suspend (true)
+    return should_suspend;  // true = suspend; false = don't
   }
   constexpr void await_resume() { promise->waiting_mem_access = false; }
 };
@@ -131,19 +135,19 @@ class BackendBase {
   virtual AwaitWrite write_laddr(uintptr_t laddr, const void *data,
                                  uint32_t sz) const = 0;
 
-  /* we should be able to get rid of these with per-RMC class state */
+  /* TODO: we should be able to get rid of these with per-RMC class state */
   virtual uintptr_t get_baseaddr(uint32_t num_nodes) const = 0;
 
   auto get_param() const { return AwaitGetParam{}; }
 };
 
+/* Cooperative multi tasking RDMA backend */
 class CoopRDMA : public BackendBase {
  public:
   uintptr_t apps_base_laddr = 0;
   uintptr_t apps_base_raddr = 0;
   uintptr_t rsvd_base_laddr = 0;
   uintptr_t rsvd_base_raddr = 0;
-  uintptr_t last_random_addr = 0;
 
 #if defined(WORKLOAD_HASHTABLE)
   struct cuckoo_hash table;
@@ -160,7 +164,6 @@ class CoopRDMA : public BackendBase {
     apps_base_raddr = OSClient.get_apps_base_raddr();
     rsvd_base_laddr = OSClient.get_rsvd_base_laddr();
     rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
-    last_random_addr = apps_base_raddr;
 
 #if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated memory
@@ -171,20 +174,20 @@ class CoopRDMA : public BackendBase {
   AwaitRead read(uintptr_t raddr, uint32_t sz) const override {
     uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     OSClient.read_async(raddr, laddr, sz);
-    return AwaitRead{laddr};
+    return AwaitRead{laddr, true};
   }
 
   AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const override {
     uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
     OSClient.read_async(raddr, laddr, sz);
-    return AwaitRead{laddr};
+    return AwaitRead{laddr, true};
   }
 
   AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
                    uint32_t sz) const override {
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     OSClient.write_async(raddr, laddr, sz);
-    return AwaitWrite{};
+    return AwaitWrite{true};
   }
 
   AwaitWrite write_raddr(uintptr_t raddr, const void *data,
@@ -201,7 +204,7 @@ class CoopRDMA : public BackendBase {
   // raddr is fixed but laddr changes depending on in flight atomic ops
   auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp) {
     OSClient.cmp_swp_async(raddr, laddr, cmp, swp);
-    return AwaitRead{laddr};
+    return AwaitRead{laddr, true};
   }
 
   // TODO: move this to per-RMC class methods
@@ -211,83 +214,76 @@ class CoopRDMA : public BackendBase {
   }
 };
 
-// class SyncRDMABackend : public BackendBase {
-//  uintptr_t apps_base_laddr = 0;
-//  uintptr_t apps_base_raddr = 0;
-//  RDMAClient &rclient;
-//  RDMAContext *ctx;
-//  ibv_cq_ex *send_cq;
-//
-//  SyncRDMABackend(OneSidedClient &c)
-//      : BackendBase(c),
-//        apps_base_laddr(0),
-//        apps_base_raddr(0),
-//        rclient(OSClient.get_rclient()) {
-//    printf("Using run-to-completion RDMA Backend\n");
-//  }
-//
-//  void init() {
-//    apps_base_laddr = OSClient.get_apps_base_laddr();
-//    apps_base_raddr = OSClient.get_apps_base_raddr();
-//    ctx = &rclient.get_context(0);
-//    send_cq = rclient.get_send_cq(0);
-//  }
-//
-//  auto read(uintptr_t raddr, uint32_t sz) {
-//    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-//    rclient.start_batched_ops(ctx);
-//    OSClient.read_async(raddr, laddr, sz);
-//    rclient.end_batched_ops();
-//
-//    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
-//    return AwaitAddr<false>{laddr};
-//  }
-//
-//  auto write_raddr(uintptr_t raddr, void *data, uint32_t sz) {
-//    die("not implemented\n");
-//    return AwaitVoid<true>{};
-//  }
-//
-//  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) {
-//    die("not implemented");
-//    return AwaitVoid<true>{};
-//  }
-//
-//  auto get_baseaddr(uint32_t num_nodes) {
-//    uint32_t next_node = get_next_llnode(num_nodes);
-//    return apps_base_raddr + next_node * sizeof(LLNode);
-//  }
-//
-//  uintptr_t get_random_raddr() {
-//    die("not implemented yet");
-//    return 0;
-//  }
-//};
-//
-// class LocalMemBackend : public BackendBase {
-//  template <bool suspend>
-//  struct AwaitDRAMWrite {
-//    void *laddr;
-//    void *data;
-//    uint32_t sz;
-//
-//    AwaitDRAMWrite(void *laddr, void *data, uint32_t sz)
-//        : laddr(laddr), data(data), sz(sz) {}
-//    bool await_ready() { return false; }
-//    auto await_suspend(std::coroutine_handle<> coro) {
-//      return suspend;  // suspend (true) or not (false)
-//    }
-//    void await_resume() {
-//      // copy the data
-//      memcpy(reinterpret_cast<void *>(laddr), data, sz);
-//    }
-//  };
-//
-//  char *buffer;
-//  LLNode *linkedlist;
-//  HugeAllocator huge;
-//
-//};
+/* Run to completion RDMA backend */
+class CompRDMA : public BackendBase {
+  uintptr_t apps_base_laddr = 0;
+  uintptr_t apps_base_raddr = 0;
+  RDMAClient &rclient;
+  RDMAContext *ctx;
+  ibv_cq_ex *send_cq;
+
+  AwaitRead _read_common(uintptr_t laddr, uintptr_t raddr, uint32_t sz) const {
+    rclient.start_batched_ops(ctx);
+    OSClient.read_async(raddr, laddr, sz);
+    rclient.end_batched_ops();
+
+    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
+    return AwaitRead{laddr, false};
+  }
+
+ public:
+  CompRDMA(OneSidedClient &c)
+      : BackendBase(c),
+        apps_base_laddr(0),
+        apps_base_raddr(0),
+        rclient(OSClient.get_rclient()) {
+    printf("Using run-to-completion RDMA Backend\n");
+  }
+
+  void init() {
+    apps_base_laddr = OSClient.get_apps_base_laddr();
+    apps_base_raddr = OSClient.get_apps_base_raddr();
+    ctx = &rclient.get_context(0);
+    send_cq = rclient.get_send_cq(0);
+  }
+
+  AwaitRead read(uintptr_t raddr, uint32_t sz) const override {
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
+    return _read_common(laddr, raddr, sz);
+  }
+
+  AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const override {
+    uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
+    return _read_common(laddr, raddr, sz);
+  }
+
+  AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
+                   uint32_t sz) const override {
+    memcpy(reinterpret_cast<void *>(laddr), data, sz);
+    rclient.start_batched_ops(ctx);
+    OSClient.write_async(raddr, laddr, sz);
+    rclient.end_batched_ops();
+    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
+
+    return AwaitWrite{false};
+  }
+
+  AwaitWrite write_raddr(uintptr_t raddr, const void *data,
+                         uint32_t sz) const override {
+    return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data, sz);
+  }
+
+  AwaitWrite write_laddr(uintptr_t laddr, const void *data,
+                         uint32_t sz) const override {
+    return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
+  }
+
+  // TODO: move this to per-RMC class methods
+  uintptr_t get_baseaddr(uint32_t num_nodes) const override {
+    uint32_t next_node = get_next_llnode(num_nodes);
+    return apps_base_raddr + next_node * sizeof(LLNode);
+  }
+};
 
 // BEGINS OLD CODE HERE
 
