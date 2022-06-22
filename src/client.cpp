@@ -24,11 +24,11 @@ void HostClient::connect(const std::string &ip, const unsigned int &port) {
   assert(!rmccready);
   rclient.connect_to_server(ip, port);
 
-  req_buf_mr = rclient.register_mr(&req_buf[0],
-                                   sizeof(CmdRequest) * QP_MAX_2SIDED_WRS, 0);
-  reply_buf_mr =
-      rclient.register_mr(&reply_buf[0], sizeof(CmdReply) * QP_MAX_2SIDED_WRS,
-                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
+  req_buf_mr = rclient.register_mr(&datareq_buf[0],
+                                   sizeof(DataReq) * QP_MAX_2SIDED_WRS, 0);
+  reply_buf_mr = rclient.register_mr(
+      &datareply_buf[0], sizeof(DataReply) * QP_MAX_2SIDED_WRS,
+      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   rmccready = true;
 }
 
@@ -98,7 +98,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
 
   assert(this->inflight == 0);
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-    assert(*(reinterpret_cast<int *>(reply_buf[i].reply.call.data)) == 1);
+    assert(*(reinterpret_cast<int *>(datareply_buf[i].data.exec.data)) == 1);
 
   return duration;
 }
@@ -225,8 +225,8 @@ void HostClient::load_handle_reps(std::queue<long long> &start_times,
 void HostClient::last_cmd() {
   assert(rmccready);
 
-  CmdRequest *req = get_req(0);
-  req->type = CmdType::LAST_CMD;
+  DataReq *req = get_req(0);
+  req->type = DataCmdType::LAST_CMD;
   post_send_req(req);
   rclient.poll_exactly(1, rclient.get_send_cq(0));
   disconnect();

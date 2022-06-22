@@ -17,11 +17,11 @@ void NICServer::connect(const unsigned int &port) {
 
   /* nic writes incoming requests */
   req_buf_mr =
-      rserver.register_mr(&req_buf[0], sizeof(CmdRequest) * QP_MAX_2SIDED_WRS,
+      rserver.register_mr(&datareq_buf[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS,
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   /* cpu writes outgoing replies */
-  reply_buf_mr = rserver.register_mr(&reply_buf[0],
-                                     sizeof(CmdReply) * QP_MAX_2SIDED_WRS, 0);
+  reply_buf_mr = rserver.register_mr(&datareply_buf[0],
+                                     sizeof(DataReply) * QP_MAX_2SIDED_WRS, 0);
 
   nsready = true;
 }
@@ -30,15 +30,15 @@ void NICServer::connect(const unsigned int &port) {
 void NICServer::init(RMCScheduler &sched, uint16_t tid) {
   assert(nsready);
 
-  /* handle the initial rmc get id call */
+  /* handle the initial rmc get id call; TODO: remove */
   rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
-                            sizeof(CmdRequest), 1);
+                            sizeof(DataReq), 1);
   rserver.poll_exactly(1, rserver.get_recv_cq(0));
   sched.dispatch_new_req(get_req(0));
 
   /* post the initial recvs */
   rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
-                            sizeof(CmdRequest), QP_MAX_2SIDED_WRS);
+                            sizeof(DataReq), QP_MAX_2SIDED_WRS);
 
   sched.debug_allocate();
   sched.run();
@@ -64,7 +64,7 @@ void NICServer::post_batched_recv_req(RDMAContext &ctx, unsigned int startidx,
                                       unsigned int num_reqs) {
   assert(nsready);
 
-  rserver.post_batched_recv(ctx, req_buf_mr, startidx, sizeof(CmdRequest),
+  rserver.post_batched_recv(ctx, req_buf_mr, startidx, sizeof(DataReq),
                             num_reqs);
 }
 

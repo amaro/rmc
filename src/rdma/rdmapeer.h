@@ -538,7 +538,8 @@ inline unsigned int RDMAPeer::poll_atmost(unsigned int max, ibv_cq_ex *cq,
       }
     }
 
-    rt_assert(cq->status == IBV_WC_SUCCESS, "cqe->status=%d\n", cq->status);
+    rt_assert(cq->status == IBV_WC_SUCCESS, "poll_atmost() cqe->status=%d\n",
+              cq->status);
 
     /* the post-completion function takes wr_id,
      * for reads, this is the ctx_id,
@@ -579,8 +580,8 @@ inline unsigned int RDMAPeer::poll_batched_atmost(unsigned int max,
       die("ibv_next_poll() returned %d\n", ret);
 
   read:
-    rt_assert(comp_queue.cqx->status == IBV_WC_SUCCESS, "cqe->status=%d\n",
-              comp_queue.cqx->status);
+    rt_assert(comp_queue.cqx->status == IBV_WC_SUCCESS,
+              "poll_batched_atmost() cqe->status=%d\n", comp_queue.cqx->status);
 
     /* the post-completion function takes wr_id,
      * for reads, this is the ctx_id,
@@ -619,7 +620,8 @@ inline void RDMAPeer::poll_exactly(unsigned int target, ibv_cq_ex *cq) {
       }
     }
 
-    rt_assert(cq->status == IBV_WC_SUCCESS, "cqe->status=%d\n", cq->status);
+    rt_assert(cq->status == IBV_WC_SUCCESS, "poll_exactly() cqe->status=%d\n",
+              cq->status);
     polled++;
   } while (polled < target);
 

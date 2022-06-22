@@ -2,17 +2,19 @@
 
 #include "backend.h"
 #include "config.h"
+//#include "hostserver.h"
 
+class HostServer;
 enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
 struct RMCBase {
   virtual ~RMCBase() {}
   virtual CoroRMC handler(const BackendBase *b) = 0;
+  virtual void runtime_init(BackendBase *b) = 0;
+  virtual void server_init(HostServer &hs) = 0;
 };
 
 class RMCTraverseLL : public RMCBase {
-  bool inited = false;
-
  public:
   ~RMCTraverseLL() {}
 
@@ -29,9 +31,8 @@ class RMCTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void init(const BackendBase *b) { inited = true; }
-
-  void exit(const BackendBase *b) { inited = false; }
+  void runtime_init(BackendBase *b) {}
+  void server_init(HostServer &hs) {}
 };
 
 class RMCLockTraverseLL : public RMCBase {
@@ -56,9 +57,8 @@ class RMCLockTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void init(const BackendBase *b) { inited = true; }
-
-  void exit(const BackendBase *b) { inited = false; }
+  void runtime_init(BackendBase *b) {}
+  void server_init(HostServer &hs) {}
 };
 
 class RMCRandomWrites : public RMCBase {
@@ -81,12 +81,8 @@ class RMCRandomWrites : public RMCBase {
     co_yield 1;
   }
 
-  void init_runtime(void *buffer) {
-    inited = true;
-    random_addr = reinterpret_cast<uintptr_t>(buffer);
-  }
-
-  void init_server(void *buffer) {}
+  void runtime_init(BackendBase *b) {}
+  void server_init(HostServer &hs) {}
 };
 
 #ifdef WORKLOAD_HASHTABLE
@@ -286,31 +282,43 @@ inline static RMCTraverseLL traversell;
 inline static RMCLockTraverseLL locktraversell;
 inline static RMCRandomWrites randomwrites;
 
-static constexpr std::array<std::pair<RMCType, RMCBase *>, 3> rmc_values{
-    {std::make_pair(TRAVERSE_LL, &traversell),
-     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
-     std::make_pair(RANDOM_WRITES, &randomwrites)}};
+// static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
+// rmc_values{
+//    {std::make_pair(TRAVERSE_LL, &traversell),
+//     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
+//     std::make_pair(RANDOM_WRITES, &randomwrites)}};
+static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
+    rmc_values{{std::make_pair(TRAVERSE_LL, &traversell)}};
+
 static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
-inline CoroRMC get_handler(RMCType type, const BackendBase *b) {
+inline void rmcs_runtime_init(BackendBase *b) {
+  for (auto &rmc_pair : rmc_values) rmc_pair.second->runtime_init(b);
+}
+
+inline void rmcs_server_init(HostServer &hs) {
+  for (auto &rmc_pair : rmc_values) rmc_pair.second->server_init(hs);
+}
+
+inline CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
   return std::move(rmc_map.at(type)->handler(b));
-#if defined(WORKLOAD_HASHTABLE)
-  /* TODO: fix this mess */
-  case HASHTABLE:
-    // thread_local uint8_t num_gets = 0;
-    // if (++num_gets > 1) {
-    //  num_gets = 0;
-    //  return std::move(hash_insert(backend));
-    //}
-
-    // return std::move(hash_lookup(backend));
-    thread_local uint16_t num_gets = 0;
-
-    if (num_gets > 20) return std::move(hash_lookup(b));
-
-    num_gets++;
-    if (num_gets > 20) printf("this is last insert\n");
-    return std::move(hash_insert(b));
-#endif
+  //#if defined(WORKLOAD_HASHTABLE)
+  //  /* TODO: fix this mess */
+  //  case HASHTABLE:
+  //    // thread_local uint8_t num_gets = 0;
+  //    // if (++num_gets > 1) {
+  //    //  num_gets = 0;
+  //    //  return std::move(hash_insert(backend));
+  //    //}
+  //
+  //    // return std::move(hash_lookup(backend));
+  //    thread_local uint16_t num_gets = 0;
+  //
+  //    if (num_gets > 20) return std::move(hash_lookup(b));
+  //
+  //    num_gets++;
+  //    if (num_gets > 20) printf("this is last insert\n");
+  //    return std::move(hash_insert(b));
+  //#endif
 }

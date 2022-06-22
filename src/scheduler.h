@@ -48,7 +48,7 @@ class RMCScheduler {
      finish executing before disconnecting */
   bool recvd_disconnect = false;
 
-  void req_new_rmc(CmdRequest *req);
+  void req_new_rmc(DataReq *req);
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
   void exec_interleaved_dram(RDMAContext &server_ctx);
   void exec_completion(RDMAContext &server_ctx);
@@ -100,7 +100,7 @@ class RMCScheduler {
   void run();
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);
-  void dispatch_new_req(CmdRequest *req);
+  void dispatch_new_req(DataReq *req);
 
   RDMAContext &get_server_context();
 
@@ -123,19 +123,19 @@ inline bool RMCScheduler::executing(RDMAClient &rclient) {
   return false;
 }
 
-inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
-  assert(req->type == CmdType::CALL_RMC);
+inline void RMCScheduler::req_new_rmc(DataReq *req) {
+  assert(req->type == DataCmdType::CALL_RMC);
 
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
 
-  CallReq *callreq = &req->request.call;
-  CoroRMC rmc = get_handler(callreq->id, &backend);
+  ExecReq *execreq = &req->data.exec;
+  CoroRMC rmc = rmcs_get_handler(execreq->id, &backend);
 
   /* set rmc params */
   rmc.get_handle().promise().param =
-      *(reinterpret_cast<uint32_t *>(callreq->data));
+      *(reinterpret_cast<uint32_t *>(execreq->data));
 
   runqueue.push_back(rmc.get_handle());
 
@@ -144,20 +144,18 @@ inline void RMCScheduler::req_new_rmc(CmdRequest *req) {
 #endif
 }
 
-inline void RMCScheduler::dispatch_new_req(CmdRequest *req) {
+inline void RMCScheduler::dispatch_new_req(DataReq *req) {
   switch (req->type) {
-    case CmdType::GET_RMCID:
-      die("not implemented");
-    case CmdType::CALL_RMC:
+    case DataCmdType::CALL_RMC:
       return req_new_rmc(req);
-    case CmdType::LAST_CMD:
+    case DataCmdType::LAST_CMD:
       this->recvd_disconnect = true;
 #ifdef PERF_STATS
       debug_start = false;
 #endif
       return;
     default:
-      die("unrecognized CmdRequest type\n");
+      die("unrecognized DataReq type\n");
   }
 }
 
@@ -281,9 +279,9 @@ inline void RMCScheduler::add_reply(promise_handle rmc,
   if (!pending_replies) server_ctx.start_batch();
 
   pending_replies = true;
-  CmdReply *reply = ns.get_reply(this->reply_idx);
+  DataReply *reply = ns.get_reply(this->reply_idx);
 
-  *(reinterpret_cast<int *>(reply->reply.call.data)) = rmc.promise().reply_val;
+  *(reinterpret_cast<int *>(reply->data.exec.data)) = rmc.promise().reply_val;
 
   ns.post_batched_send_reply(server_ctx, reply);
   rmc.destroy();
@@ -321,7 +319,7 @@ inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx) {
 
 inline void RMCScheduler::check_new_reqs_client(RDMAContext &server_ctx) {
   int new_reqs;
-  CmdRequest *req;
+  DataReq *req;
 
 #ifdef PERF_STATS
   long long cycles = get_cycles();

@@ -18,8 +18,8 @@ void HostServer::connect_and_block(int port) {
           IBV_ACCESS_RELAXED_ORDERING);
 
   printf("rdma_mr rkey=%u\n", rdma_mr->rkey);
-  /* req_buf holds outgoing requests to nicserver */
-  req_buf_mr = rserver.register_mr(req_buf.get(), sizeof(CmdRequest), 0);
+  /* ctrlreq holds outgoing ctrl requests to nicserver */
+  ctrlreq_mr = rserver.register_mr(ctrlreq.get(), sizeof(CtrlReq), 0);
 
   hsready = true;
   send_rdma_mr();

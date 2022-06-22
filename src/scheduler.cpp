@@ -1,7 +1,7 @@
 #include "scheduler.h"
 
 // kept here as an example on how to handle one req at a time
-//void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
+// void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
 //  assert(ns.nsready);
 //  assert(req->type == CmdType::GET_RMCID);
 //

@@ -9,53 +9,47 @@
 #include "rpc.h"
 
 class HostClient {
-  bool rmccready;
-  unsigned int pending_unsig_sends;
-  uint32_t req_idx;
-  uint32_t inflight;
+  bool rmccready = false;
+  unsigned int pending_unsig_sends = 0;
+  uint32_t req_idx = 0;
+  uint32_t inflight = 0;
   RMCType workload;
 
   RDMAClient rclient;
 
   /* communication with nicserver */
-  std::vector<CmdRequest> req_buf;
-  std::vector<CmdReply> reply_buf;
+  std::vector<DataReq> datareq_buf;
+  std::vector<DataReply> datareply_buf;
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
-  void post_recv_reply(CmdReply *reply);
-  void post_send_req_unsig(CmdRequest *req);
+  void post_recv_reply(DataReply *reply);
+  void post_send_req_unsig(DataReq *req);
   void maybe_poll_sends(ibv_cq_ex *send_cq);
-  void post_send_req(CmdRequest *req);
-  CmdRequest *get_req(size_t req_idx);
-  CmdReply *get_reply(size_t rep_idx);
+  void post_send_req(DataReq *req);
+  DataReq *get_req(size_t req_idx);
+  DataReply *get_reply(size_t rep_idx);
   void disconnect();
 
   void load_send_request();
   void load_handle_reps(std::queue<long long> &start_times,
                         std::vector<uint32_t> &rtts, uint32_t polled,
                         uint32_t &rtt_idx);
-  void parse_rmc_reply(CmdReply *reply) const;
-  void arm_call_req(CmdRequest *req, uint32_t param);
+  void parse_rmc_reply(DataReply *reply) const;
+  void arm_call_req(DataReq *req, uint32_t param);
 
  public:
-  // A client only creates one 2-sided QP to communicate to nicserver,
+  // A HostClient creates one 2-sided QP to communicate to nicserver,
   // and one CQ
-  HostClient(RMCType workload)
-      : rmccready(false),
-        pending_unsig_sends(0),
-        req_idx(0),
-        inflight(0),
-        workload(workload),
-        rclient(1, 1, false) {
-    req_buf.reserve(QP_MAX_2SIDED_WRS);
-    reply_buf.reserve(QP_MAX_2SIDED_WRS);
-    printf("sizeof(CmdRequest())=%lu\n", sizeof(CmdRequest));
-    printf("sizeof(CmdReply())=%lu\n", sizeof(CmdReply));
+  HostClient(RMCType workload) : workload(workload), rclient(1, 1, false) {
+    datareq_buf.reserve(QP_MAX_2SIDED_WRS);
+    datareply_buf.reserve(QP_MAX_2SIDED_WRS);
+    printf("sizeof(DataReq())=%lu\n", sizeof(DataReq));
+    printf("sizeof(DataReply())=%lu\n", sizeof(DataReply));
 
     for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
-      req_buf.push_back(CmdRequest());
-      reply_buf.push_back(CmdReply());
+      datareq_buf.push_back(DataReq());
+      datareply_buf.push_back(DataReply());
     }
   }
 
@@ -77,25 +71,25 @@ class HostClient {
   constexpr uint32_t get_max_inflight();
 };
 
-/* post a recv for CmdReply */
-inline void HostClient::post_recv_reply(CmdReply *reply) {
+/* post a recv for DataReply */
+inline void HostClient::post_recv_reply(DataReply *reply) {
   assert(rmccready);
 
-  rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(CmdReply),
+  rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(DataReply),
                     reply_buf_mr->lkey);
 }
 
-inline void HostClient::post_send_req(CmdRequest *req) {
+inline void HostClient::post_send_req(DataReq *req) {
   assert(rmccready);
 
-  rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(CmdRequest),
+  rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
                     req_buf_mr->lkey);
 }
 
-inline void HostClient::post_send_req_unsig(CmdRequest *req) {
+inline void HostClient::post_send_req_unsig(DataReq *req) {
   assert(rmccready);
 
-  rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req, sizeof(CmdRequest),
+  rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
                              req_buf_mr->lkey);
   pending_unsig_sends += 1;
 }
@@ -120,25 +114,25 @@ inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
   }
 }
 
-inline CmdRequest *HostClient::get_req(size_t req_idx) {
-  return &req_buf[req_idx];
+inline DataReq *HostClient::get_req(size_t req_idx) {
+  return &datareq_buf[req_idx];
 }
 
-inline CmdReply *HostClient::get_reply(size_t rep_idx) {
-  return &reply_buf[rep_idx];
+inline DataReply *HostClient::get_reply(size_t rep_idx) {
+  return &datareply_buf[rep_idx];
 }
 
-inline void HostClient::parse_rmc_reply(CmdReply *reply) const {
+inline void HostClient::parse_rmc_reply(DataReply *reply) const {
   // CallReply *callreply = &reply->reply.call;
   // size_t hash = std::stoull(callreply->data);
   // printf("hash at client=" << hash);
 }
 
-inline void HostClient::arm_call_req(CmdRequest *req, uint32_t param) {
-  req->type = CmdType::CALL_RMC;
-  CallReq *callreq = &req->request.call;
-  callreq->id = workload;
-  *(reinterpret_cast<uint32_t *>(callreq->data)) = param;
+inline void HostClient::arm_call_req(DataReq *req, uint32_t param) {
+  req->type = DataCmdType::CALL_RMC;
+  ExecReq *execreq = &req->data.exec;
+  execreq->id = workload;
+  *(reinterpret_cast<uint32_t *>(execreq->data)) = param;
 }
 
 constexpr uint32_t HostClient::get_max_inflight() {

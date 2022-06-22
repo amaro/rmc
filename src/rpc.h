@@ -3,50 +3,63 @@
 #include "config.h"
 
 enum RMCType : int;
-typedef std::string RMC;
+typedef std::string RMC;  // TODO: needed?
 
-/* Reqs and Replies */
-struct GetIdReq {
-  char rmc[MAX_RMC_PROG_LEN];
-};
-struct GetIdReply {
-  RMCType id;
-};
-struct CallReq {
+struct ExecReq {
   RMCType id;
   char data[MAX_RMC_ARG_LEN + 1];
 };
-struct CallReply {
+
+struct ExecReply {
   char data[MAX_RMC_REPLY_LEN + 1];
 };
-struct SetRDMAMrReq {
-  ibv_mr mr;
+
+struct MrReq {
+  uint8_t num_mr;
+  ibv_mr mrs[NUM_REG_RMC];
 };
 
-enum CmdType { GET_RMCID = 1, CALL_RMC, SET_RDMA_MR, LAST_CMD };
+/* Datapath commands */
+enum DataCmdType { CALL_RMC = 1, LAST_CMD };
 
-/* Request struct */
-struct CmdRequest {
-  CmdType type;
+/* Datapath request (e.g., execute rmc req) */
+struct DataReq {
+  DataCmdType type;
 
   union {
-    GetIdReq getid;
-    CallReq call;
-    SetRDMAMrReq rdma_mr;
+    ExecReq exec;
     // no req struct for LAST_CMD
-  } request;
+  } data;
 };
 
-/* Reply struct */
-struct CmdReply {
-  CmdType type;
+/* Datapath reply */
+struct DataReply {
+  DataCmdType type;
 
   union {
-    GetIdReply getid;
-    CallReply call;
-    // no reply struct for SET_RDMA_MR
+    ExecReply exec;
     // no reply struct for LAST_CMD
-  } reply;
+  } data;
+};
+
+enum CtrlCmdType { RDMA_MR = 1 };
+
+/* Control path request */
+struct CtrlReq {
+  CtrlCmdType type;
+
+  union {
+    MrReq mr;
+  } data;
+};
+
+/* Control path reply */
+struct CtrlReply {
+  CtrlCmdType type;
+
+  union {
+    // no reply struct for RDMA_MR
+  } data;
 };
 
 // static_assert(sizeof(CmdRequest) == 64);
