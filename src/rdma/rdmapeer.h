@@ -106,7 +106,10 @@ class RDMAPeer {
     assert(qps_per_thread > 0);
   }
 
-  virtual ~RDMAPeer() {}
+  virtual ~RDMAPeer() {
+    for (ibv_mr *mr : registered_mrs) ibv_dereg_mr(mr);
+    registered_mrs.clear();
+  }
 
   ibv_mr *register_mr(void *addr, size_t len, int permissions);
   void post_recv(const RDMAContext &ctx, void *laddr, uint32_t len,
@@ -166,24 +169,16 @@ struct RDMAContext {
   struct OneSidedOp {
     enum OpType { INVALID, READ, WRITE, CMP_SWP, FETCH_ADD };
 
-    uintptr_t raddr;
-    uintptr_t laddr;
-    uint32_t len;
-    uint32_t rkey;
-    uint32_t lkey;
-    uint64_t cmp;
-    uint64_t swp;
-    OpType optype;
+    uintptr_t raddr = 0;
+    uintptr_t laddr = 0;
+    uint32_t len = 0;
+    uint32_t rkey = 0;
+    uint32_t lkey = 0;
+    uint64_t cmp = 0;
+    uint64_t swp = 0;
+    OpType optype = INVALID;
 
-    OneSidedOp()
-        : raddr(0),
-          laddr(0),
-          len(0),
-          rkey(0),
-          lkey(0),
-          cmp(0),
-          swp(0),
-          optype(INVALID) {}
+    OneSidedOp() {}
 
     void post(ibv_qp_ex *qpx, unsigned int flags, uint64_t wr_id) {
       qpx->wr_flags = flags;
@@ -228,31 +223,25 @@ struct RDMAContext {
   }
 
  public:
-  std::queue<coro_handle> memqueue;
-  std::vector<RecvOp> recv_batch;
   uint32_t ctx_id; /* TODO: rename to id */
-  bool connected;
-  uint32_t outstanding_sends;
-  uint32_t curr_batch_size;
-  BatchType curr_batch_type;
+  bool connected = false;
+  uint32_t outstanding_sends = 0;
+  uint32_t curr_batch_size = 0;
 
-  rdma_cm_id *cm_id;
-  ibv_qp *qp;
-  ibv_qp_ex *qpx;
-  rdma_event_channel *event_channel;
+  rdma_cm_id *cm_id = nullptr;
+  ibv_qp *qp = nullptr;
+  ibv_qp_ex *qpx = nullptr;
+  rdma_event_channel *event_channel = nullptr;
+
   SendOp buffered_send;
   OneSidedOp buffered_onesided;
+  BatchType curr_batch_type;
+
+  std::queue<coro_handle> memqueue;
+  std::vector<RecvOp> recv_batch;
 
   RDMAContext(unsigned int ctx_id)
-      : ctx_id{ctx_id},
-        connected{false},
-        outstanding_sends{0},
-        curr_batch_size{0},
-        cm_id{nullptr},
-        qp{nullptr},
-        qpx{nullptr},
-        event_channel{nullptr},
-        buffered_send{0, nullptr, 0, 0, false} {
+      : ctx_id{ctx_id}, buffered_send{0, nullptr, 0, 0, false} {
     recv_batch.reserve(MAX_BATCHED_RECVS);
     for (auto i = 0u; i < MAX_BATCHED_RECVS; ++i) {
       recv_batch.push_back(RecvOp());
