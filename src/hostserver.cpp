@@ -10,20 +10,14 @@ void HostServer::connect_and_block(int port) {
   /* accept connection */
   rserver.connect_from_client(port);
 
-  /* register mrs */
-  rdma_mr = rserver.register_mr(
-      rdma_buffer, RMCK_TOTAL_BUFF_SZ,
-      IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
-          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_ATOMIC |
-          IBV_ACCESS_RELAXED_ORDERING);
-
-  printf("rdma_mr rkey=%u\n", rdma_mr->rkey);
   /* ctrlreq holds outgoing ctrl requests to nicserver */
   ctrlreq_mr = rserver.register_mr(ctrlreq.get(), sizeof(CtrlReq), 0);
 
+  /* init per-rmc server buffers */
+  rmcs_server_init(SA, allocs);
+
   hsready = true;
   send_rdma_mr();
-
   rserver.disconnect_events();
 }
 
@@ -33,6 +27,24 @@ void HostServer::disconnect() {
   printf("received disconnect req\n");
   rserver.disconnect_events();
   hsready = false;
+}
+
+/* send rdma mr info to nicserver */
+void HostServer::send_rdma_mr() {
+  assert(hsready);
+
+  ctrlreq->type = CtrlCmdType::RDMA_MR;
+  ctrlreq->data.mr.num_mr = 1;
+
+  for (auto i = 0u; i < allocs.size(); ++i)
+    memcpy(&ctrlreq->data.mr.mrs[i], allocs[i].mr, sizeof(ibv_mr));
+
+  printf("will send info about %ld memory regions\n", allocs.size());
+  rserver.post_send(rserver.get_ctrl_ctx(), ctrlreq.get(), sizeof(CtrlReq),
+                    ctrlreq_mr->lkey);
+  // there's only one CQ
+  rserver.poll_exactly(1, rserver.get_send_cq(0));
+  printf("sent RDMA_MR\n");
 }
 
 int main(int argc, char *argv[]) {

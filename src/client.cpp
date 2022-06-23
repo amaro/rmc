@@ -418,17 +418,17 @@ int main(int argc, char *argv[]) {
       std::cerr << "need to specify mode: load or maxinflight\n";
       die("%s\n", opts.help().c_str());
     } else if (mode == "load" && load <= 0) {
-      die("mode=load requires load > 0");
+      die("mode=load requires load > 0\n");
     } else if (rmc != "readll" && rmc != "readll_lock" &&
                rmc != "writerandom" && rmc != "hash") {
-      die("rmc can only be: readll, readll_lock, writerandom, hash");
+      die("rmc can only be: readll, readll_lock, writerandom, hash\n");
     } else if ((rmc == "readll" || rmc == "readll_locked" ||
                 rmc == "writerandom") &&
                numaccess < 0) {
       die("for rmcs (readll, readll_locked, writerandom) numaccess must be > "
-          "0");
+          "0\n");
     } else if (num_threads <= 0) {
-      die("threads must be > 0");
+      die("threads must be > 0\n");
     }
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\n";
@@ -460,7 +460,7 @@ int main(int argc, char *argv[]) {
   else if (rmc == "hash")
     workload = HASHTABLE;
   else
-    die("bad rmc");
+    die("bad rmc\n");
   printf("workload set to=%s\n", rmc.c_str());
 
   if (mode == "load") {

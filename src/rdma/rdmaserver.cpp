@@ -28,7 +28,7 @@ void RDMAServer::connect_from_client(int port) {
         handle_conn_established(ctx);
         should_break = true;
       } else {
-        die("unknown or unexpected event at connect_from_client().");
+        die("unknown or unexpected event at connect_from_client().\n");
       }
 
       rdma_ack_cm_event(event);
@@ -56,7 +56,7 @@ void RDMAServer::disconnect_events() {
           ctx.disconnect();
           return;
         default:
-          die("unknown or unexpected event at disconnect_events().");
+          die("unknown or unexpected event at disconnect_events().\n");
       }
     }
   }

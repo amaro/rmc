@@ -707,7 +707,7 @@ class RMCLock {
  public:
   RMCLock() {
     if (pthread_spin_init(&l, PTHREAD_PROCESS_PRIVATE) != 0)
-      die("could not init spin lock");
+      die("could not init spin lock\n");
   }
 
   ~RMCLock() { pthread_spin_destroy(&l); }

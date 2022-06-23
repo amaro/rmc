@@ -1,22 +1,28 @@
 #pragma once
 
+#include "allocator.h"
 #include "backend.h"
 #include "config.h"
-//#include "hostserver.h"
 
-class HostServer;
 enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
 struct RMCBase {
   virtual ~RMCBase() {}
   virtual CoroRMC handler(const BackendBase *b) = 0;
   virtual void runtime_init(BackendBase *b) = 0;
-  virtual void server_init(HostServer &hs) = 0;
+  /* Allocates memory, initializes it, and if using RDMA, returns
+   * the rkey required to access the memory */
+  virtual ServerAlloc server_init(ServerAllocator &sa) = 0;
 };
 
 class RMCTraverseLL : public RMCBase {
+  static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  LLNode *server_linkdlst = nullptr;
+
  public:
-  ~RMCTraverseLL() {}
+  ~RMCTraverseLL() {
+    if (server_linkdlst) destroy_linkedlist(server_linkdlst);
+  }
 
   CoroRMC handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
@@ -31,16 +37,24 @@ class RMCTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) {}
-  void server_init(HostServer &hs) {}
+  void runtime_init(BackendBase *b) override {}
+  ServerAlloc server_init(ServerAllocator &sa) override {
+    ServerAlloc alloc = sa.request_memory(BUFSIZE);
+    server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
+    return alloc;
+  }
 };
 
 class RMCLockTraverseLL : public RMCBase {
+  static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
   bool inited = false;
+  LLNode *server_linkdlst = nullptr;
   RMCLock rmclock;
 
  public:
-  ~RMCLockTraverseLL() {}
+  ~RMCLockTraverseLL() {
+    if (server_linkdlst) destroy_linkedlist(server_linkdlst);
+  }
 
   CoroRMC handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
@@ -57,12 +71,17 @@ class RMCLockTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) {}
-  void server_init(HostServer &hs) {}
+  void runtime_init(BackendBase *b) override {}
+  ServerAlloc server_init(ServerAllocator &sa) override {
+    ServerAlloc alloc = sa.request_memory(BUFSIZE);
+    server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
+    return alloc;
+  }
 };
 
 class RMCRandomWrites : public RMCBase {
-  static constexpr uint64_t val = 0xDEADBEEF;
+  static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  static constexpr uint64_t WRITE_VAL = 0xDEADBEEF;
   bool inited = false;
   uintptr_t random_addr = 0;
 
@@ -74,15 +93,17 @@ class RMCRandomWrites : public RMCBase {
     const uint32_t num_writes = co_await b->get_param();
 
     for (auto i = 0u; i < num_writes; ++i) {
-      co_await b->write_raddr(random_addr, &val, sizeof(val));
+      co_await b->write_raddr(random_addr, &WRITE_VAL, sizeof(WRITE_VAL));
       random_addr += 248;
     }
 
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) {}
-  void server_init(HostServer &hs) {}
+  void runtime_init(BackendBase *b) override {}
+  ServerAlloc server_init(ServerAllocator &sa) override {
+    return sa.request_memory(BUFSIZE);
+  }
 };
 
 #ifdef WORKLOAD_HASHTABLE
@@ -282,6 +303,7 @@ inline static RMCTraverseLL traversell;
 inline static RMCLockTraverseLL locktraversell;
 inline static RMCRandomWrites randomwrites;
 
+/* data path */
 // static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
 // rmc_values{
 //    {std::make_pair(TRAVERSE_LL, &traversell),
@@ -290,17 +312,23 @@ inline static RMCRandomWrites randomwrites;
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
     rmc_values{{std::make_pair(TRAVERSE_LL, &traversell)}};
 
+/* data path */
 static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
+/* control path */
 inline void rmcs_runtime_init(BackendBase *b) {
   for (auto &rmc_pair : rmc_values) rmc_pair.second->runtime_init(b);
 }
 
-inline void rmcs_server_init(HostServer &hs) {
-  for (auto &rmc_pair : rmc_values) rmc_pair.second->server_init(hs);
+/* control path */
+inline void rmcs_server_init(ServerAllocator &sa,
+                             std::vector<ServerAlloc> &allocs) {
+  for (auto &rmc_pair : rmc_values)
+    allocs.push_back(rmc_pair.second->server_init(sa));
 }
 
+/* data path */
 inline CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
   return std::move(rmc_map.at(type)->handler(b));
   //#if defined(WORKLOAD_HASHTABLE)
