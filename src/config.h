@@ -12,6 +12,6 @@ static constexpr const unsigned MAX_RMC_PROG_LEN = 56;
 /* rmc arguments */
 static constexpr const unsigned MAX_RMC_ARG_LEN = 16;
 /* to store RMC reply results */
-static constexpr const unsigned MAX_RMC_REPLY_LEN = 16;
+static constexpr const size_t MAX_RMC_REPLY_LEN = 16;
 /* how many RMCs we are going to register */
 static constexpr uint8_t NUM_REG_RMC = 1;

@@ -28,13 +28,14 @@ class RMCTraverseLL : public RMCBase {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
+    int reply = 1;
 
     for (int i = 0; i < num_nodes; ++i) {
       node = static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode)));
       addr = reinterpret_cast<uintptr_t>(node->next);
     }
 
-    co_yield 1;
+    co_return &reply;
   }
 
   void runtime_init(const ibv_mr &mr) override {}
@@ -62,6 +63,7 @@ class RMCLockTraverseLL : public RMCBase {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
+    int reply = 1;
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await rmclock.lock(b);
@@ -70,7 +72,7 @@ class RMCLockTraverseLL : public RMCBase {
       co_await rmclock.unlock(b);
     }
 
-    co_yield 1;
+    co_return &reply;
   }
 
   void runtime_init(const ibv_mr &mr) override {}
@@ -94,13 +96,14 @@ class RMCRandomWrites : public RMCBase {
   CoroRMC runtime_handler(const BackendBase *b) override {
     rt_assert(inited, "write RMC not inited");  // TODO: remove
     const uint32_t num_writes = co_await b->get_param();
+    int reply = 1;
 
     for (auto i = 0u; i < num_writes; ++i) {
       co_await b->write_raddr(random_addr, &WRITE_VAL, sizeof(WRITE_VAL));
       random_addr += 248;
     }
 
-    co_yield 1;
+    co_return &reply;
   }
 
   void runtime_init(const ibv_mr &mr) override {}

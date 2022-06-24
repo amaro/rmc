@@ -1,11 +1,9 @@
 #pragma once
 
-#include <pthread.h>
-
-#include <atomic>
 #include <coroutine>
 
 #include "allocator.h"
+#include "config.h"
 #include "utils/utils.h"
 
 /* RMC allocator */
@@ -24,7 +22,8 @@ class CoroRMC {
   struct promise_type {
     std::coroutine_handle<promise_type> continuation;
     bool waiting_mem_access = false;
-    int reply_val = 0;
+    void *reply_ptr = nullptr;
+    size_t reply_sz = 0;
     int param = 0;
 
     /* move assignment op */
@@ -73,12 +72,21 @@ class CoroRMC {
     final_awaiter final_suspend() noexcept { return {}; }
     /* must return the object that wraps promise_type */
     auto get_return_object() noexcept { return CoroRMC{*this}; }
-    void return_void() {}
+    // void return_void() {}
     void unhandled_exception() noexcept { std::terminate(); }
-    /* yields don't suspend */
-    auto yield_value(int val) {
-      reply_val = val;
-      return std::suspend_never{};
+
+    template <typename T>
+    void return_value(T *buf) {
+      /* reply_ptr will point to a CoroRMC-local variable. This is valid
+       * because we don't destroy the coroutine on final_suspend(), it is
+       * explicitly destroyed by the scheduler after issuing a reply (which
+       * actually copies memory to the reply buffer) */
+      static_assert(sizeof(T) <= MAX_RMC_REPLY_LEN);
+
+      if (buf != nullptr) {
+        reply_ptr = buf;
+        reply_sz = sizeof(T);
+      }
     }
   };
 

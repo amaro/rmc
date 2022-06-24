@@ -17,11 +17,11 @@ class NICServer {
 
   OneSidedClient &onesidedclient;
   RDMAServer &rserver;
-  bool nsready;
+  bool nsready = false;
 
   /* communication with client */
-  std::vector<DataReq> datareq_buf;      // TODO: aligned?
-  std::vector<DataReply> datareply_buf;  // TODO: aligned?
+  const std::unique_ptr<DataReq[]> datareq_buf;
+  const std::unique_ptr<DataReply[]> datareply_buf;
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
@@ -38,14 +38,13 @@ class NICServer {
 
  public:
   NICServer(OneSidedClient &client, RDMAServer &server)
-      : onesidedclient(client), rserver(server), nsready(false) {
-    datareq_buf.reserve(QP_MAX_2SIDED_WRS);
-    datareply_buf.reserve(QP_MAX_2SIDED_WRS);
-
+      : onesidedclient(client),
+        rserver(server),
+        datareq_buf(std::unique_ptr<DataReq[]>(new DataReq[QP_MAX_2SIDED_WRS])),
+        datareply_buf(
+            std::unique_ptr<DataReply[]>(new DataReply[QP_MAX_2SIDED_WRS])) {
     for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
-      datareq_buf.push_back(DataReq());
-      datareply_buf.push_back(DataReply());
-      /* TODO: assume replies are successful */
+      /* TODO: assumes replies are successful ???*/
       datareply_buf[i].type = DataCmdType::CALL_RMC;
     }
   }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include "corormc.h"
 #include "onesidedclient.h"
 #if defined(WORKLOAD_HASHTABLE)
@@ -40,29 +42,6 @@ struct AwaitGetParam {
     return false;  // don't suspend
   }
   int await_resume() { return promise->param; }
-};
-
-template <bool suspend>
-struct AwaitVoid {
-  AwaitVoid() {}
-  constexpr bool await_ready() const { return false; }
-  auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend;  // suspend (true) or not (false)
-  }
-  constexpr void await_resume() const {}
-};
-
-/* used when resume returns an address */
-template <bool suspend>
-struct AwaitAddr {
-  uintptr_t addr;
-
-  AwaitAddr(uintptr_t addr) : addr(addr) {}
-  constexpr bool await_ready() const { return false; }
-  constexpr auto await_suspend(std::coroutine_handle<> coro) {
-    return suspend;  // suspend (true) or not (false)
-  }
-  void *await_resume() { return reinterpret_cast<void *>(addr); }
 };
 
 // TODO: AwaitRead follows the reqs of RDMA backend as of now. Need to

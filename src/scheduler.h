@@ -5,8 +5,9 @@
 #include <inttypes.h>
 #include <rdma/rdma_cma.h>
 
+#include <algorithm>
 #include <cassert>
-#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <vector>
 
@@ -275,17 +276,42 @@ inline void RMCScheduler::add_reply(promise_handle rmc,
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
+  /* make sure our optimization won't break anything */
+  static_assert(sizeof(int8_t) == 1);
+  static_assert(sizeof(int32_t) == 4);
+  static_assert(sizeof(int64_t) == 8);
 
   if (!pending_replies) server_ctx.start_batch();
 
   pending_replies = true;
   DataReply *reply = ns.get_reply(this->reply_idx);
+  size_t reply_sz = rmc.promise().reply_sz;
+  inc_with_wraparound(this->reply_idx, QP_MAX_2SIDED_WRS);
 
-  *(reinterpret_cast<int *>(reply->data.exec.data)) = rmc.promise().reply_val;
+  if (reply_sz > 0) {
+    ExecReply *execreply = &reply->data.exec;
+    void *reply_ptr = rmc.promise().reply_ptr;
+
+    switch (reply_sz) {
+      case 1:
+        *(reinterpret_cast<int8_t *>(execreply->data)) =
+            *(reinterpret_cast<int8_t *>(reply_ptr));
+        break;
+      case 4:
+        *(reinterpret_cast<int32_t *>(execreply->data)) =
+            *(reinterpret_cast<int32_t *>(reply_ptr));
+      case 8:
+        *(reinterpret_cast<int64_t *>(execreply->data)) =
+            *(reinterpret_cast<int64_t *>(reply_ptr));
+        break;
+      default:
+        std::memcpy(execreply->data, rmc.promise().reply_ptr,
+                    std::min(MAX_RMC_REPLY_LEN, reply_sz));
+    }
+  }
 
   ns.post_batched_send_reply(server_ctx, reply);
   rmc.destroy();
-  inc_with_wraparound(this->reply_idx, QP_MAX_2SIDED_WRS);
 
 #ifdef PERF_STATS
   long long cycles_end = get_cycles();
