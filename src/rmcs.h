@@ -8,8 +8,8 @@ enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
 struct RMCBase {
   virtual ~RMCBase() {}
-  virtual CoroRMC handler(const BackendBase *b) = 0;
-  virtual void runtime_init(BackendBase *b) = 0;
+  virtual void runtime_init(const ibv_mr &mr) = 0;
+  virtual CoroRMC runtime_handler(const BackendBase *b) = 0;
   /* Allocates memory, initializes it, and if using RDMA, returns
    * the rkey required to access the memory */
   virtual ServerAlloc server_init(ServerAllocator &sa) = 0;
@@ -24,7 +24,7 @@ class RMCTraverseLL : public RMCBase {
     if (server_linkdlst) destroy_linkedlist(server_linkdlst);
   }
 
-  CoroRMC handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
@@ -37,12 +37,14 @@ class RMCTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) override {}
+  void runtime_init(const ibv_mr &mr) override {}
   ServerAlloc server_init(ServerAllocator &sa) override {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
   }
+
+  static constexpr RMCType get_type() { return TRAVERSE_LL; }
 };
 
 class RMCLockTraverseLL : public RMCBase {
@@ -56,7 +58,7 @@ class RMCLockTraverseLL : public RMCBase {
     if (server_linkdlst) destroy_linkedlist(server_linkdlst);
   }
 
-  CoroRMC handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) override {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = b->get_baseaddr(num_nodes);
     LLNode *node = nullptr;
@@ -71,12 +73,13 @@ class RMCLockTraverseLL : public RMCBase {
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) override {}
+  void runtime_init(const ibv_mr &mr) override {}
   ServerAlloc server_init(ServerAllocator &sa) override {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
   }
+  static constexpr RMCType get_type() { return LOCK_TRAVERSE_LL; }
 };
 
 class RMCRandomWrites : public RMCBase {
@@ -88,7 +91,7 @@ class RMCRandomWrites : public RMCBase {
  public:
   ~RMCRandomWrites() {}
 
-  CoroRMC handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) override {
     rt_assert(inited, "write RMC not inited");  // TODO: remove
     const uint32_t num_writes = co_await b->get_param();
 
@@ -100,10 +103,11 @@ class RMCRandomWrites : public RMCBase {
     co_yield 1;
   }
 
-  void runtime_init(BackendBase *b) override {}
+  void runtime_init(const ibv_mr &mr) override {}
   ServerAlloc server_init(ServerAllocator &sa) override {
     return sa.request_memory(BUFSIZE);
   }
+  static constexpr RMCType get_type() { return RANDOM_WRITES; }
 };
 
 #ifdef WORKLOAD_HASHTABLE
@@ -310,15 +314,15 @@ inline static RMCRandomWrites randomwrites;
 //     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
 //     std::make_pair(RANDOM_WRITES, &randomwrites)}};
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(TRAVERSE_LL, &traversell)}};
+    rmc_values{{std::make_pair(RMCTraverseLL::get_type(), &traversell)}};
 
 /* data path */
 static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
 /* control path */
-inline void rmcs_runtime_init(BackendBase *b) {
-  for (auto &rmc_pair : rmc_values) rmc_pair.second->runtime_init(b);
+inline void rmcs_runtime_init(RMCType type, const ibv_mr &mr) {
+  return rmc_map.at(type)->runtime_init(mr);
 }
 
 /* control path */
@@ -330,7 +334,7 @@ inline void rmcs_server_init(ServerAllocator &sa,
 
 /* data path */
 inline CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
-  return std::move(rmc_map.at(type)->handler(b));
+  return std::move(rmc_map.at(type)->runtime_handler(b));
   //#if defined(WORKLOAD_HASHTABLE)
   //  /* TODO: fix this mess */
   //  case HASHTABLE:

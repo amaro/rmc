@@ -14,19 +14,30 @@ struct ExecReply {
   char data[MAX_RMC_REPLY_LEN + 1];
 };
 
+struct InitReq {
+  RMCType id;
+};
+
+struct InitReply {
+  uintptr_t start_addr;
+  uint32_t length;
+  uint32_t rkey;
+};
+
 struct MrReq {
   uint8_t num_mr;
   ibv_mr mrs[NUM_REG_RMC];
 };
 
 /* Datapath commands */
-enum DataCmdType { CALL_RMC = 1, LAST_CMD };
+enum DataCmdType { INIT_RMC = 1, CALL_RMC, LAST_CMD };
 
 /* Datapath request (e.g., execute rmc req) */
 struct DataReq {
   DataCmdType type;
 
   union {
+    InitReq init;
     ExecReq exec;
     // no req struct for LAST_CMD
   } data;
@@ -37,6 +48,7 @@ struct DataReply {
   DataCmdType type;
 
   union {
+    InitReply init;
     ExecReply exec;
     // no reply struct for LAST_CMD
   } data;
