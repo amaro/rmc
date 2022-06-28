@@ -238,6 +238,29 @@ void HostClient::disconnect() {
   rmccready = false;
 }
 
+/* control plane */
+void HostClient::initialize_rmc(RMCType type) {
+  assert(rmccready);
+
+  DataReq *req = get_req(0);
+  req->type = DataCmdType::INIT_RMC;
+
+  const DataReply *reply = get_reply(0);
+
+  post_recv_reply(reply);
+  post_send_req(req);
+
+  rclient.poll_exactly(1, rclient.get_send_cq(0));
+  rclient.poll_exactly(1, rclient.get_recv_cq(0));
+
+  /* read reply */
+  rt_assert(reply->type == DataCmdType::INIT_RMC,
+            "during rmc init, expected INIT_RMC reply");
+  const InitReply *initreply = &reply->data.init;
+  printf("rbaseaddr=%lu\nlength=%u\nrkey=%u\n", initreply->rbaseaddr,
+         initreply->length, initreply->rkey);
+}
+
 template <typename T>
 double get_avg(std::vector<T> &durations) {
   double avg = 0;
@@ -340,6 +363,8 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
   current_tid = 0;
   HostClient client(workload);
   client.connect(server, start_port + thread_id);
+
+  if (thread_id == 0) client.initialize_rmc(workload);
 
   durations[thread_id] = benchmark_maxinflight(
       client, numaccess, barrier, thread_id, NUM_REQS / num_threads);

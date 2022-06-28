@@ -16,7 +16,8 @@ class OneSidedClient {
   bool onesready;
   ibv_mr server_mr[NUM_REG_RMC];  // servers's memory regions
   ibv_mr *ctrlreq_mr;             // to recv Ctrl requests
-  ibv_mr *rdma_mr;                // for 1:1 mapping of host's rdma buffer
+  /* TODO: we need to support NUM_REG_RMC rdma_mrs */
+  ibv_mr *rdma_mr;  // for 1:1 mapping of host's rdma buffer (TODO: fix this)
   std::unique_ptr<CtrlReq> ctrlreq_buf;
   char *rdma_buffer;
   HugeAllocator huge;
@@ -45,9 +46,12 @@ class OneSidedClient {
   uintptr_t get_apps_base_raddr();
   uintptr_t get_apps_base_laddr();
 
-  RDMAClient &get_rclient();
+  RDMAClient &get_rclient() { return rclient; }
+
+  const ibv_mr &get_mr() { return *rdma_mr; }
 };
 
+/* control path */
 inline void OneSidedClient::recv_ctrl_reqs() {
   assert(onesready);
 
@@ -60,6 +64,12 @@ inline void OneSidedClient::recv_ctrl_reqs() {
   MrReq *mr_req = &(ctrlreq_buf->data.mr);
   printf("received RDMA_MR; num_mr=%u\n", mr_req->num_mr);
   memcpy(&server_mr[0], &mr_req->mrs[0], sizeof(ibv_mr) * mr_req->num_mr);
+
+  const ibv_mr *mr = &mr_req->mrs[0];
+  rdma_mr =
+      rclient.register_mr(rdma_buffer, mr->length,
+                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
+  printf("registered memory region with sz=%ld\n", mr->length);
 }
 
 /* assumes the mapping from host memory to nic memory is 1:1; i.e.
@@ -118,7 +128,5 @@ inline uintptr_t OneSidedClient::get_apps_base_raddr() {
 inline uintptr_t OneSidedClient::get_apps_base_laddr() {
   return get_rsvd_base_laddr() + RMCK_RESERVED_BUFF_SZ;
 }
-
-inline RDMAClient &OneSidedClient::get_rclient() { return rclient; }
 
 #endif

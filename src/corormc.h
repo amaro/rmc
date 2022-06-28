@@ -8,6 +8,7 @@
 
 /* RMC allocator */
 inline thread_local RMCAllocator allocator;
+struct InitReply;
 
 class CoroRMC {
  public:
@@ -21,10 +22,11 @@ class CoroRMC {
   /* must have this name */
   struct promise_type {
     std::coroutine_handle<promise_type> continuation;
-    bool waiting_mem_access = false;
     void *reply_ptr = nullptr;
-    size_t reply_sz = 0;
     int param = 0;
+    bool waiting_mem_access = false;
+    bool init_reply = false;
+    uint8_t reply_sz = 0;
 
     /* move assignment op */
     promise_type &operator=(promise_type &&oth) = delete;
@@ -76,16 +78,17 @@ class CoroRMC {
     void unhandled_exception() noexcept { std::terminate(); }
 
     template <typename T>
-    void return_value(T *buf) {
+    void return_value(T *reply) {
       /* reply_ptr will point to a CoroRMC-local variable. This is valid
-       * because we don't destroy the coroutine on final_suspend(), it is
-       * explicitly destroyed by the scheduler after issuing a reply (which
-       * actually copies memory to the reply buffer) */
+       * because we don't destroy the coroutine on final_suspend(), instead it
+       * is explicitly destroyed by the scheduler after issuing a reply (which
+       * actually copies the memory to reply buffer) */
       static_assert(sizeof(T) <= MAX_RMC_REPLY_LEN);
 
-      if (buf != nullptr) {
-        reply_ptr = buf;
+      if (reply != nullptr) {
+        reply_ptr = reply;
         reply_sz = sizeof(T);
+        if constexpr (std::is_same<T, InitReply>::value) init_reply = true;
       }
     }
   };

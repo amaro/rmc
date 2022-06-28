@@ -31,7 +31,7 @@ class NICServer {
                              unsigned int num_reqs);
   void post_send_reply(DataReply *reply);
   /* send a batched reply to client */
-  void post_batched_send_reply(RDMAContext &ctx, DataReply *reply);
+  void post_batched_send_reply(RDMAContext &ctx, const DataReply *reply);
 
   DataReq *get_req(size_t req_idx);
   DataReply *get_reply(size_t req_idx);
@@ -68,7 +68,7 @@ inline void NICServer::post_send_reply(DataReply *reply) {
 }
 
 inline void NICServer::post_batched_send_reply(RDMAContext &ctx,
-                                               DataReply *reply) {
+                                               const DataReply *reply) {
   assert(nsready);
   ctx.post_batched_send(reply, sizeof(DataReply), reply_buf_mr->lkey);
 }

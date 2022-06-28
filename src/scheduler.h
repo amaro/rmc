@@ -49,11 +49,16 @@ class RMCScheduler {
      finish executing before disconnecting */
   bool recvd_disconnect = false;
 
-  void req_new_rmc(DataReq *req);
+  void req_exec_rmc(const DataReq *req);
+  void req_init_rmc(const DataReq *req);
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
   void exec_interleaved_dram(RDMAContext &server_ctx);
   void exec_completion(RDMAContext &server_ctx);
-  void add_reply(promise_handle rmc, RDMAContext &server_ctx);
+  void copy_execreply(const CoroRMC::promise_type &promise,
+                      DataReply &reply) const;
+  void copy_initreply(const CoroRMC::promise_type &promise,
+                      DataReply &reply) const;
+  void add_reply(promise_handle &rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
   void poll_comps_host(RDMAClient &rclient);
@@ -124,19 +129,19 @@ inline bool RMCScheduler::executing(RDMAClient &rclient) {
   return false;
 }
 
-inline void RMCScheduler::req_new_rmc(DataReq *req) {
+inline void RMCScheduler::req_exec_rmc(const DataReq *req) {
   assert(req->type == DataCmdType::CALL_RMC);
 
 #ifdef PERF_STATS
   long long cycles_coros = get_cycles();
 #endif
 
-  ExecReq *execreq = &req->data.exec;
+  const ExecReq *execreq = &req->data.exec;
   CoroRMC rmc = rmcs_get_handler(execreq->id, &backend);
 
   /* set rmc params */
   rmc.get_handle().promise().param =
-      *(reinterpret_cast<uint32_t *>(execreq->data));
+      *(reinterpret_cast<const uint32_t *>(execreq->data));
 
   runqueue.push_back(rmc.get_handle());
 
@@ -145,10 +150,27 @@ inline void RMCScheduler::req_new_rmc(DataReq *req) {
 #endif
 }
 
+inline void RMCScheduler::req_init_rmc(const DataReq *req) {
+  assert(req->type == DataCmdType::INIT_RMC);
+
+  const InitReq *initreq = &req->data.init;
+
+  // TODO: get ibv_mr or similar here based on initreq->id
+  CoroRMC initrmc = rmcs_get_init(initreq->id, ns.onesidedclient.get_mr());
+
+  /* set rmc params */
+  // rmc.get_handle().promise().param =
+  //    *(reinterpret_cast<uint32_t *>(execreq->data));
+
+  runqueue.push_back(initrmc.get_handle());
+}
+
 inline void RMCScheduler::dispatch_new_req(DataReq *req) {
   switch (req->type) {
     case DataCmdType::CALL_RMC:
-      return req_new_rmc(req);
+      return req_exec_rmc(req);
+    case DataCmdType::INIT_RMC:
+      return req_init_rmc(req);
     case DataCmdType::LAST_CMD:
       this->recvd_disconnect = true;
 #ifdef PERF_STATS
@@ -271,44 +293,69 @@ inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
 #endif
 }
 
-inline void RMCScheduler::add_reply(promise_handle rmc,
+/* copies a generic reply to a buffer that we can post to rdma
+   TODO: give RMCs a registered reply buffer directly */
+inline void RMCScheduler::copy_execreply(const CoroRMC::promise_type &promise,
+                                         DataReply &datareply) const {
+  static_assert(sizeof(int32_t) == 4);
+  static_assert(sizeof(int64_t) == 8);
+
+  datareply.type = CALL_RMC;
+  auto &execreply = datareply.data.exec;
+
+  if (promise.reply_sz > 0) {
+    switch (promise.reply_sz) {
+      case 4: {
+        int32_t *replydata = reinterpret_cast<int32_t *>(&execreply.data);
+        *replydata = *(reinterpret_cast<int32_t *>(promise.reply_ptr));
+        break;
+      }
+      case 8: {
+        int64_t *replydata = reinterpret_cast<int64_t *>(&execreply.data);
+        *replydata = *(reinterpret_cast<int64_t *>(promise.reply_ptr));
+        break;
+      }
+      case 16: {
+        int64_t *replydata = reinterpret_cast<int64_t *>(&execreply.data);
+        *replydata = *(reinterpret_cast<int64_t *>(promise.reply_ptr));
+        *(replydata + 8) =
+            *(reinterpret_cast<int64_t *>(promise.reply_ptr) + 8);
+      }
+      default:
+        die("unsupported execreply size: %d\n", promise.reply_sz);
+    }
+  }
+}
+
+inline void RMCScheduler::copy_initreply(const CoroRMC::promise_type &promise,
+                                         DataReply &datareply) const {
+  datareply.type = INIT_RMC;
+  auto &initreply = datareply.data.init;
+  InitReply *source = reinterpret_cast<InitReply *>(promise.reply_ptr);
+
+  initreply.rbaseaddr = source->rbaseaddr;
+  initreply.length = source->length;
+  initreply.rkey = source->rkey;
+  printf("reply.rbaseaddr=%ld\nlength=%u\nrkey=%u\n", initreply.rbaseaddr,
+         initreply.length, initreply.rkey);
+}
+
+inline void RMCScheduler::add_reply(promise_handle &rmc,
                                     RDMAContext &server_ctx) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
-  /* make sure our optimization won't break anything */
-  static_assert(sizeof(int8_t) == 1);
-  static_assert(sizeof(int32_t) == 4);
-  static_assert(sizeof(int64_t) == 8);
 
   if (!pending_replies) server_ctx.start_batch();
 
   pending_replies = true;
   DataReply *reply = ns.get_reply(this->reply_idx);
-  size_t reply_sz = rmc.promise().reply_sz;
   inc_with_wraparound(this->reply_idx, QP_MAX_2SIDED_WRS);
 
-  if (reply_sz > 0) {
-    ExecReply *execreply = &reply->data.exec;
-    void *reply_ptr = rmc.promise().reply_ptr;
-
-    switch (reply_sz) {
-      case 1:
-        *(reinterpret_cast<int8_t *>(execreply->data)) =
-            *(reinterpret_cast<int8_t *>(reply_ptr));
-        break;
-      case 4:
-        *(reinterpret_cast<int32_t *>(execreply->data)) =
-            *(reinterpret_cast<int32_t *>(reply_ptr));
-      case 8:
-        *(reinterpret_cast<int64_t *>(execreply->data)) =
-            *(reinterpret_cast<int64_t *>(reply_ptr));
-        break;
-      default:
-        std::memcpy(execreply->data, rmc.promise().reply_ptr,
-                    std::min(MAX_RMC_REPLY_LEN, reply_sz));
-    }
-  }
+  if (!rmc.promise().init_reply) [[likely]]
+    copy_execreply(rmc.promise(), *reply);
+  else
+    copy_initreply(rmc.promise(), *reply);
 
   ns.post_batched_send_reply(server_ctx, reply);
   rmc.destroy();

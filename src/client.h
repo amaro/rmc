@@ -18,48 +18,39 @@ class HostClient {
   RDMAClient rclient;
 
   /* communication with nicserver */
-  std::vector<DataReq> datareq_buf;
-  std::vector<DataReply> datareply_buf;
+  const std::unique_ptr<DataReq[]> datareq_buf;
+  const std::unique_ptr<DataReply[]> datareply_buf;
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
-  void post_recv_reply(DataReply *reply);
-  void post_send_req_unsig(DataReq *req);
+  void post_recv_reply(const DataReply *reply);
+  void post_send_req_unsig(const DataReq *req);
   void maybe_poll_sends(ibv_cq_ex *send_cq);
-  void post_send_req(DataReq *req);
-  DataReq *get_req(size_t req_idx);
-  DataReply *get_reply(size_t rep_idx);
+  void post_send_req(const DataReq *req);
+  DataReq *get_req(size_t req_idx) const;
+  const DataReply *get_reply(size_t rep_idx) const;
   void disconnect();
 
   void load_send_request();
   void load_handle_reps(std::queue<long long> &start_times,
                         std::vector<uint32_t> &rtts, uint32_t polled,
                         uint32_t &rtt_idx);
-  void parse_rmc_reply(DataReply *reply) const;
-  void arm_call_req(DataReq *req, uint32_t param);
+  void arm_call_req(DataReq *req, uint32_t param) const;
 
  public:
   // A HostClient creates one 2-sided QP to communicate to nicserver,
   // and one CQ
-  HostClient(RMCType workload) : workload(workload), rclient(1, 1, false) {
-    datareq_buf.reserve(QP_MAX_2SIDED_WRS);
-    datareply_buf.reserve(QP_MAX_2SIDED_WRS);
+  HostClient(RMCType workload)
+      : workload(workload),
+        rclient(1, 1, false),
+        datareq_buf(std::unique_ptr<DataReq[]>(new DataReq[QP_MAX_2SIDED_WRS])),
+        datareply_buf(
+            std::unique_ptr<DataReply[]>(new DataReply[QP_MAX_2SIDED_WRS])) {
     printf("sizeof(DataReq())=%lu\n", sizeof(DataReq));
     printf("sizeof(DataReply())=%lu\n", sizeof(DataReply));
-
-    for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
-      datareq_buf.push_back(DataReq());
-      datareply_buf.push_back(DataReply());
-    }
   }
 
   void connect(const std::string &ip, const unsigned int &port);
-
-  /* 1. post recv for id
-     2. send rmc to server; wait for 1.
-     3. return id */
-  // RMCId get_rmc_id(const RMC &rmc);
-
   long long do_maxinflight(uint32_t num_reqs, uint32_t param,
                            pthread_barrier_t *barrier, uint16_t tid);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
@@ -67,26 +58,26 @@ class HostClient {
 
   /* cmd to initiate disconnect */
   void last_cmd();
-
-  constexpr uint32_t get_max_inflight();
+  void initialize_rmc(RMCType type);
+  constexpr uint32_t get_max_inflight() const;
 };
 
 /* post a recv for DataReply */
-inline void HostClient::post_recv_reply(DataReply *reply) {
+inline void HostClient::post_recv_reply(const DataReply *reply) {
   assert(rmccready);
 
   rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(DataReply),
                     reply_buf_mr->lkey);
 }
 
-inline void HostClient::post_send_req(DataReq *req) {
+inline void HostClient::post_send_req(const DataReq *req) {
   assert(rmccready);
 
   rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
                     req_buf_mr->lkey);
 }
 
-inline void HostClient::post_send_req_unsig(DataReq *req) {
+inline void HostClient::post_send_req_unsig(const DataReq *req) {
   assert(rmccready);
 
   rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
@@ -114,28 +105,22 @@ inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
   }
 }
 
-inline DataReq *HostClient::get_req(size_t req_idx) {
+inline DataReq *HostClient::get_req(size_t req_idx) const {
   return &datareq_buf[req_idx];
 }
 
-inline DataReply *HostClient::get_reply(size_t rep_idx) {
+inline const DataReply *HostClient::get_reply(size_t rep_idx) const {
   return &datareply_buf[rep_idx];
 }
 
-inline void HostClient::parse_rmc_reply(DataReply *reply) const {
-  // CallReply *callreply = &reply->reply.call;
-  // size_t hash = std::stoull(callreply->data);
-  // printf("hash at client=" << hash);
-}
-
-inline void HostClient::arm_call_req(DataReq *req, uint32_t param) {
+inline void HostClient::arm_call_req(DataReq *req, uint32_t param) const {
   req->type = DataCmdType::CALL_RMC;
   ExecReq *execreq = &req->data.exec;
   execreq->id = workload;
   *(reinterpret_cast<uint32_t *>(execreq->data)) = param;
 }
 
-constexpr uint32_t HostClient::get_max_inflight() {
+constexpr uint32_t HostClient::get_max_inflight() const {
   return QP_MAX_2SIDED_WRS - 1;
 }
 

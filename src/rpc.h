@@ -11,7 +11,7 @@ struct ExecReq {
 };
 
 struct ExecReply {
-  char data[MAX_RMC_REPLY_LEN + 1];
+  char data[MAX_RMC_REPLY_LEN];
 };
 
 struct InitReq {
@@ -19,7 +19,7 @@ struct InitReq {
 };
 
 struct InitReply {
-  uintptr_t start_addr;
+  uintptr_t rbaseaddr;
   uint32_t length;
   uint32_t rkey;
 };

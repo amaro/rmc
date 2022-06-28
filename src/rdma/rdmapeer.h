@@ -112,17 +112,17 @@ class RDMAPeer {
   }
 
   ibv_mr *register_mr(void *addr, size_t len, int permissions);
-  void post_recv(const RDMAContext &ctx, void *laddr, uint32_t len,
+  void post_recv(const RDMAContext &ctx, const void *laddr, uint32_t len,
                  uint32_t lkey) const;
   void post_batched_recv(RDMAContext &ctx, ibv_mr *mr, uint32_t startidx,
                          uint32_t per_buf_bytes, uint32_t num_bufs) const;
-  void post_send(const RDMAContext &ctx, void *laddr, uint32_t len,
+  void post_send(const RDMAContext &ctx, const void *laddr, uint32_t len,
                  uint32_t lkey) const;
   /* posts an unsignaled 2-sided send,
      returns whether send_cqx should be polled */
-  bool post_2s_send_unsig(const RDMAContext &ctx, void *laddr, uint32_t len,
+  bool post_2s_send_unsig(const RDMAContext &ctx, const void *laddr, uint32_t len,
                           uint32_t lkey);
-  void post_batched_send(RDMAContext &ctx, void *laddr, uint32_t len,
+  void post_batched_send(RDMAContext &ctx, const void *laddr, uint32_t len,
                          uint32_t lkey);
 
   template <typename T>
@@ -160,7 +160,7 @@ struct RDMAContext {
 
   struct SendOp {
     unsigned long wr_id;
-    void *laddr;
+    const void *laddr;
     unsigned int len;
     unsigned int lkey;
     bool signaled;
@@ -257,7 +257,7 @@ struct RDMAContext {
     rdma_destroy_event_channel(event_channel);
   }
 
-  void post_batched_send(void *laddr, unsigned int len, unsigned int lkey) {
+  void post_batched_send(const void *laddr, unsigned int len, unsigned int lkey) {
     rt_assert(outstanding_sends < QP_MAX_2SIDED_WRS, "outstanding_sends=%u\n",
               outstanding_sends);
 
@@ -381,10 +381,10 @@ inline ibv_mr *RDMAPeer::register_mr(void *addr, size_t len, int permissions) {
   return mr;
 }
 
-inline void RDMAPeer::post_recv(const RDMAContext &ctx, void *laddr,
+inline void RDMAPeer::post_recv(const RDMAContext &ctx, const void *laddr,
                                 uint32_t len, uint32_t lkey) const {
   int err = 0;
-  ibv_sge sge = {.addr = (uintptr_t)laddr, .length = len, .lkey = lkey};
+  ibv_sge sge = {.addr = reinterpret_cast<uintptr_t>(laddr), .length = len, .lkey = lkey};
 
   ibv_recv_wr wr = {};
   ibv_recv_wr *bad_wr = nullptr;
@@ -419,19 +419,19 @@ inline void RDMAPeer::post_batched_recv(RDMAContext &ctx, ibv_mr *mr,
   }
 }
 
-inline void RDMAPeer::post_send(const RDMAContext &ctx, void *laddr,
+inline void RDMAPeer::post_send(const RDMAContext &ctx, const void *laddr,
                                 uint32_t len, uint32_t lkey) const {
   ibv_wr_start(ctx.qpx);
   ctx.qpx->wr_flags = IBV_SEND_SIGNALED;
   ibv_wr_send(ctx.qpx);
-  ibv_wr_set_sge(ctx.qpx, lkey, (uintptr_t)laddr, len);
+  ibv_wr_set_sge(ctx.qpx, lkey, reinterpret_cast<uintptr_t>(laddr), len);
   TEST_NZ(ibv_wr_complete(ctx.qpx));
 }
 
 /* returns whether the current posted send was signaled.
    the caller must make sure that we only attempt polling the
    signaled send after it has been posted */
-inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, void *laddr,
+inline bool RDMAPeer::post_2s_send_unsig(const RDMAContext &ctx, const void *laddr,
                                          uint32_t len, uint32_t lkey) {
   bool signaled = false;
   int ret;

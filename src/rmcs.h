@@ -8,15 +8,23 @@ enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
 struct RMCBase {
   virtual ~RMCBase() {}
-  virtual void runtime_init(const ibv_mr &mr) = 0;
+  /* Runs at the runtime location, main handler for this RMC */
   virtual CoroRMC runtime_handler(const BackendBase *b) = 0;
-  /* Allocates memory, initializes it, and if using RDMA, returns
-   * the rkey required to access the memory */
+  /* Runs at the runtime location. Receives memory region information such that
+     we can cache it at the class level, or return if appropriate. */
+  virtual CoroRMC runtime_init(const ibv_mr &mr) = 0;
+  /* Runs at the server: requests memory, and gets access to it, so
+     it can be initialized. */
   virtual ServerAlloc server_init(ServerAllocator &sa) = 0;
 };
 
 class RMCTraverseLL : public RMCBase {
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  bool runtime_inited = false;
+  uintptr_t rbaseaddr = 0;
+  uint32_t length = 0;
+  uint32_t rkey = 0;
+
   LLNode *server_linkdlst = nullptr;
 
  public:
@@ -38,7 +46,20 @@ class RMCTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  void runtime_init(const ibv_mr &mr) override {}
+  CoroRMC runtime_init(const ibv_mr &remote_mr) override {
+    assert(!runtime_inited);
+    runtime_inited = true;
+
+    puts("RMCTraverseLL runtime_init() called");
+    /* cache remote memory access information */
+    rbaseaddr = reinterpret_cast<uintptr_t>(remote_mr.addr);
+    length = remote_mr.length & 0xFFFFffff;
+    rkey = remote_mr.rkey;
+
+    InitReply reply{rbaseaddr, length, rkey};
+    co_return &reply;
+  }
+
   ServerAlloc server_init(ServerAllocator &sa) override {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
@@ -75,7 +96,11 @@ class RMCLockTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  void runtime_init(const ibv_mr &mr) override {}
+  CoroRMC runtime_init(const ibv_mr &mr) override {
+    int reply = 1;
+    co_return &reply;
+  }
+
   ServerAlloc server_init(ServerAllocator &sa) override {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
@@ -106,7 +131,10 @@ class RMCRandomWrites : public RMCBase {
     co_return &reply;
   }
 
-  void runtime_init(const ibv_mr &mr) override {}
+  CoroRMC runtime_init(const ibv_mr &mr) override {
+    int reply = 1;
+    co_return &reply;
+  }
   ServerAlloc server_init(ServerAllocator &sa) override {
     return sa.request_memory(BUFSIZE);
   }
@@ -316,16 +344,16 @@ inline static RMCRandomWrites randomwrites;
 //    {std::make_pair(TRAVERSE_LL, &traversell),
 //     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
 //     std::make_pair(RANDOM_WRITES, &randomwrites)}};
-static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
+inline static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
     rmc_values{{std::make_pair(RMCTraverseLL::get_type(), &traversell)}};
 
 /* data path */
-static constexpr auto rmc_map =
+inline static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
 /* control path */
-inline void rmcs_runtime_init(RMCType type, const ibv_mr &mr) {
-  return rmc_map.at(type)->runtime_init(mr);
+inline CoroRMC rmcs_get_init(RMCType type, const ibv_mr &mr) {
+  return std::move(rmc_map.at(type)->runtime_init(mr));
 }
 
 /* control path */
