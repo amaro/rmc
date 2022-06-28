@@ -74,7 +74,6 @@ class CoroRMC {
     final_awaiter final_suspend() noexcept { return {}; }
     /* must return the object that wraps promise_type */
     auto get_return_object() noexcept { return CoroRMC{*this}; }
-    // void return_void() {}
     void unhandled_exception() noexcept { std::terminate(); }
 
     template <typename T>
@@ -128,7 +127,7 @@ class CoroRMC {
   }
 
   /* move constructor */
-  CoroRMC(CoroRMC &&oth) : _coroutine(oth._coroutine) {
+  CoroRMC(CoroRMC &&oth) noexcept : _coroutine(oth._coroutine) {
     oth._coroutine = nullptr;
   }
 

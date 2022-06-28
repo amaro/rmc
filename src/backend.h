@@ -138,7 +138,7 @@ class CoopRDMA : public BackendBase {
 
   ~CoopRDMA() {}
 
-  void init() {
+  void init() override {
     apps_base_laddr = OSClient.get_apps_base_laddr();
     apps_base_raddr = OSClient.get_apps_base_raddr();
     rsvd_base_laddr = OSClient.get_rsvd_base_laddr();
@@ -219,7 +219,7 @@ class CompRDMA : public BackendBase {
     printf("Using run-to-completion RDMA Backend\n");
   }
 
-  void init() {
+  void init() override {
     apps_base_laddr = OSClient.get_apps_base_laddr();
     apps_base_raddr = OSClient.get_apps_base_raddr();
     ctx = &rclient.get_context(0);
@@ -695,12 +695,18 @@ class RMCLock {
    * to suspend here (and later return here to retry) */
   CoroRMC lock(const BackendBase *b) {
     while (pthread_spin_trylock(&l) != 0) co_await std::suspend_always{};
+    // TODO: fix
+    int res = 1;
+    co_return &res;
   }
 
   /* TODO: This might not need to return a CoroRMC? */
   CoroRMC unlock(const BackendBase *b) {
     pthread_spin_unlock(&l);
     co_await std::suspend_never{};
+    // TODO: fix
+    int res = 1;
+    co_return &res;
   }
 
  private:

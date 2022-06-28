@@ -72,26 +72,11 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  RMCType work = TRAVERSE_LL;
-  if (workload != nullptr) {
-    if (strcmp(workload, "readll") == 0) {
-      // nothing
-    } else if (strcmp(workload, "writerandom") == 0) {
-      work = RANDOM_WRITES;
-    } else if (strcmp(workload, "hash") == 0) {
-      work = HASHTABLE;
-    } else {
-      die("Specify workload=readll, writerandom, hash\n");
-    }
-  } else {
-    die("Usage: -q numqps -w workload\n");
-  }
-
-  printf("Workload=%s\n", workload);
+  printf("FIX Workload not needed anymore=%s\n", workload);
 
   // HostServer creates as many qps as requested and 1 cq
   // qps here are for nicserver to connect to
   current_tid = 0;
-  HostServer server(numqps, work);
+  HostServer server(numqps);
   server.connect_and_block(port);
 }

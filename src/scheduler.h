@@ -198,8 +198,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
       }
 
       promise_handle rmc =
-          std::coroutine_handle<CoroRMC::promise_type>::from_address(
-              runqueue.front().address());
+          promise_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
 
       if (rmc.promise().continuation)
@@ -248,8 +247,7 @@ inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
 
     while (!runqueue.empty() && resumes < MAX_EXECS_COMPLETION) {
       promise_handle rmc =
-          std::coroutine_handle<CoroRMC::promise_type>::from_address(
-              runqueue.front().address());
+          promise_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
 
       rmc.resume();
@@ -278,8 +276,7 @@ inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
 
   while (!runqueue.empty() && execs < MAX_EXECS_COMPLETION) {
     promise_handle rmc =
-        std::coroutine_handle<CoroRMC::promise_type>::from_address(
-            runqueue.front().address());
+        promise_handle::from_address(runqueue.front().address());
     runqueue.pop_front();
 
     rmc.resume();
@@ -441,8 +438,7 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
   thread_local std::array<std::coroutine_handle<>,
                           MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL>
       reordervec;
-  thread_local auto add_to_reordervec = [this, &rclient,
-                                         &rmc_comps](size_t val) {
+  thread_local auto add_to_reordervec = [&rclient, &rmc_comps](size_t val) {
     const uint32_t ctx_id = val >> 32;
     const uint32_t batch_size = val & 0xFFFFFFFF;
     RDMAContext &ctx = rclient.get_context(ctx_id);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "allocator.h"
 #include "backend.h"
 #include "config.h"
@@ -71,7 +73,6 @@ class RMCTraverseLL : public RMCBase {
 
 class RMCLockTraverseLL : public RMCBase {
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
-  bool inited = false;
   LLNode *server_linkdlst = nullptr;
   RMCLock rmclock;
 
@@ -353,7 +354,7 @@ inline static constexpr auto rmc_map =
 
 /* control path */
 inline CoroRMC rmcs_get_init(RMCType type, const ibv_mr &mr) {
-  return std::move(rmc_map.at(type)->runtime_init(mr));
+  return rmc_map.at(type)->runtime_init(mr);
 }
 
 /* control path */
@@ -365,7 +366,7 @@ inline void rmcs_server_init(ServerAllocator &sa,
 
 /* data path */
 inline CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
-  return std::move(rmc_map.at(type)->runtime_handler(b));
+  return rmc_map.at(type)->runtime_handler(b);
   //#if defined(WORKLOAD_HASHTABLE)
   //  /* TODO: fix this mess */
   //  case HASHTABLE:

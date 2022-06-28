@@ -2,10 +2,10 @@
 
 static constexpr const unsigned int MB = 1 * 1024 * 1024;
 static constexpr const uint16_t PAGE_SIZE = 4096;
-static constexpr const long RMCK_TOTAL_BUFF_SZ = 1024 * MB;
+static constexpr const uint64_t RMCK_TOTAL_BUFF_SZ = 1024 * MB;
 /* reserved space for e.g. locks */
-static constexpr const long RMCK_RESERVED_BUFF_SZ = 16 * MB;
-static constexpr const long RMCK_APPS_BUFF_SZ =
+static constexpr const uint64_t RMCK_RESERVED_BUFF_SZ = 16 * MB;
+static constexpr const uint64_t RMCK_APPS_BUFF_SZ =
     RMCK_TOTAL_BUFF_SZ - RMCK_RESERVED_BUFF_SZ;
 /* to store the actual rmc being queried */
 static constexpr const unsigned MAX_RMC_PROG_LEN = 56;

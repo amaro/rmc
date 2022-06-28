@@ -15,11 +15,12 @@ class OneSidedClient {
 
   bool onesready;
   ibv_mr server_mr[NUM_REG_RMC];  // servers's memory regions
-  ibv_mr *ctrlreq_mr;             // to recv Ctrl requests
+  ibv_mr *ctrlreq_mr = nullptr;   // to recv Ctrl requests
   /* TODO: we need to support NUM_REG_RMC rdma_mrs */
-  ibv_mr *rdma_mr;  // for 1:1 mapping of host's rdma buffer (TODO: fix this)
+  ibv_mr *rdma_mr =
+      nullptr;  // for 1:1 mapping of host's rdma buffer (TODO: fix this)
   std::unique_ptr<CtrlReq> ctrlreq_buf;
-  char *rdma_buffer;
+  char *rdma_buffer = nullptr;
   HugeAllocator huge;
 
   void disconnect();  // TODO: do we need this?
@@ -32,7 +33,10 @@ class OneSidedClient {
     ctrlreq_buf = std::make_unique<CtrlReq>();
   }
 
-  ~OneSidedClient() {}
+  OneSidedClient(const OneSidedClient &) = delete;
+  OneSidedClient &operator=(const OneSidedClient &) = delete;
+  OneSidedClient(OneSidedClient &&source) = delete;
+  ~OneSidedClient() = default;
 
   void connect(const std::string &ip, const unsigned int &port);
   void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);

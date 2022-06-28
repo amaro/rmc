@@ -1,14 +1,17 @@
 #pragma once
 
-#include <stdlib.h>
 #include <sys/mman.h>
+
+#include <cstdlib>
 
 #include "rdma/rdmaserver.h"
 #include "utils/utils.h"
 
-static constexpr size_t HUGE_PAGE_SIZE = 1 << 30;  // 1 GB
+static constexpr size_t HUGE_PAGE_SIZE = 1U << 30;  // 1 GB
+static constexpr size_t CACHELINE_SIZE = 64;
 
 struct RMCAllocator {
+ private:
   struct header {
     header *next;
     size_t size;
@@ -16,28 +19,31 @@ struct RMCAllocator {
 
   header *root = nullptr;
 
+ public:
+  RMCAllocator() = default;
+
   ~RMCAllocator() {
-    auto current = root;
-    while (current) {
-      auto next = current->next;
+    auto *current = root;
+    while (current != nullptr) {
+      auto *next = current->next;
       ::free(current);
       current = next;
     }
   }
 
-  void *alloc(size_t sz) {
+  auto alloc(size_t sz) -> auto * {
     /* can we reuse prev allocation */
-    if (root && sz <= root->size) {
+    if (root != nullptr && sz <= root->size) {
       void *mem = root;
       root = root->next;
       return mem;
     }
 
-    return aligned_alloc(64, sz);
+    return aligned_alloc(CACHELINE_SIZE, sz);
   }
 
   void free(void *p, size_t sz) {
-    auto new_entry = static_cast<header *>(p);
+    auto *new_entry = static_cast<header *>(p);
     new_entry->next = root;
     new_entry->size = sz;
     root = new_entry;
@@ -45,8 +51,10 @@ struct RMCAllocator {
 };
 
 struct HugeAllocator {
+ private:
   char *ptr;
 
+ public:
   HugeAllocator() {
     ptr = static_cast<char *>(
         mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
@@ -56,7 +64,8 @@ struct HugeAllocator {
   }
 
   HugeAllocator(const HugeAllocator &) = delete;
-  HugeAllocator(HugeAllocator &&source) : ptr(source.ptr) {
+  HugeAllocator &operator=(const HugeAllocator &) = delete;
+  HugeAllocator(HugeAllocator &&source) noexcept : ptr(source.ptr) {
     source.ptr = nullptr;
   }
 
@@ -64,7 +73,7 @@ struct HugeAllocator {
     if (ptr) munmap(ptr, HUGE_PAGE_SIZE);
   }
 
-  char *get() { return ptr; }
+  auto get() -> auto * { return ptr; }
 
   constexpr size_t size() { return HUGE_PAGE_SIZE; }
 };
@@ -82,14 +91,12 @@ class ServerAllocator {
 
   RDMAServer &rserver;
   std::vector<HugeAllocator> buffers;
-  HugeAllocator &huge;
 
  public:
-  ServerAllocator(RDMAServer &rserver, HugeAllocator &huge)
-      : rserver(rserver), huge(huge) {}
+  explicit ServerAllocator(RDMAServer &rserver) : rserver(rserver) {}
 
   /* TODO: don't allocate more than requested memory? */
-  ServerAlloc request_memory(size_t sz) {
+  auto request_memory(size_t sz) -> ServerAlloc {
     rt_assert(buffers.size() <= MAX_SERVER_ALLOCS,
               "too many server allocations");
     rt_assert(sz <= HUGE_PAGE_SIZE, "server memory sz too large");
