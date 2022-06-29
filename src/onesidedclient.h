@@ -33,11 +33,6 @@ class OneSidedClient {
     ctrlreq_buf = std::make_unique<CtrlReq>();
   }
 
-  OneSidedClient(const OneSidedClient &) = delete;
-  OneSidedClient &operator=(const OneSidedClient &) = delete;
-  OneSidedClient(OneSidedClient &&source) = delete;
-  ~OneSidedClient() = default;
-
   void connect(const std::string &ip, const unsigned int &port);
   void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);
   void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size);

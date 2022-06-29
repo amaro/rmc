@@ -101,8 +101,6 @@ class RMCScheduler {
            num_qps, current_tid);
   }
 
-  ~RMCScheduler() {}
-
   void run();
   void schedule_interleaved(RDMAClient &rclient);
   void schedule_completion(RDMAClient &rclient);

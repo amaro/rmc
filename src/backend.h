@@ -644,6 +644,10 @@ class RMCLock {
   }
 
   ~RMCLock() { pthread_spin_destroy(&l); }
+  RMCLock(const RMCLock &) = delete;             // copy constructor
+  RMCLock(RMCLock &&) = delete;                  // move constructor
+  RMCLock &operator=(const RMCLock &) = delete;  // copy assignment operator
+  RMCLock &operator=(RMCLock &&) = delete;       // move assignment operator
 
   /* Need to return a CoroRMC because if we cannot take the lock, we need
    * to suspend here (and later return here to retry) */

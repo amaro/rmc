@@ -31,18 +31,8 @@ class CoroRMC {
     bool init_reply = false;
     uint8_t reply_sz = 0;
 
-    /* move assignment op */
-    promise_type &operator=(promise_type &&oth) = delete;
-    /* move constructor */
-    promise_type(promise_type &&oth) = delete;
-    /* copy constructor */
-    promise_type(const promise_type &) = delete;
-    /* copy assignment op */
-    promise_type &operator=(const promise_type &) = delete;
-
     /* constructor */
     promise_type() noexcept {};
-    ~promise_type() = default;
 
     void *operator new(size_t size) { return allocator.alloc(size); }
     void operator delete(void *p, size_t size) { allocator.free(p, size); }
@@ -138,14 +128,6 @@ class CoroRMC {
 
   /* default constructor */
   CoroRMC() = delete;
-  /* move assignment op */
-  CoroRMC &operator=(CoroRMC &&oth) = delete;
-  /* copy constructor */
-  CoroRMC(const CoroRMC &) = delete;
-  /* copy assignment op */
-  CoroRMC &operator=(const CoroRMC &) = delete;
-
-  ~CoroRMC() {}
 
   void *operator new(size_t size) = delete;
   void operator delete(void *p) = delete;

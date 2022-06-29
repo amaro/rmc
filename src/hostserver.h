@@ -25,7 +25,11 @@ class HostServer {
     ctrlreq = std::make_unique<CtrlReq>();
   }
 
-  ~HostServer() {}
+  ~HostServer() = default;
+  HostServer(const HostServer &) = delete;             // copy constructor
+  HostServer(HostServer &&) = delete;                  // move constructor
+  HostServer &operator=(const HostServer &) = delete;  // copy assignment operator
+  HostServer &operator=(HostServer &&) = delete;       // move assignment operator
 
   void connect_and_block(int port);
   void disconnect();
