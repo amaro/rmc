@@ -67,17 +67,16 @@ class RDMAPeer {
   // cqs are distributed evenly across qps
   // e.g., if num_qps=4 and num_cqs=2, cq=0 is assigned to qp=0 and qp=1
   // and cq=1 is assigned to qp=2 and qp=3
-
-  const std::unique_ptr<CompQueue[]> send_cqs;
-  const std::unique_ptr<CompQueue[]> recv_cqs;
+  std::unique_ptr<CompQueue[]> send_cqs;
+  std::unique_ptr<CompQueue[]> recv_cqs;
   std::vector<RDMAContext *> curr_batch_ctxs;
 
   bool pds_cqs_created = false;
   uint32_t unsignaled_sends = 0;
   uint16_t num_created_qps = 0;
-  const uint16_t num_qps;
-  const uint16_t num_cqs;
-  const uint16_t qps_per_thread;
+  uint16_t num_qps;
+  uint16_t num_cqs;
+  uint16_t qps_per_thread;
 
   std::list<ibv_mr *> registered_mrs;
 

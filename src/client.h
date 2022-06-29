@@ -2,6 +2,7 @@
 #define RMC_CLIENT_H
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 
 #include "rdma/rdmaclient.h"
@@ -18,8 +19,8 @@ class HostClient {
   RDMAClient rclient;
 
   /* communication with nicserver */
-  const std::unique_ptr<DataReq[]> datareq_buf;
-  const std::unique_ptr<DataReply[]> datareply_buf;
+  std::array<DataReq, QP_MAX_2SIDED_WRS> datareqs;
+  std::array<DataReply, QP_MAX_2SIDED_WRS> datareplies;
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
@@ -27,7 +28,7 @@ class HostClient {
   void post_send_req_unsig(const DataReq *req);
   void maybe_poll_sends(ibv_cq_ex *send_cq);
   void post_send_req(const DataReq *req);
-  DataReq *get_req(size_t req_idx) const;
+  DataReq *get_req(size_t req_idx);
   const DataReply *get_reply(size_t rep_idx) const;
   void disconnect();
 
@@ -40,12 +41,7 @@ class HostClient {
  public:
   // A HostClient creates one 2-sided QP to communicate to nicserver,
   // and one CQ
-  HostClient(RMCType workload)
-      : workload(workload),
-        rclient(1, 1, false),
-        datareq_buf(std::unique_ptr<DataReq[]>(new DataReq[QP_MAX_2SIDED_WRS])),
-        datareply_buf(
-            std::unique_ptr<DataReply[]>(new DataReply[QP_MAX_2SIDED_WRS])) {
+  HostClient(RMCType workload) : workload(workload), rclient(1, 1, false) {
     printf("sizeof(DataReq())=%lu\n", sizeof(DataReq));
     printf("sizeof(DataReply())=%lu\n", sizeof(DataReply));
   }
@@ -105,12 +101,12 @@ inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
   }
 }
 
-inline DataReq *HostClient::get_req(size_t req_idx) const {
-  return &datareq_buf[req_idx];
+inline DataReq *HostClient::get_req(size_t req_idx) {
+  return &datareqs[req_idx];
 }
 
 inline const DataReply *HostClient::get_reply(size_t rep_idx) const {
-  return &datareply_buf[rep_idx];
+  return &datareplies[rep_idx];
 }
 
 inline void HostClient::arm_call_req(DataReq *req, uint32_t param) const {

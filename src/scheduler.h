@@ -41,7 +41,7 @@ class RMCScheduler {
   std::deque<std::coroutine_handle<>> runqueue;
 
   // num_qps per thread
-  const uint16_t num_qps;
+  uint16_t num_qps;
   unsigned int req_idx = 0;
   uint32_t reply_idx = 0;
   bool pending_replies = false;

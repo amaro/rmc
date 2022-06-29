@@ -26,10 +26,10 @@ class HostServer {
   }
 
   ~HostServer() = default;
-  HostServer(const HostServer &) = delete;             // copy constructor
-  HostServer(HostServer &&) = delete;                  // move constructor
-  HostServer &operator=(const HostServer &) = delete;  // copy assignment operator
-  HostServer &operator=(HostServer &&) = delete;       // move assignment operator
+  HostServer(const HostServer &) = delete;
+  HostServer(HostServer &&) = delete;
+  HostServer &operator=(const HostServer &) = delete;
+  HostServer &operator=(HostServer &&) = delete;
 
   void connect_and_block(int port);
   void disconnect();

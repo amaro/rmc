@@ -11,7 +11,6 @@ class RDMAServer : public RDMAPeer {
   RDMAServer(uint16_t num_qps, bool onesided)
       : RDMAPeer(num_qps, 1), onesided(onesided) {}
 
-  ~RDMAServer() {}
   /* server multi step connection establishment
      assumes caller is server. Blocks until connection
      established */

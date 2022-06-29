@@ -31,10 +31,10 @@ struct RMCAllocator {
     }
   }
 
-  RMCAllocator(const RMCAllocator &) = delete;             // copy constructor
-  RMCAllocator(RMCAllocator &&) = delete;                  // move constructor
-  RMCAllocator &operator=(const RMCAllocator &) = delete;  // copy assignment operator
-  RMCAllocator &operator=(RMCAllocator &&) = delete;       // move assignment operator
+  RMCAllocator(const RMCAllocator &) = delete;
+  RMCAllocator(RMCAllocator &&) = delete;
+  RMCAllocator &operator=(const RMCAllocator &) = delete;
+  RMCAllocator &operator=(RMCAllocator &&) = delete;
 
   auto alloc(size_t sz) -> auto * {
     /* can we reuse prev allocation */

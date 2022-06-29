@@ -24,10 +24,10 @@ void HostClient::connect(const std::string &ip, const unsigned int &port) {
   assert(!rmccready);
   rclient.connect_to_server(ip, port);
 
-  req_buf_mr = rclient.register_mr(&datareq_buf[0],
-                                   sizeof(DataReq) * QP_MAX_2SIDED_WRS, 0);
+  req_buf_mr =
+      rclient.register_mr(&datareqs[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS, 0);
   reply_buf_mr = rclient.register_mr(
-      &datareply_buf[0], sizeof(DataReply) * QP_MAX_2SIDED_WRS,
+      &datareplies[0], sizeof(DataReply) * QP_MAX_2SIDED_WRS,
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   rmccready = true;
 }
@@ -98,7 +98,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
 
   assert(this->inflight == 0);
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-    assert(*(reinterpret_cast<int *>(datareply_buf[i].data.exec.data)) == 1);
+    assert(*(reinterpret_cast<int *>(datareplies[i].data.exec.data)) == 1);
 
   return duration;
 }

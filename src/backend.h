@@ -76,7 +76,7 @@ class BackendBase {
 
   virtual ~BackendBase() {}
   BackendBase(const BackendBase &) = delete;
-  BackendBase(BackendBase&&) = delete;
+  BackendBase(BackendBase &&) = delete;
   BackendBase &operator=(const BackendBase &) = delete;
   BackendBase &operator=(BackendBase &&) = delete;
 
@@ -180,8 +180,7 @@ class CompRDMA : public BackendBase {
 
  public:
   CompRDMA(OneSidedClient &c)
-      : BackendBase(c),
-        rclient(OSClient.get_rclient()) {
+      : BackendBase(c), rclient(OSClient.get_rclient()) {
     printf("Using run-to-completion RDMA Backend\n");
   }
 

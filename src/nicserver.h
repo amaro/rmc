@@ -20,8 +20,8 @@ class NICServer {
   bool nsready = false;
 
   /* communication with client */
-  const std::unique_ptr<DataReq[]> datareq_buf;
-  const std::unique_ptr<DataReply[]> datareply_buf;
+  std::array<DataReq, QP_MAX_2SIDED_WRS> datareqs;
+  std::array<DataReply, QP_MAX_2SIDED_WRS> datareplies;
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
@@ -38,16 +38,7 @@ class NICServer {
 
  public:
   NICServer(OneSidedClient &client, RDMAServer &server)
-      : onesidedclient(client),
-        rserver(server),
-        datareq_buf(std::unique_ptr<DataReq[]>(new DataReq[QP_MAX_2SIDED_WRS])),
-        datareply_buf(
-            std::unique_ptr<DataReply[]>(new DataReply[QP_MAX_2SIDED_WRS])) {
-    for (size_t i = 0; i < QP_MAX_2SIDED_WRS; ++i) {
-      /* TODO: assumes replies are successful ???*/
-      datareply_buf[i].type = DataCmdType::CALL_RMC;
-    }
-  }
+      : onesidedclient(client), rserver(server) {}
 
   void connect(const unsigned int &port);
   void start(RMCScheduler &sched, const unsigned int &clientport, uint16_t tid);
@@ -74,11 +65,11 @@ inline void NICServer::post_batched_send_reply(RDMAContext &ctx,
 }
 
 inline DataReq *NICServer::get_req(size_t req_idx) {
-  return &datareq_buf[req_idx];
+  return &datareqs[req_idx];
 }
 
 inline DataReply *NICServer::get_reply(size_t rep_idx) {
-  return &datareply_buf[rep_idx];
+  return &datareplies[rep_idx];
 }
 
 #endif

@@ -17,10 +17,10 @@ void NICServer::connect(const unsigned int &port) {
 
   /* nic writes incoming requests */
   req_buf_mr =
-      rserver.register_mr(&datareq_buf[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS,
+      rserver.register_mr(&datareqs[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS,
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   /* cpu writes outgoing replies */
-  reply_buf_mr = rserver.register_mr(&datareply_buf[0],
+  reply_buf_mr = rserver.register_mr(&datareplies[0],
                                      sizeof(DataReply) * QP_MAX_2SIDED_WRS, 0);
 
   nsready = true;
