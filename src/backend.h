@@ -8,31 +8,6 @@
 #include "lib/cuckoo_hash.h"
 #endif
 
-/* TODO: move to impl of linked list */
-struct LLNode {
-  void *next;
-  uint64_t data;
-};
-
-static constexpr const uint16_t LINKDLIST_NUM_SKIP_NODES = 16;
-static constexpr const uint32_t LINKDLIST_TOTAL_NODES =
-    RMCK_APPS_BUFF_SZ / sizeof(LLNode);
-
-static_assert(sizeof(LLNode) == 16);
-
-static inline uint32_t get_next_llnode(uint32_t num_skip) noexcept {
-  thread_local uint32_t addresses_given = 0;
-  uint32_t next_node = addresses_given * LINKDLIST_NUM_SKIP_NODES;
-
-  if (next_node + num_skip > LINKDLIST_TOTAL_NODES) {
-    next_node = 0;
-    addresses_given = 0;
-  }
-
-  addresses_given++;
-  return next_node;
-}
-
 struct AwaitGetParam {
   CoroRMC::promise_type *promise;
 
@@ -100,6 +75,10 @@ class BackendBase {
   BackendBase(OneSidedClient &c) : OSClient(c) {}
 
   virtual ~BackendBase() {}
+  BackendBase(const BackendBase &) = delete;
+  BackendBase(BackendBase&&) = delete;
+  BackendBase &operator=(const BackendBase &) = delete;
+  BackendBase &operator=(BackendBase &&) = delete;
 
  public:
   virtual void init() = 0;
@@ -113,9 +92,6 @@ class BackendBase {
                                  uint32_t sz) const = 0;
   virtual AwaitWrite write_laddr(uintptr_t laddr, const void *data,
                                  uint32_t sz) const = 0;
-
-  /* TODO: we should be able to get rid of these with per-RMC class state */
-  virtual uintptr_t get_baseaddr(uint32_t num_nodes) const = 0;
 
   auto get_param() const { return AwaitGetParam{}; }
 };
@@ -135,8 +111,6 @@ class CoopRDMA : public BackendBase {
   CoopRDMA(OneSidedClient &c) : BackendBase(c) {
     printf("BACKEND: Cooperative RDMA (default)\n");
   }
-
-  ~CoopRDMA() {}
 
   void init() override {
     apps_base_laddr = OSClient.get_apps_base_laddr();
@@ -185,12 +159,6 @@ class CoopRDMA : public BackendBase {
     OSClient.cmp_swp_async(raddr, laddr, cmp, swp);
     return AwaitRead{laddr, true};
   }
-
-  // TODO: move this to per-RMC class methods
-  uintptr_t get_baseaddr(uint32_t num_nodes) const override {
-    uint32_t next_node = get_next_llnode(num_nodes);
-    return apps_base_raddr + next_node * sizeof(LLNode);
-  }
 };
 
 /* Run to completion RDMA backend */
@@ -213,8 +181,6 @@ class CompRDMA : public BackendBase {
  public:
   CompRDMA(OneSidedClient &c)
       : BackendBase(c),
-        apps_base_laddr(0),
-        apps_base_raddr(0),
         rclient(OSClient.get_rclient()) {
     printf("Using run-to-completion RDMA Backend\n");
   }
@@ -255,12 +221,6 @@ class CompRDMA : public BackendBase {
   AwaitWrite write_laddr(uintptr_t laddr, const void *data,
                          uint32_t sz) const override {
     return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
-  }
-
-  // TODO: move this to per-RMC class methods
-  uintptr_t get_baseaddr(uint32_t num_nodes) const override {
-    uint32_t next_node = get_next_llnode(num_nodes);
-    return apps_base_raddr + next_node * sizeof(LLNode);
   }
 };
 
@@ -389,12 +349,6 @@ class CompRDMA : public BackendBase {
 //    return AwaitRDMARead{laddr};
 //  }
 
-//  // TODO: unify with get_random_raddr
-//  auto get_baseaddr(uint32_t num_nodes) noexcept {
-//    uint32_t next_node = get_next_llnode(num_nodes);
-//    return apps_base_raddr + next_node * sizeof(LLNode);
-//  }
-//
 //  uintptr_t get_random_raddr() {
 //    last_random_addr += 248;
 //    return last_random_addr;
@@ -695,18 +649,16 @@ class RMCLock {
    * to suspend here (and later return here to retry) */
   CoroRMC lock(const BackendBase *b) {
     while (pthread_spin_trylock(&l) != 0) co_await std::suspend_always{};
-    // TODO: fix
-    int res = 1;
-    co_return &res;
+    IgnoreReply ignore;
+    co_return &ignore;
   }
 
   /* TODO: This might not need to return a CoroRMC? */
   CoroRMC unlock(const BackendBase *b) {
     pthread_spin_unlock(&l);
     co_await std::suspend_never{};
-    // TODO: fix
-    int res = 1;
-    co_return &res;
+    IgnoreReply ignore;
+    co_return &ignore;
   }
 
  private:

@@ -108,6 +108,5 @@ void RDMAPeer::dereg_mrs() {
 
 void RDMAPeer::handle_conn_established(RDMAContext &ctx) {
   assert(!ctx.connected);
-  puts("connection established");
   ctx.connected = true;
 }

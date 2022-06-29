@@ -9,6 +9,9 @@
 /* RMC allocator */
 inline thread_local RMCAllocator allocator;
 struct InitReply;
+/* IgnoreReply is a hack, but no time to figure out how to do this better right
+ * now */
+struct IgnoreReply {};
 
 class CoroRMC {
  public:
@@ -83,6 +86,8 @@ class CoroRMC {
        * is explicitly destroyed by the scheduler after issuing a reply (which
        * actually copies the memory to reply buffer) */
       static_assert(sizeof(T) <= MAX_RMC_REPLY_LEN);
+
+      if constexpr (std::is_same<T, IgnoreReply>::value) return;
 
       if (reply != nullptr) {
         reply_ptr = reply;

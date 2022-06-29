@@ -3,12 +3,10 @@ include_directories(${SRC_DIR})
 include_directories(${SRC_DIR}/lib)
 
 add_library(rdmapeer_obj OBJECT rdma/rdmapeer.cpp)
-
 add_library(rdmaclient_obj OBJECT rdma/rdmaclient.cpp)
-
 add_library(rdmaserver_obj OBJECT rdma/rdmaserver.cpp)
-
 add_library(onesidedclient_obj OBJECT onesidedclient.cpp)
+add_library(rmcs_obj OBJECT rmcs.cpp)
 
 add_library(scheduler_rdma_obj OBJECT scheduler.cpp)
 target_compile_definitions(scheduler_rdma_obj PUBLIC -DBACKEND_RDMA=1)
@@ -48,13 +46,14 @@ target_link_libraries(client mlx5 rdmacm ibverbs pthread)
 
 # hostserver
 add_executable(hostserver hostserver.cpp
+    $<TARGET_OBJECTS:rmcs_obj>
     $<TARGET_OBJECTS:rdmaserver_obj>
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_link_libraries(hostserver mlx5 rdmacm ibverbs pthread)
 
-# nicserver; needs both rdmaserver and rdmaclient;
-# and for some reason it needs onesidedclient.cpp too (TODO)
+# nicserver
 add_executable(nicserver nicserver.cpp
+    $<TARGET_OBJECTS:rmcs_obj>
     $<TARGET_OBJECTS:scheduler_rdma_obj>
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>
@@ -74,6 +73,7 @@ target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
 #target_link_libraries(nicserver_rdma_hash mlx5 rdmacm ibverbs pthread)
 #
 add_executable(nicserver_rdmacomp nicserver.cpp
+    $<TARGET_OBJECTS:rmcs_obj>
     $<TARGET_OBJECTS:scheduler_rdmacomp_obj>
     $<TARGET_OBJECTS:onesidedclient_obj>
     $<TARGET_OBJECTS:rdmaclient_obj>

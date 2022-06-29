@@ -9,7 +9,6 @@
 enum RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, RANDOM_WRITES, HASHTABLE };
 
 struct RMCBase {
-  virtual ~RMCBase() {}
   /* Runs at the runtime location, main handler for this RMC */
   virtual CoroRMC runtime_handler(const BackendBase *b) = 0;
   /* Runs at the runtime location. Receives memory region information such that
@@ -18,25 +17,54 @@ struct RMCBase {
   /* Runs at the server: requests memory, and gets access to it, so
      it can be initialized. */
   virtual ServerAlloc server_init(ServerAllocator &sa) = 0;
+
+  RMCBase() = default;
+  virtual ~RMCBase() = default;
+
+  RMCBase(const RMCBase &) = delete;             // copy constructor
+  RMCBase(RMCBase &&) = delete;                  // move constructor
+  RMCBase &operator=(const RMCBase &) = delete;  // copy assignment operator
+  RMCBase &operator=(RMCBase &&) = delete;       // move assignment operator
 };
 
 class RMCTraverseLL : public RMCBase {
+  struct LLNode {
+    void *next;
+    uint64_t data;
+  };
+
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
+
   bool runtime_inited = false;
   uintptr_t rbaseaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
 
   LLNode *server_linkdlst = nullptr;
+  uint32_t start_node = 0;
+
+  uintptr_t get_next_node_addr(uint32_t num_skip) {
+    uint32_t next_node = start_node;
+    start_node += num_skip;
+    return rbaseaddr + next_node * sizeof(LLNode);
+  }
 
  public:
+  RMCTraverseLL() = default;
+
   ~RMCTraverseLL() {
     if (server_linkdlst) destroy_linkedlist(server_linkdlst);
   }
+  RMCTraverseLL(const RMCTraverseLL &) = delete;
+  RMCTraverseLL(RMCTraverseLL &&) = delete;
+  RMCTraverseLL &operator=(const RMCTraverseLL &) = delete;
+  RMCTraverseLL &operator=(RMCTraverseLL &&) = delete;
 
-  CoroRMC runtime_handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) final {
     int num_nodes = co_await b->get_param();
-    uintptr_t addr = b->get_baseaddr(num_nodes);
+    uintptr_t addr = get_next_node_addr(num_nodes);
+
     LLNode *node = nullptr;
     int reply = 1;
 
@@ -48,21 +76,21 @@ class RMCTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &remote_mr) override {
+  CoroRMC runtime_init(const ibv_mr &remote_mr) final {
     assert(!runtime_inited);
     runtime_inited = true;
 
-    puts("RMCTraverseLL runtime_init() called");
     /* cache remote memory access information */
     rbaseaddr = reinterpret_cast<uintptr_t>(remote_mr.addr);
     length = remote_mr.length & 0xFFFFffff;
     rkey = remote_mr.rkey;
 
+    printf("runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
     InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
 
-  ServerAlloc server_init(ServerAllocator &sa) override {
+  ServerAlloc server_init(ServerAllocator &sa) final {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
@@ -72,18 +100,38 @@ class RMCTraverseLL : public RMCBase {
 };
 
 class RMCLockTraverseLL : public RMCBase {
+  struct LLNode {
+    void *next;
+    uint64_t data;
+  };
+
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  uintptr_t rbaseaddr = 0;
+  uint32_t length = 0;
+  uint32_t rkey = 0;
   LLNode *server_linkdlst = nullptr;
+  uint32_t start_node = 0;
   RMCLock rmclock;
 
+  uintptr_t get_next_node_addr(uint32_t num_skip) {
+    uint32_t next_node = start_node;
+    start_node += num_skip;
+    return rbaseaddr + next_node * sizeof(LLNode);
+  }
+
  public:
+  RMCLockTraverseLL() = default;
   ~RMCLockTraverseLL() {
     if (server_linkdlst) destroy_linkedlist(server_linkdlst);
   }
+  RMCLockTraverseLL(const RMCLockTraverseLL &) = delete;
+  RMCLockTraverseLL(RMCLockTraverseLL &&) = delete;
+  RMCLockTraverseLL &operator=(const RMCLockTraverseLL &) = delete;
+  RMCLockTraverseLL &operator=(RMCLockTraverseLL &&) = delete;
 
-  CoroRMC runtime_handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) final {
     int num_nodes = co_await b->get_param();
-    uintptr_t addr = b->get_baseaddr(num_nodes);
+    uintptr_t addr = get_next_node_addr(num_nodes);
     LLNode *node = nullptr;
     int reply = 1;
 
@@ -97,12 +145,17 @@ class RMCLockTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &mr) override {
-    int reply = 1;
+  CoroRMC runtime_init(const ibv_mr &remote_mr) final {
+    rbaseaddr = reinterpret_cast<uintptr_t>(remote_mr.addr);
+    length = remote_mr.length & 0xFFFFffff;
+    rkey = remote_mr.rkey;
+
+    printf("runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
+    InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
 
-  ServerAlloc server_init(ServerAllocator &sa) override {
+  ServerAlloc server_init(ServerAllocator &sa) final {
     ServerAlloc alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
@@ -117,9 +170,7 @@ class RMCRandomWrites : public RMCBase {
   uintptr_t random_addr = 0;
 
  public:
-  ~RMCRandomWrites() {}
-
-  CoroRMC runtime_handler(const BackendBase *b) override {
+  CoroRMC runtime_handler(const BackendBase *b) final {
     rt_assert(inited, "write RMC not inited");  // TODO: remove
     const uint32_t num_writes = co_await b->get_param();
     int reply = 1;
@@ -132,11 +183,11 @@ class RMCRandomWrites : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &mr) override {
+  CoroRMC runtime_init(const ibv_mr &mr) final {
     int reply = 1;
     co_return &reply;
   }
-  ServerAlloc server_init(ServerAllocator &sa) override {
+  ServerAlloc server_init(ServerAllocator &sa) final {
     return sa.request_memory(BUFSIZE);
   }
   static constexpr RMCType get_type() { return RANDOM_WRITES; }
@@ -335,54 +386,6 @@ inline CoroRMC hash_lookup(Backend<T> &b) {
 
 #endif  // WORKLOAD_HASHTABLE
 
-inline static RMCTraverseLL traversell;
-inline static RMCLockTraverseLL locktraversell;
-inline static RMCRandomWrites randomwrites;
-
-/* data path */
-// static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-// rmc_values{
-//    {std::make_pair(TRAVERSE_LL, &traversell),
-//     std::make_pair(LOCK_TRAVERSE_LL, &locktraversell),
-//     std::make_pair(RANDOM_WRITES, &randomwrites)}};
-inline static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(RMCTraverseLL::get_type(), &traversell)}};
-
-/* data path */
-inline static constexpr auto rmc_map =
-    StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
-
-/* control path */
-inline CoroRMC rmcs_get_init(RMCType type, const ibv_mr &mr) {
-  return rmc_map.at(type)->runtime_init(mr);
-}
-
-/* control path */
-inline void rmcs_server_init(ServerAllocator &sa,
-                             std::vector<ServerAlloc> &allocs) {
-  for (auto &rmc_pair : rmc_values)
-    allocs.push_back(rmc_pair.second->server_init(sa));
-}
-
-/* data path */
-inline CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
-  return rmc_map.at(type)->runtime_handler(b);
-  //#if defined(WORKLOAD_HASHTABLE)
-  //  /* TODO: fix this mess */
-  //  case HASHTABLE:
-  //    // thread_local uint8_t num_gets = 0;
-  //    // if (++num_gets > 1) {
-  //    //  num_gets = 0;
-  //    //  return std::move(hash_insert(backend));
-  //    //}
-  //
-  //    // return std::move(hash_lookup(backend));
-  //    thread_local uint16_t num_gets = 0;
-  //
-  //    if (num_gets > 20) return std::move(hash_lookup(b));
-  //
-  //    num_gets++;
-  //    if (num_gets > 20) printf("this is last insert\n");
-  //    return std::move(hash_insert(b));
-  //#endif
-}
+CoroRMC rmcs_get_init(RMCType type, const ibv_mr &mr);
+CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b);
+void rmcs_server_init(ServerAllocator &sa, std::vector<ServerAlloc> &allocs);

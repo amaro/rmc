@@ -391,6 +391,8 @@ void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
   HostClient client(workload);
   client.connect(server, start_port + tid);
 
+  if (tid == 0) client.initialize_rmc(workload);
+
   benchmark_load(client, numaccess, load, barrier, rtts[tid],
                  NUM_REQS / num_threads);
 

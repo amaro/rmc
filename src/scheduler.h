@@ -156,7 +156,8 @@ inline void RMCScheduler::req_init_rmc(const DataReq *req) {
   const InitReq *initreq = &req->data.init;
 
   // TODO: get ibv_mr or similar here based on initreq->id
-  CoroRMC initrmc = rmcs_get_init(initreq->id, ns.onesidedclient.get_mr());
+  CoroRMC initrmc =
+      rmcs_get_init(initreq->id, ns.onesidedclient.get_server_mr());
 
   /* set rmc params */
   // rmc.get_handle().promise().param =

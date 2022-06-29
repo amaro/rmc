@@ -63,15 +63,17 @@ struct HugeAllocator {
     // std::memset(ptr, 0, HUGE_PAGE_SIZE);
   }
 
-  HugeAllocator(const HugeAllocator &) = delete;
-  HugeAllocator &operator=(const HugeAllocator &) = delete;
+  ~HugeAllocator() {
+    if (ptr) munmap(ptr, HUGE_PAGE_SIZE);
+  }
+
   HugeAllocator(HugeAllocator &&source) noexcept : ptr(source.ptr) {
     source.ptr = nullptr;
   }
 
-  ~HugeAllocator() {
-    if (ptr) munmap(ptr, HUGE_PAGE_SIZE);
-  }
+  HugeAllocator(const HugeAllocator &) = delete;
+  HugeAllocator &operator=(const HugeAllocator &) = delete;
+  HugeAllocator &operator=(HugeAllocator &&) = delete;
 
   auto get() -> auto * { return ptr; }
 
@@ -109,8 +111,6 @@ class ServerAllocator {
         IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
             IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_ATOMIC |
             IBV_ACCESS_RELAXED_ORDERING);
-    printf("rdma_mr rkey=%u\n", mr->rkey);
-
     buffers.push_back(std::move(hugealloc));
     return ServerAlloc{addr, sz, mr};
   }

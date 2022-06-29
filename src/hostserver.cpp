@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include "rmcs.h"
 #include "utils/utils.h"
 
 void HostServer::connect_and_block(int port) {
