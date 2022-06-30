@@ -34,10 +34,12 @@ class OneSidedClient {
   }
 
   void connect(const std::string &ip, const unsigned int &port);
-  void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size);
-  void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size);
+  void read_async(uintptr_t raddr, uintptr_t laddr, uint32_t size,
+                  uint32_t rkey);
+  void write_async(uint64_t raddr, uintptr_t laddr, uint32_t size,
+                   uint32_t rkey);
   void cmp_swp_async(uintptr_t raddr, uintptr_t laddr, uint64_t cmp,
-                     uint64_t swp);
+                     uint64_t swp, uint32_t rkey);
   template <typename T>
   int poll_reads_atmost(int max, T &&comp_func);
   uintptr_t get_rsvd_base_raddr();
@@ -79,27 +81,30 @@ inline void OneSidedClient::recv_ctrl_reqs() {
    regions are the same size.
    so the offsets are taken the same way remotely and locally */
 inline void OneSidedClient::read_async(uintptr_t remote_addr,
-                                       uintptr_t local_addr, uint32_t size) {
+                                       uintptr_t local_addr, uint32_t size,
+                                       uint32_t rkey) {
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
-  ctx->post_batched_onesided(remote_addr, local_addr, size, server_mr[0].rkey,
-                             rdma_mr->lkey, OpType::READ, 0, 0);
+  ctx->post_batched_onesided(remote_addr, local_addr, size, rkey, rdma_mr->lkey,
+                             OpType::READ, 0, 0);
 }
 
 inline void OneSidedClient::write_async(uintptr_t remote_addr,
-                                        uintptr_t local_addr, uint32_t size) {
+                                        uintptr_t local_addr, uint32_t size,
+                                        uint32_t rkey) {
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
-  ctx->post_batched_onesided(remote_addr, local_addr, size, server_mr[0].rkey,
-                             rdma_mr->lkey, OpType::WRITE, 0, 0);
+  ctx->post_batched_onesided(remote_addr, local_addr, size, rkey, rdma_mr->lkey,
+                             OpType::WRITE, 0, 0);
 }
 
 inline void OneSidedClient::cmp_swp_async(uintptr_t raddr, uintptr_t laddr,
-                                          uint64_t cmp, uint64_t swp) {
+                                          uint64_t cmp, uint64_t swp,
+                                          uint32_t rkey) {
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);

@@ -69,7 +69,8 @@ class RMCTraverseLL : public RMCBase {
     int reply = 1;
 
     for (int i = 0; i < num_nodes; ++i) {
-      node = static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode)));
+      node =
+          static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode), rkey));
       addr = reinterpret_cast<uintptr_t>(node->next);
     }
 
@@ -137,7 +138,8 @@ class RMCLockTraverseLL : public RMCBase {
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await rmclock.lock(b);
-      node = static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode)));
+      node =
+          static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode), rkey));
       addr = reinterpret_cast<uintptr_t>(node->next);
       co_await rmclock.unlock(b);
     }
@@ -176,7 +178,8 @@ class RMCRandomWrites : public RMCBase {
     int reply = 1;
 
     for (auto i = 0u; i < num_writes; ++i) {
-      co_await b->write_raddr(random_addr, &WRITE_VAL, sizeof(WRITE_VAL));
+      // TODO: rkey
+      co_await b->write(random_addr, &WRITE_VAL, sizeof(WRITE_VAL), 0);
       random_addr += 248;
     }
 
@@ -187,9 +190,11 @@ class RMCRandomWrites : public RMCBase {
     int reply = 1;
     co_return &reply;
   }
+
   ServerAlloc server_init(ServerAllocator &sa) final {
     return sa.request_memory(BUFSIZE);
   }
+
   static constexpr RMCType get_type() { return RANDOM_WRITES; }
 };
 

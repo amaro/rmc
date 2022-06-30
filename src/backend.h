@@ -83,15 +83,10 @@ class BackendBase {
  public:
   virtual void init() = 0;
 
-  virtual AwaitRead read(uintptr_t raddr, uint32_t sz) const = 0;
-  virtual AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const = 0;
-  virtual AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
-                           uint32_t sz) const = 0;
+  virtual AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const = 0;
   /* TODO: when we introduce remote memory stack, these won't be needed */
-  virtual AwaitWrite write_raddr(uintptr_t raddr, const void *data,
-                                 uint32_t sz) const = 0;
-  virtual AwaitWrite write_laddr(uintptr_t laddr, const void *data,
-                                 uint32_t sz) const = 0;
+  virtual AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
+                           uint32_t rkey) const = 0;
 
   auto get_param() const { return AwaitGetParam{}; }
 };
@@ -124,39 +119,25 @@ class CoopRDMA : public BackendBase {
 #endif
   }
 
-  AwaitRead read(uintptr_t raddr, uint32_t sz) const override {
+  AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const override {
     uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-    OSClient.read_async(raddr, laddr, sz);
+    OSClient.read_async(raddr, laddr, sz, rkey);
     return AwaitRead{laddr, true};
   }
 
-  AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const override {
-    uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
-    OSClient.read_async(raddr, laddr, sz);
-    return AwaitRead{laddr, true};
-  }
-
-  AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
-                   uint32_t sz) const override {
+  AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
+                   uint32_t rkey) const override {
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
-    OSClient.write_async(raddr, laddr, sz);
+    OSClient.write_async(raddr, laddr, sz, rkey);
     return AwaitWrite{true};
-  }
-
-  AwaitWrite write_raddr(uintptr_t raddr, const void *data,
-                         uint32_t sz) const override {
-    return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data, sz);
-  }
-
-  AwaitWrite write_laddr(uintptr_t laddr, const void *data,
-                         uint32_t sz) const override {
-    return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
   }
 
   // NOTE: cmp_swp does not map 1:1 raddrs to laddrs
   // raddr is fixed but laddr changes depending on in flight atomic ops
-  auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp) {
-    OSClient.cmp_swp_async(raddr, laddr, cmp, swp);
+  auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp,
+               uint32_t rkey) {
+    OSClient.cmp_swp_async(raddr, laddr, cmp, swp, rkey);
     return AwaitRead{laddr, true};
   }
 };
@@ -168,15 +149,6 @@ class CompRDMA : public BackendBase {
   RDMAClient &rclient;
   RDMAContext *ctx;
   ibv_cq_ex *send_cq;
-
-  AwaitRead _read_common(uintptr_t laddr, uintptr_t raddr, uint32_t sz) const {
-    rclient.start_batched_ops(ctx);
-    OSClient.read_async(raddr, laddr, sz);
-    rclient.end_batched_ops();
-
-    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
-    return AwaitRead{laddr, false};
-  }
 
  public:
   CompRDMA(OneSidedClient &c)
@@ -191,35 +163,26 @@ class CompRDMA : public BackendBase {
     send_cq = rclient.get_send_cq(0);
   }
 
-  AwaitRead read(uintptr_t raddr, uint32_t sz) const override {
+  AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const override {
     uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-    return _read_common(laddr, raddr, sz);
+    rclient.start_batched_ops(ctx);
+    OSClient.read_async(raddr, laddr, sz, rkey);
+    rclient.end_batched_ops();
+
+    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
+    return AwaitRead{laddr, false};
   }
 
-  AwaitRead read_laddr(uintptr_t laddr, uint32_t sz) const override {
-    uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
-    return _read_common(laddr, raddr, sz);
-  }
-
-  AwaitWrite write(uintptr_t raddr, uintptr_t laddr, const void *data,
-                   uint32_t sz) const override {
+  AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
+                   uint32_t rkey) const override {
+    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
     memcpy(reinterpret_cast<void *>(laddr), data, sz);
     rclient.start_batched_ops(ctx);
-    OSClient.write_async(raddr, laddr, sz);
+    OSClient.write_async(raddr, laddr, sz, rkey);
     rclient.end_batched_ops();
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
 
     return AwaitWrite{false};
-  }
-
-  AwaitWrite write_raddr(uintptr_t raddr, const void *data,
-                         uint32_t sz) const override {
-    return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data, sz);
-  }
-
-  AwaitWrite write_laddr(uintptr_t laddr, const void *data,
-                         uint32_t sz) const override {
-    return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
   }
 };
 
