@@ -109,7 +109,7 @@ inline void OneSidedClient::cmp_swp_async(uintptr_t raddr, uintptr_t laddr,
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
-  ctx->post_batched_onesided(raddr, laddr, 8, server_mr[0].rkey, rdma_mr->lkey,
+  ctx->post_batched_onesided(raddr, laddr, 8, rkey, rdma_mr->lkey,
                              OpType::CMP_SWP, cmp, swp);
 }
 

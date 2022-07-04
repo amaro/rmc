@@ -1,7 +1,5 @@
 #pragma once
 
-#include <array>
-
 #include "allocator.h"
 #include "backend.h"
 #include "config.h"

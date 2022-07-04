@@ -1,5 +1,7 @@
 #include "rmcs.h"
 
+#include <array>
+
 class RMCTraverseLL : public RMCBase {
   struct LLNode {
     void *next;
