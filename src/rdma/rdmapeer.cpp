@@ -76,7 +76,8 @@ void RDMAPeer::create_qps(RDMAContext &ctx, bool onesided) {
   ctx.qpx = ibv_qp_to_qp_ex(ctx.qp);
 
   printf("created onesided=%d qp=%p bound to send_cq=%p and recv_cq=%p\n",
-         onesided, ctx.qp, send_cq, recv_cq);
+         onesided, static_cast<void *>(ctx.qp), static_cast<void *>(send_cq),
+         static_cast<void *>(recv_cq));
   num_created_qps++;
 }
 
