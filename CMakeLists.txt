@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_compile_options(-Wall -Werror -pedantic -fcoroutines -fno-exceptions -fno-rtti)
 
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 # for clang
 #add_compile_options(-fcoroutines-ts -stdlib=libc++)

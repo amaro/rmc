@@ -7,10 +7,6 @@ void OneSidedClient::connect(const std::string &ip, const unsigned int &port) {
   ctrlreq_mr =
       rclient.register_mr(ctrlreq_buf.get(), sizeof(CtrlReq),
                           IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
-  rdma_mr =
-      rclient.register_mr(rdma_buffer, RMCK_TOTAL_BUFF_SZ,
-                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
-
   onesready = true;
   recv_ctrl_reqs();
 

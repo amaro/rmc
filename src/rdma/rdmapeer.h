@@ -171,7 +171,7 @@ struct RDMAContext {
   };
 
   struct OneSidedOp {
-    enum OpType { INVALID, READ, WRITE, CMP_SWP, FETCH_ADD };
+    enum class OpType { INVALID, READ, WRITE, CMP_SWP, FETCH_ADD };
 
     uintptr_t raddr = 0;
     uintptr_t laddr = 0;
@@ -180,25 +180,24 @@ struct RDMAContext {
     uint32_t lkey = 0;
     uint64_t cmp = 0;
     uint64_t swp = 0;
-    OpType optype = INVALID;
-
-    OneSidedOp() = default;
+    OpType optype = OpType::INVALID;
 
     void post(ibv_qp_ex *qpx, unsigned int flags, uint64_t wr_id) {
       qpx->wr_flags = flags;
       qpx->wr_id = wr_id;
 
       switch (optype) {
-        case READ:
+        case OpType::READ:
           ibv_wr_rdma_read(qpx, rkey, raddr);
           break;
-        case WRITE:
+        case OpType::WRITE:
           ibv_wr_rdma_write(qpx, rkey, raddr);
           break;
-        case CMP_SWP:
+        case OpType::CMP_SWP:
           ibv_wr_atomic_cmp_swp(qpx, rkey, raddr, cmp, swp);
           break;
-        default:
+        case OpType::FETCH_ADD:
+        case OpType::INVALID:
           die("bad optype\n");
       }
 
@@ -305,11 +304,21 @@ struct RDMAContext {
     buffered_onesided.lkey = lkey;
     buffered_onesided.optype = optype;
 
-    if (optype == OneSidedOp::CMP_SWP) {
+    if (optype == OneSidedOp::OpType::CMP_SWP) {
       buffered_onesided.cmp = cmp;
       buffered_onesided.swp = swp;
     }
 
+    curr_batch_size++;
+  }
+
+  void post_batched_onesided(OneSidedOp op) {
+    if (curr_batch_size > 0)
+      buffered_onesided.post(qpx, 0, 0);
+    else
+      curr_batch_type = BatchType::ONESIDED;
+
+    buffered_onesided = op;
     curr_batch_size++;
   }
 
