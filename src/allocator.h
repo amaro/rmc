@@ -10,51 +10,6 @@
 static constexpr size_t HUGE_PAGE_SIZE = 1U << 30;  // 1 GB
 static constexpr size_t CACHELINE_SIZE = 64;
 
-struct RMCAllocator {
- private:
-  struct header {
-    header *next;
-    size_t size;
-  };
-
-  header *root = nullptr;
-
- public:
-  RMCAllocator() = default;
-
-  ~RMCAllocator() {
-    auto *current = root;
-    while (current != nullptr) {
-      auto *next = current->next;
-      ::free(current);
-      current = next;
-    }
-  }
-
-  RMCAllocator(const RMCAllocator &) = delete;
-  RMCAllocator(RMCAllocator &&) = delete;
-  RMCAllocator &operator=(const RMCAllocator &) = delete;
-  RMCAllocator &operator=(RMCAllocator &&) = delete;
-
-  auto alloc(size_t sz) -> auto * {
-    /* can we reuse prev allocation */
-    if (root != nullptr && sz <= root->size) {
-      void *mem = root;
-      root = root->next;
-      return mem;
-    }
-
-    return aligned_alloc(CACHELINE_SIZE, sz);
-  }
-
-  void free(void *p, size_t sz) {
-    auto *new_entry = static_cast<header *>(p);
-    new_entry->next = root;
-    new_entry->size = sz;
-    root = new_entry;
-  }
-};
-
 struct HugeAllocator {
  private:
   char *ptr;
@@ -62,7 +17,7 @@ struct HugeAllocator {
  public:
   HugeAllocator() {
     ptr = static_cast<char *>(
-        mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
+        mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC,
              MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0));
     rt_assert(ptr != MAP_FAILED, "huge allocation failed");
     // std::memset(ptr, 0, HUGE_PAGE_SIZE);
@@ -84,6 +39,78 @@ struct HugeAllocator {
 
   constexpr size_t size() { return HUGE_PAGE_SIZE; }
 };
+
+struct RMCAllocator {
+ private:
+  struct header {
+    header *next;
+    size_t size;
+  };
+
+  struct thread_alloc {
+    header *free_root;
+    uintptr_t alloc_offset;
+    size_t remaining;
+  };
+
+  HugeAllocator huge;
+  std::vector<thread_alloc> allocs;
+
+  auto _alloc(thread_alloc &alloc, size_t sz) -> auto * {
+    /* can we reuse prev allocation */
+    if (alloc.free_root != nullptr && sz <= alloc.free_root->size) {
+      void *mem = alloc.free_root;
+      alloc.free_root = alloc.free_root->next;
+      return mem;
+    }
+
+    alloc.remaining -= sz;
+    assert(alloc.remaining > 0);
+    auto *mem = reinterpret_cast<void *>(alloc.alloc_offset);
+    alloc.alloc_offset += sz;
+    return mem;
+  }
+
+  auto _free(thread_alloc &alloc, void *p, size_t sz) {
+    auto *new_entry = static_cast<header *>(p);
+    new_entry->next = alloc.free_root;
+    new_entry->size = sz;
+    alloc.free_root = new_entry;
+  }
+
+ public:
+  RMCAllocator() = default;
+
+  auto init(uint16_t num_threads) -> auto {
+    auto size_per_thread = huge.size() / num_threads;
+    auto curr_offset = reinterpret_cast<uintptr_t>(huge.get());
+
+    printf("RMCAllocator: init for %u threads\n", num_threads);
+    for (auto i = 0U; i < num_threads; ++i) {
+      allocs.emplace_back(thread_alloc{.free_root = nullptr,
+                                       .alloc_offset = curr_offset,
+                                       .remaining = size_per_thread});
+      curr_offset += size_per_thread;
+    }
+  }
+
+  auto alloc(uint16_t tid, size_t sz) -> auto * {
+    assert(tid < allocs.size());
+    return _alloc(allocs[tid], sz);
+  }
+
+  void free(uint16_t tid, void *p, size_t sz) {
+    assert(tid < allocs.size());
+    return _free(allocs[tid], p, sz);
+  }
+
+  auto &get_huge_buffer() { return huge; }
+};
+
+inline RMCAllocator &get_frame_alloc() {
+  static RMCAllocator allocator;
+  return allocator;
+}
 
 struct ServerAlloc {
   void *addr;

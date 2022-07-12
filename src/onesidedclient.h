@@ -17,7 +17,10 @@ class OneSidedClient {
   /* server's memory regions
      TODO: need to support NUM_REG_RMC rdma_mrs, currently we only support 1*/
   ibv_mr server_mr[NUM_REG_RMC];
-  ibv_mr *ctrlreq_mr = nullptr;  // to recv Ctrl requests
+  /* to receive Ctrl requests */
+  ibv_mr *ctrlreq_mr = nullptr;
+  /* to make frames accessible to RNIC */
+  ibv_mr *frames_mr = nullptr;
   std::unique_ptr<CtrlReq> ctrlreq_buf;
 
   void disconnect();  // TODO: do we need this?
@@ -30,7 +33,7 @@ class OneSidedClient {
   }
 
   void connect(const std::string &ip, const unsigned int &port);
-  void post_op(RDMAContext::OneSidedOp op);
+  void post_op_from_frame(RDMAContext::OneSidedOp op);
   void write_async(uint64_t raddr, uintptr_t laddr, uint32_t sz, uint32_t lkey,
                    uint32_t rkey);
   void cmp_swp_async(uintptr_t raddr, uintptr_t laddr, uint64_t cmp,
@@ -59,15 +62,24 @@ inline void OneSidedClient::recv_ctrl_reqs() {
   /* receive memory regions from server */
   assert(ctrlreq_buf->type == CtrlCmdType::RDMA_MR);
   MrReq *mr_req = &(ctrlreq_buf->data.mr);
-  printf("received RDMA_MR; num_mr=%u\n", mr_req->num_mr);
+  printf("OneSidedClient: received RDMA_MR; num_mr=%u\n", mr_req->num_mr);
   memcpy(&server_mr[0], &mr_req->mrs[0], sizeof(ibv_mr) * mr_req->num_mr);
+
+  void *frames = get_frame_alloc().get_huge_buffer().get();
+  frames_mr =
+      rclient.register_mr(frames, RMCK_TOTAL_BUFF_SZ,
+                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
+
+  printf("OneSidedClient: frames addr=%p length=%ld\n", frames_mr->addr,
+         frames_mr->length);
 }
 
-inline void OneSidedClient::post_op(RDMAContext::OneSidedOp op) {
+inline void OneSidedClient::post_op_from_frame(RDMAContext::OneSidedOp op) {
   assert(onesready);
   RDMAContext *ctx = rclient.get_batch_ctx();
   assert(ctx != nullptr);
 
+  op.lkey = frames_mr->lkey;
   ctx->post_batched_onesided(op);
 }
 

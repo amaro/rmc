@@ -40,13 +40,12 @@ class RMCTraverseLL : public RMCBase {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = get_next_node_addr(num_nodes);
 
-    LLNode *node = nullptr;
+    LLNode node;
     int reply = 1;
 
     for (int i = 0; i < num_nodes; ++i) {
-      node =
-          static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode), rkey));
-      addr = reinterpret_cast<uintptr_t>(node->next);
+      co_await b->read(addr, &node, sizeof(LLNode), rkey);
+      addr = reinterpret_cast<uintptr_t>(node.next);
     }
 
     co_return &reply;
@@ -108,14 +107,13 @@ class RMCLockTraverseLL : public RMCBase {
   CoroRMC runtime_handler(const BackendBase *b) final {
     int num_nodes = co_await b->get_param();
     uintptr_t addr = get_next_node_addr(num_nodes);
-    LLNode *node = nullptr;
+    LLNode node;
     int reply = 1;
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await rmclock.lock(b);
-      node =
-          static_cast<LLNode *>(co_await b->read(addr, sizeof(LLNode), rkey));
-      addr = reinterpret_cast<uintptr_t>(node->next);
+      co_await b->read(addr, &node, sizeof(LLNode), rkey);
+      addr = reinterpret_cast<uintptr_t>(node.next);
       co_await rmclock.unlock(b);
     }
 

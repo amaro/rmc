@@ -31,10 +31,10 @@ void NICServer::init(RMCScheduler &sched, uint16_t tid) {
   assert(nsready);
 
   /* handle the initial rmc get id call; TODO: remove */
-  rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
-                            sizeof(DataReq), 1);
-  rserver.poll_exactly(1, rserver.get_recv_cq(0));
-  sched.dispatch_new_req(get_req(0));
+  // rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
+  //                           sizeof(DataReq), 1);
+  // rserver.poll_exactly(1, rserver.get_recv_cq(0));
+  // sched.dispatch_new_req(get_req(0));
 
   /* post the initial recvs */
   rserver.post_batched_recv(rserver.get_ctrl_ctx(), req_buf_mr, 0,
@@ -136,6 +136,8 @@ int main(int argc, char *argv[]) {
   // object. we will use numqps/num_threads QPs and 1 CQ per thread
   OneSidedClient onesidedclient(numqps, num_threads);
   onesidedclient.connect(hostaddr, hostport);
+
+  get_frame_alloc().init(num_threads);
 
   for (auto i = 0; i < num_threads; ++i) {
     std::thread t(thread_launch, std::ref(onesidedclient), i, &barrier);

@@ -6,8 +6,6 @@
 #include "config.h"
 #include "utils/utils.h"
 
-/* RMC allocator */
-inline thread_local RMCAllocator allocator;
 struct InitReply;
 /* IgnoreReply is a hack, but no time to figure out how to do this better right
  * now */
@@ -34,8 +32,12 @@ class CoroRMC {
     /* constructor */
     promise_type() noexcept {};
 
-    void *operator new(size_t size) { return allocator.alloc(size); }
-    void operator delete(void *p, size_t size) { allocator.free(p, size); }
+    void *operator new(size_t size) {
+      return get_frame_alloc().alloc(current_tid, size);
+    }
+    void operator delete(void *p, size_t size) {
+      get_frame_alloc().free(current_tid, p, size);
+    }
 
     /* suspend coroutine on creation */
     auto initial_suspend() { return std::suspend_always{}; }

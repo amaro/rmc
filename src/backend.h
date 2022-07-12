@@ -84,7 +84,8 @@ class BackendBase {
  public:
   virtual void init() = 0;
 
-  virtual AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const = 0;
+  virtual AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
+                         uint32_t rkey) const = 0;
   /* TODO: when we introduce remote memory stack, these won't be needed */
   virtual AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
                            uint32_t rkey) const = 0;
@@ -95,38 +96,26 @@ class BackendBase {
 /* Cooperative multi tasking RDMA backend */
 class CoopRDMA : public BackendBase {
   using OneSidedOp = RDMAContext::OneSidedOp;
-  HugeAllocator rdma_buffer;
-  ibv_mr *rdma_mr = nullptr;
 
  public:
+  /* Need to re-work this for Locks */
   uintptr_t rsvd_base_laddr = 0;
   uintptr_t rsvd_base_raddr = 0;
-  uintptr_t apps_base_laddr = 0;
-  uintptr_t apps_base_raddr = 0;
 
 #if defined(WORKLOAD_HASHTABLE)
   struct cuckoo_hash table;
 #endif
 
   CoopRDMA(OneSidedClient &c) : BackendBase(c) {
-    puts("BACKEND: Cooperative RDMA (default)");
+    puts("Backend: Cooperative RDMA (default)");
   }
 
   void init() override {
-    puts("BACKEND: Initializing");
-    rdma_mr = OSClient.get_rclient().register_mr(
-        rdma_buffer.get(), RMCK_TOTAL_BUFF_SZ,
-        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
+    puts("Backend: Initializing");
 
-    printf("BACKEND: local memory region addr=%p length=%ld rdma_buffer=%p\n",
-           rdma_mr->addr, rdma_mr->length, rdma_buffer.get());
-
-    // allocator.set_source_buffer(buffer, HUGE_PAGE_SIZE);
-
-    rsvd_base_laddr = reinterpret_cast<uintptr_t>(rdma_buffer.get());
+    auto *buffer = get_frame_alloc().get_huge_buffer().get();
+    rsvd_base_laddr = reinterpret_cast<uintptr_t>(buffer);
     rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
-    apps_base_laddr = rsvd_base_laddr + RMCK_RESERVED_BUFF_SZ;
-    apps_base_raddr = OSClient.get_apps_base_raddr();
 
 #if defined(WORKLOAD_HASHTABLE)
     // no need to destroy the table since we are giving it preallocated
@@ -135,33 +124,32 @@ class CoopRDMA : public BackendBase {
 #endif
   }
 
-  AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const override {
-    const uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
+  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
+                 uint32_t rkey) const override {
+    const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
 
-    OSClient.post_op(OneSidedOp{.raddr = raddr,
-                                .laddr = laddr,
-                                .len = sz,
-                                .rkey = rkey,
-                                .lkey = rdma_mr->lkey,
-                                .cmp = 0,
-                                .swp = 0,
-                                .optype = OneSidedOp::OpType::READ});
+    OSClient.post_op_from_frame(OneSidedOp{.raddr = raddr,
+                                           .laddr = laddr,
+                                           .len = sz,
+                                           .rkey = rkey,
+                                           .cmp = 0,
+                                           .swp = 0,
+                                           .optype = OneSidedOp::OpType::READ});
     return AwaitRead{laddr, true};
   }
 
-  AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
+  AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const override {
-    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-    memcpy(reinterpret_cast<void *>(laddr), data, sz);
+    const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
 
-    OSClient.post_op(OneSidedOp{.raddr = raddr,
-                                .laddr = laddr,
-                                .len = sz,
-                                .rkey = rkey,
-                                .lkey = rdma_mr->lkey,
-                                .cmp = 0,
-                                .swp = 0,
-                                .optype = OneSidedOp::OpType::WRITE});
+    OSClient.post_op_from_frame(
+        OneSidedOp{.raddr = raddr,
+                   .laddr = laddr,
+                   .len = sz,
+                   .rkey = rkey,
+                   .cmp = 0,
+                   .swp = 0,
+                   .optype = OneSidedOp::OpType::WRITE});
     return AwaitWrite{true};
   }
 
@@ -169,14 +157,14 @@ class CoopRDMA : public BackendBase {
   // raddr is fixed but laddr changes depending on in flight atomic ops
   auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp,
                uint32_t rkey) {
-    OSClient.post_op(OneSidedOp{.raddr = raddr,
-                                .laddr = laddr,
-                                .len = 8,
-                                .rkey = rkey,
-                                .lkey = rdma_mr->lkey,
-                                .cmp = cmp,
-                                .swp = swp,
-                                .optype = OneSidedOp::OpType::CMP_SWP});
+    OSClient.post_op_from_frame(
+        OneSidedOp{.raddr = raddr,
+                   .laddr = laddr,
+                   .len = 8,
+                   .rkey = rkey,
+                   .cmp = cmp,
+                   .swp = swp,
+                   .optype = OneSidedOp::OpType::CMP_SWP});
 
     return AwaitRead{laddr, true};
   }
@@ -185,68 +173,52 @@ class CoopRDMA : public BackendBase {
 /* Run to completion RDMA backend */
 class CompRDMA : public BackendBase {
   using OneSidedOp = RDMAContext::OneSidedOp;
-  uintptr_t apps_base_laddr = 0;
-  uintptr_t apps_base_raddr = 0;
   RDMAContext *ctx = nullptr;
   ibv_cq_ex *send_cq = nullptr;
-  ibv_mr *rdma_mr = nullptr;
   RDMAClient &rclient;
-  HugeAllocator rdma_buffer;
 
  public:
   CompRDMA(OneSidedClient &c)
       : BackendBase(c), rclient(OSClient.get_rclient()) {
-    printf("Using run-to-completion RDMA Backend\n");
+    puts("Using run-to-completion RDMA Backend");
   }
 
   void init() override {
+    puts("Backend: Initializing");
+
     ctx = &rclient.get_context(0);
     send_cq = rclient.get_send_cq(0);
-
-    void *buffer = rdma_buffer.get();
-    rdma_mr = OSClient.get_rclient().register_mr(
-        buffer, RMCK_TOTAL_BUFF_SZ,
-        IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
-
-    printf("BACKEND: local memory region addr=%p length=%ld rdma_buffer=%p\n",
-           rdma_mr->addr, rdma_mr->length, buffer);
-
-    apps_base_laddr = reinterpret_cast<uintptr_t>(buffer);
-    apps_base_raddr = OSClient.get_apps_base_raddr();
-
-    // allocator.set_source_buffer(buffer, HUGE_PAGE_SIZE);
   }
 
-  AwaitRead read(uintptr_t raddr, uint32_t sz, uint32_t rkey) const override {
-    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
+  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
+                 uint32_t rkey) const override {
+    const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
     rclient.start_batched_ops(ctx);
-    OSClient.post_op(OneSidedOp{.raddr = raddr,
-                                .laddr = laddr,
-                                .len = sz,
-                                .rkey = rkey,
-                                .lkey = rdma_mr->lkey,
-                                .cmp = 0,
-                                .swp = 0,
-                                .optype = OneSidedOp::OpType::READ});
+    OSClient.post_op_from_frame(OneSidedOp{.raddr = raddr,
+                                           .laddr = laddr,
+                                           .len = sz,
+                                           .rkey = rkey,
+                                           .cmp = 0,
+                                           .swp = 0,
+                                           .optype = OneSidedOp::OpType::READ});
     rclient.end_batched_ops();
 
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
     return AwaitRead{laddr, false};
   }
 
-  AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
+  AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const override {
-    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-    memcpy(reinterpret_cast<void *>(laddr), data, sz);
+    const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
     rclient.start_batched_ops(ctx);
-    OSClient.post_op(OneSidedOp{.raddr = raddr,
-                                .laddr = laddr,
-                                .len = sz,
-                                .rkey = rkey,
-                                .lkey = rdma_mr->lkey,
-                                .cmp = 0,
-                                .swp = 0,
-                                .optype = OneSidedOp::OpType::WRITE});
+    OSClient.post_op_from_frame(
+        OneSidedOp{.raddr = raddr,
+                   .laddr = laddr,
+                   .len = sz,
+                   .rkey = rkey,
+                   .cmp = 0,
+                   .swp = 0,
+                   .optype = OneSidedOp::OpType::WRITE});
     rclient.end_batched_ops();
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
 
