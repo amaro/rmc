@@ -16,7 +16,8 @@ class OneSidedClient {
   bool onesready;
   /* server's memory regions
      TODO: need to support NUM_REG_RMC rdma_mrs, currently we only support 1*/
-  ibv_mr server_mr[NUM_REG_RMC];
+  std::array<MemoryRegion, NUM_REG_RMC> server_mrs;
+
   /* to receive Ctrl requests */
   ibv_mr *ctrlreq_mr = nullptr;
   /* to make frames accessible to RNIC */
@@ -47,7 +48,7 @@ class OneSidedClient {
 
   RDMAClient &get_rclient() { return rclient; }
 
-  const ibv_mr &get_server_mr() { return server_mr[0]; }
+  const MemoryRegion &get_server_mr() { return server_mrs[0]; }
 };
 
 /* control path */
@@ -59,12 +60,19 @@ inline void OneSidedClient::recv_ctrl_reqs() {
                     ctrlreq_mr->lkey);
   rclient.poll_exactly(1, rclient.get_recv_cq(0));
 
-  /* receive memory regions from server */
+  /* receive ibv_mrs from server, and use them to create MemoryRegions */
   assert(ctrlreq_buf->type == CtrlCmdType::RDMA_MR);
   MrReq *mr_req = &(ctrlreq_buf->data.mr);
   printf("OneSidedClient: received RDMA_MR; num_mr=%u\n", mr_req->num_mr);
-  memcpy(&server_mr[0], &mr_req->mrs[0], sizeof(ibv_mr) * mr_req->num_mr);
+  assert(mr_req->num_mr == NUM_REG_RMC);
+  for (auto i = 0U; i < mr_req->num_mr; ++i) {
+    server_mrs[i].type = MemoryRegion::Type::RDMA;
+    memcpy(&server_mrs[i].rdma, &mr_req->mrs[i], sizeof(ibv_mr));
+    server_mrs[i].addr = server_mrs[i].rdma.addr;
+    server_mrs[i].length = server_mrs[i].rdma.length;
+  }
 
+  /* register frame allocator with RDMA (could be done elsewhere) */
   void *frames = get_frame_alloc().get_huge_buffer().get();
   frames_mr =
       rclient.register_mr(frames, RMCK_TOTAL_BUFF_SZ,
@@ -92,7 +100,7 @@ inline int OneSidedClient::poll_reads_atmost(int max, T &&comp_func) {
 }
 
 inline uintptr_t OneSidedClient::get_rsvd_base_raddr() {
-  return reinterpret_cast<uintptr_t>(server_mr[0].addr);
+  return reinterpret_cast<uintptr_t>(server_mrs[0].addr);
 }
 
 inline uintptr_t OneSidedClient::get_apps_base_raddr() {

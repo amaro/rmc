@@ -38,7 +38,7 @@ void HostServer::send_rdma_mr() {
   ctrlreq->data.mr.num_mr = 1;
 
   for (auto i = 0u; i < allocs.size(); ++i)
-    memcpy(&ctrlreq->data.mr.mrs[i], allocs[i].mr, sizeof(ibv_mr));
+    memcpy(&ctrlreq->data.mr.mrs[i], &allocs[i].rdma, sizeof(ibv_mr));
 
   printf("will send info about %ld memory regions\n", allocs.size());
   rserver.post_send(rserver.get_ctrl_ctx(), ctrlreq.get(), sizeof(CtrlReq),

@@ -51,22 +51,23 @@ class RMCTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &remote_mr) final {
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
     assert(!runtime_inited);
     runtime_inited = true;
 
     /* cache remote memory access information */
-    rbaseaddr = reinterpret_cast<uintptr_t>(remote_mr.addr);
-    length = remote_mr.length & 0xFFFFffff;
-    rkey = remote_mr.rkey;
+    rbaseaddr = reinterpret_cast<uintptr_t>(rmc_mr.addr);
+    length = rmc_mr.length & 0xFFFFffff;
+    rkey = rmc_mr.rdma.rkey;
 
-    printf("runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
+    printf("RMCTraverseLL runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
     InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
 
-  ServerAlloc server_init(ServerAllocator &sa) final {
-    ServerAlloc alloc = sa.request_memory(BUFSIZE);
+  MemoryRegion server_init(MrAllocator &sa) final {
+    printf("RMCTraverseLL server_init()\n");
+    MemoryRegion alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
   }
@@ -120,21 +121,22 @@ class RMCLockTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &remote_mr) final {
-    rbaseaddr = reinterpret_cast<uintptr_t>(remote_mr.addr);
-    length = remote_mr.length & 0xFFFFffff;
-    rkey = remote_mr.rkey;
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+    rbaseaddr = reinterpret_cast<uintptr_t>(rmc_mr.addr);
+    length = rmc_mr.length & 0xFFFFffff;
+    rkey = rmc_mr.rdma.rkey;
 
     printf("runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
     InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
 
-  ServerAlloc server_init(ServerAllocator &sa) final {
-    ServerAlloc alloc = sa.request_memory(BUFSIZE);
+  MemoryRegion server_init(MrAllocator &sa) final {
+    MemoryRegion alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;
   }
+
   static constexpr RMCType get_type() { return LOCK_TRAVERSE_LL; }
 };
 
@@ -159,12 +161,12 @@ class RMCRandomWrites : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const ibv_mr &mr) final {
+  CoroRMC runtime_init(const MemoryRegion &mr) final {
     int reply = 1;
     co_return &reply;
   }
 
-  ServerAlloc server_init(ServerAllocator &sa) final {
+  MemoryRegion server_init(MrAllocator &sa) final {
     return sa.request_memory(BUFSIZE);
   }
 
@@ -376,35 +378,19 @@ static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
 static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
-CoroRMC rmcs_get_init(RMCType type, const ibv_mr &mr) {
+/* control path */
+CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr) {
   return rmc_map.at(type)->runtime_init(mr);
 }
 
 /* data path */
 CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
   return rmc_map.at(type)->runtime_handler(b);
-  //#if defined(WORKLOAD_HASHTABLE)
-  //  /* TODO: fix this mess */
-  //  case HASHTABLE:
-  //    // thread_local uint8_t num_gets = 0;
-  //    // if (++num_gets > 1) {
-  //    //  num_gets = 0;
-  //    //  return std::move(hash_insert(backend));
-  //    //}
-  //
-  //    // return std::move(hash_lookup(backend));
-  //    thread_local uint16_t num_gets = 0;
-  //
-  //    if (num_gets > 20) return std::move(hash_lookup(b));
-  //
-  //    num_gets++;
-  //    if (num_gets > 20) printf("this is last insert\n");
-  //    return std::move(hash_insert(b));
-  //#endif
 }
 
-/* control path */
-void rmcs_server_init(ServerAllocator &sa, std::vector<ServerAlloc> &allocs) {
+/* control path
+   TODO: change to std::array<MemoryRegion, NUM_REG_RMC> & */
+void rmcs_server_init(MrAllocator &sa, std::vector<MemoryRegion> &allocs) {
   for (auto &rmc_pair : rmc_values)
     allocs.push_back(rmc_pair.second->server_init(sa));
 }

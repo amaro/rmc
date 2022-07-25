@@ -5,6 +5,7 @@
 #include "corormc.h"
 #include "onesidedclient.h"
 #include "rdma/rdmapeer.h"
+#include "rmcs.h"
 #if defined(WORKLOAD_HASHTABLE)
 #include "lib/cuckoo_hash.h"
 #endif
@@ -30,7 +31,9 @@ struct AwaitRead {
 
   AwaitRead(uintptr_t addr, bool suspend)
       : addr(addr), should_suspend(suspend) {}
+
   constexpr bool await_ready() { return false; }
+
   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
 
@@ -41,6 +44,7 @@ struct AwaitRead {
     promise->waiting_mem_access = true;
     return should_suspend;  // true = suspend; false = don't
   }
+
   void *await_resume() {
     promise->waiting_mem_access = false;
     return reinterpret_cast<void *>(addr);
@@ -82,14 +86,10 @@ class BackendBase {
   BackendBase &operator=(BackendBase &&) = delete;
 
  public:
-  virtual void init() = 0;
-
   virtual AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                          uint32_t rkey) const = 0;
-  /* TODO: when we introduce remote memory stack, these won't be needed */
   virtual AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
                            uint32_t rkey) const = 0;
-
   auto get_param() const { return AwaitGetParam{}; }
 };
 
@@ -110,7 +110,7 @@ class CoopRDMA : public BackendBase {
     puts("Backend: Cooperative RDMA (default)");
   }
 
-  void init() override {
+  void init() {
     puts("Backend: Initializing");
 
     auto *buffer = get_frame_alloc().get_huge_buffer().get();
@@ -135,6 +135,7 @@ class CoopRDMA : public BackendBase {
                                            .cmp = 0,
                                            .swp = 0,
                                            .optype = OneSidedOp::OpType::READ});
+
     return AwaitRead{laddr, true};
   }
 
@@ -183,7 +184,7 @@ class CompRDMA : public BackendBase {
     puts("Using run-to-completion RDMA Backend");
   }
 
-  void init() override {
+  void init() {
     puts("Backend: Initializing");
 
     ctx = &rclient.get_context(0);
@@ -226,199 +227,46 @@ class CompRDMA : public BackendBase {
   }
 };
 
+/* Backend for server location. A list of RMCs issue prefetch instructions for
+ * their accesses and immediately suspend, giving time for cpu prefetchers to
+ * get data closer. After all RMCs in the list prefetch, we resume them in
+ * order, and actually access their data */
+class PrefetchDRAM : public BackendBase {
+  DramMrAllocator *_dram_allocator;
+  std::vector<MemoryRegion> *_mrs;
+
+ public:
+  PrefetchDRAM(OneSidedClient &c) : BackendBase(c) {
+    puts("Using prefetching DRAM Backend");
+  }
+
+  void init(DramMrAllocator *allocator, std::vector<MemoryRegion> *mrs) {
+    _dram_allocator = allocator;
+    _mrs = mrs;
+  }
+
+  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
+                 uint32_t rkey) const override {
+    auto laddr = reinterpret_cast<uintptr_t>(lbuf);
+    // interleaved
+    for (auto cl = 0u; cl < sz; cl += 64)
+      __builtin_prefetch(reinterpret_cast<void *>(laddr + cl), 0, 0);
+
+    return AwaitRead{laddr, true};
+  }
+
+  AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
+                   uint32_t rkey) const override {
+    assert(sz <= 64);
+
+    puts("not fully implemented");
+    //__builtin_prefetch(addr, 1, 0);
+    memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
+    return AwaitWrite{false};
+  }
+};
+
 // BEGINS OLD CODE HERE
-
-/* Generic class for Backends; needs full specialization */
-// template <class A>
-// class Backend {};
-
-/* Backend<OneSidedClient> is our main async rdma backend */
-// template <>
-// class Backend<OneSidedClient> {
-/// private:
-/// OneSidedClient &OSClient;
-/// uintptr_t last_random_addr;
-
-/// struct AwaitRDMARead {
-///   uintptr_t addr;
-///   CoroRMC::promise_type *promise;
-
-///   AwaitRDMARead(uintptr_t addr) : addr(addr) {}
-///   bool await_ready() { return false; }
-///   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-///     promise = &coro.promise();
-
-///     // this is a read coming from a nested CoroRMC, need the caller's
-///     // promise
-///     if (promise->continuation) promise = &promise->continuation.promise();
-
-///     promise->waiting_mem_access = true;
-///     return true;  // suspend (true)
-///   }
-///   void *await_resume() {
-///     promise->waiting_mem_access = false;
-///     return reinterpret_cast<void *>(addr);
-///   }
-/// };
-
-/// struct AwaitRDMAWrite {
-///   CoroRMC::promise_type *promise;
-
-///   AwaitRDMAWrite() {}
-///   bool await_ready() { return false; }
-///   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-///     promise = &coro.promise();
-
-///     // this is a write coming from a nested CoroRMC, need the caller's
-///     // promise
-///     if (promise->continuation) promise = &promise->continuation.promise();
-
-///     promise->waiting_mem_access = true;
-///     return true;  // suspend (true)
-///   }
-///   void await_resume() { promise->waiting_mem_access = false; }
-/// };
-
-// public:
-//  uintptr_t apps_base_laddr;
-//  uintptr_t apps_base_raddr;
-//  uintptr_t rsvd_base_laddr;
-//  uintptr_t rsvd_base_raddr;
-//
-//#if defined(WORKLOAD_HASHTABLE)
-//  struct cuckoo_hash table;
-//#endif
-//
-//  Backend(OneSidedClient &c)
-//      : OSClient(c),
-//        last_random_addr(0),
-//        apps_base_laddr(0),
-//        apps_base_raddr(0),
-//        rsvd_base_laddr(0),
-//        rsvd_base_raddr(0) {
-//    printf("Using interleaving RDMA Backend (default)\n");
-//  }
-//  ~Backend() {}
-
-///  void init() {
-///    apps_base_laddr = OSClient.get_apps_base_laddr();
-///    apps_base_raddr = OSClient.get_apps_base_raddr();
-///    rsvd_base_laddr = OSClient.get_rsvd_base_laddr();
-///    rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
-///    last_random_addr = apps_base_raddr;
-///
-///#if defined(WORKLOAD_HASHTABLE)
-///    // no need to destroy the table since we are giving it preallocated
-///    memory cuckoo_hash_init(&table, 16, reinterpret_cast<void
-///    *>(apps_base_laddr));
-///#endif
-///  }
-
-//  auto get_param() noexcept { return AwaitGetParam{}; }
-
-//  auto read(uintptr_t raddr, uint32_t sz) noexcept {
-//    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-//    OSClient.read_async(raddr, laddr, sz);
-//    return AwaitRDMARead{laddr};
-//  }
-
-//  auto read_laddr(uintptr_t laddr, uint32_t sz) noexcept {
-//    uintptr_t raddr = laddr - apps_base_laddr + apps_base_raddr;
-//    OSClient.read_async(raddr, laddr, sz);
-//    return AwaitRDMARead{laddr};
-//  }
-
-//  auto write(uintptr_t raddr, uintptr_t laddr, const void *data,
-//             uint32_t sz) noexcept {
-//    memcpy(reinterpret_cast<void *>(laddr), data, sz);
-//    OSClient.write_async(raddr, laddr, sz);
-//    return AwaitRDMAWrite{};
-//  }
-//
-//  auto write_raddr(uintptr_t raddr, const void *data, uint32_t sz) noexcept {
-//    return write(raddr, apps_base_laddr + (raddr - apps_base_raddr), data,
-//    sz);
-//  }
-//
-//  auto write_laddr(uintptr_t laddr, const void *data, uint32_t sz) noexcept {
-//    return write(laddr - apps_base_laddr + apps_base_raddr, laddr, data, sz);
-//  }
-//
-//  // NOTE: cmp_swp does not map 1:1 raddrs to laddrs
-//  // raddr is fixed but laddr changes depending on in flight atomic ops
-//  auto cmp_swp(uintptr_t raddr, uintptr_t laddr, uint64_t cmp, uint64_t swp) {
-//    OSClient.cmp_swp_async(raddr, laddr, cmp, swp);
-//    return AwaitRDMARead{laddr};
-//  }
-
-//  uintptr_t get_random_raddr() {
-//    last_random_addr += 248;
-//    return last_random_addr;
-//  }
-//};
-
-/* Backend<SyncRDMA> defines a backend that uses the async rdma backend
-   synchronously */
-// class SyncRDMA {};
-// template <>
-// class Backend<SyncRDMA> {
-//  OneSidedClient &OSClient;
-//  uintptr_t apps_base_laddr;
-//  uintptr_t apps_base_raddr;
-//  RDMAClient &rclient;
-//  RDMAContext *ctx;
-//  ibv_cq_ex *send_cq;
-//
-// public:
-//  Backend(OneSidedClient &c)
-//      : OSClient(c),
-//        apps_base_laddr(0),
-//        apps_base_raddr(0),
-//        rclient(OSClient.get_rclient()) {
-//    printf("Using run-to-completion RDMA Backend\n");
-//  }
-//  ~Backend() {}
-//
-//  void init() {
-//    apps_base_laddr = OSClient.get_apps_base_laddr();
-//    apps_base_raddr = OSClient.get_apps_base_raddr();
-//    ctx = &rclient.get_context(0);
-//    send_cq = rclient.get_send_cq(0);
-//  }
-//
-//  auto get_param() noexcept { return AwaitGetParam{}; }
-//
-//  auto read(uintptr_t raddr, uint32_t sz) noexcept {
-//    uintptr_t laddr = apps_base_laddr + (raddr - apps_base_raddr);
-//    rclient.start_batched_ops(ctx);
-//    OSClient.read_async(raddr, laddr, sz);
-//    rclient.end_batched_ops();
-//
-//    rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
-//    return AwaitAddr<false>{laddr};
-//  }
-//
-//  auto write_raddr(uintptr_t raddr, void *data, uint32_t sz) noexcept {
-//    die("not implemented\n");
-//    return AwaitVoid<true>{};
-//  }
-//
-//  auto write_laddr(uintptr_t laddr, void *data, uint32_t sz) noexcept {
-//    die("not implemented");
-//    return AwaitVoid<true>{};
-//  }
-//
-//  auto get_baseaddr(uint32_t num_nodes) noexcept {
-//    uint32_t next_node = get_next_llnode(num_nodes);
-//    return apps_base_raddr + next_node * sizeof(LLNode);
-//  }
-//
-//  uintptr_t get_random_raddr() {
-//    die("not implemented yet");
-//    return 0;
-//  }
-//};
-
 /* Backend<Threading> defines a backend that simulates context switching
    threads by sleeping before suspending and resuming */
 // class Threading {};

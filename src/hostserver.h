@@ -10,8 +10,8 @@
 
 class HostServer {
   RDMAServer rserver;
-  ServerAllocator SA;
-  std::vector<ServerAlloc> allocs;
+  RdmaMrAllocator SA;
+  std::vector<MemoryRegion> allocs;
   bool hsready;
   std::unique_ptr<CtrlReq>
       ctrlreq;  // no CtrlReply since we don't need one right now.

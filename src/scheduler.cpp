@@ -1,23 +1,13 @@
 #include "scheduler.h"
 
-// kept here as an example on how to handle one req at a time
-// void RMCScheduler::req_get_rmc_id(CmdRequest *req) {
-//  assert(ns.nsready);
-//  assert(req->type == CmdType::GET_RMCID);
-//
-//  RMC rmc(req->request.getid.rmc);
-//  RMCId id = this->get_rmc_id(rmc);
-//
-//  /* use buffer 0 for get rmc id reply */
-//  CmdReply *reply = ns.get_reply(0);
-//  reply->type = CmdType::GET_RMCID;
-//  reply->reply.getid.id = id;
-//  ns.post_send_reply(reply);
-//  ns.rserver.poll_exactly(1, ns.rserver.get_send_cq(0));
-//}
-
 void RMCScheduler::run() {
+#if defined(BACKEND_DRAM)
+  rmcs_server_init(dram_allocator, allocs);
+  backend.init(&dram_allocator, &allocs);
+#else
   backend.init();
+#endif
+
   RDMAClient &rclient = ns.onesidedclient.get_rclient();
 
   while (ns.nsready) {

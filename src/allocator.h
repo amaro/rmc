@@ -112,25 +112,44 @@ inline RMCAllocator &get_frame_alloc() {
   return allocator;
 }
 
-struct ServerAlloc {
+struct MemoryRegion {
+  enum class Type { INVALID, RDMA, DRAM };
+
+  /* set for all MemoryRegions */
+  Type type;
   void *addr;
   size_t length;
-  const ibv_mr *mr;
+
+  /* only set for RDMA MemoryRegions */
+  ibv_mr rdma;
 };
 
 /* Used by RMCs to allocate server memory and register with RDMA to make it
  * available to nicserver's onesidedclient */
-class ServerAllocator {
+class MrAllocator {
+ protected:
   static constexpr uint8_t MAX_SERVER_ALLOCS = 8;
-
-  RDMAServer &rserver;
   std::vector<HugeAllocator> buffers;
 
  public:
-  explicit ServerAllocator(RDMAServer &rserver) : rserver(rserver) {}
+  virtual ~MrAllocator() {}
+  MrAllocator() = default;
+  MrAllocator(const MrAllocator &) = delete;
+  MrAllocator(MrAllocator &&) = delete;
+  MrAllocator &operator=(const MrAllocator &) = delete;
+  MrAllocator &operator=(MrAllocator &&) = delete;
+
+  virtual MemoryRegion request_memory(size_t sz) = 0;
+};
+
+class RdmaMrAllocator : public MrAllocator {
+  RDMAServer &rserver;
+
+ public:
+  RdmaMrAllocator(RDMAServer &rserver) : MrAllocator(), rserver(rserver) {}
 
   /* TODO: don't allocate more than requested memory? */
-  auto request_memory(size_t sz) -> ServerAlloc {
+  auto request_memory(size_t sz) -> MemoryRegion final {
     rt_assert(buffers.size() <= MAX_SERVER_ALLOCS,
               "too many server allocations");
     rt_assert(sz <= HUGE_PAGE_SIZE, "server memory sz too large");
@@ -138,12 +157,34 @@ class ServerAllocator {
     HugeAllocator hugealloc;
 
     char *addr = hugealloc.get();
-    const ibv_mr *mr = rserver.register_mr(
+    ibv_mr *mr = rserver.register_mr(
         addr, sz,
         IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE |
             IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_ATOMIC |
             IBV_ACCESS_RELAXED_ORDERING);
     buffers.push_back(std::move(hugealloc));
-    return ServerAlloc{addr, sz, mr};
+
+    MemoryRegion region{.type = MemoryRegion::Type::RDMA,
+                        .addr = mr->addr,
+                        .length = mr->length};
+    memcpy(&region.rdma, mr, sizeof(ibv_mr));
+    return region;
+  }
+};
+
+class DramMrAllocator : public MrAllocator {
+ public:
+  auto request_memory(size_t sz) -> MemoryRegion final {
+    rt_assert(buffers.size() <= MAX_SERVER_ALLOCS,
+              "too many server allocations");
+    rt_assert(sz <= HUGE_PAGE_SIZE, "server memory sz too large");
+
+    HugeAllocator hugealloc;
+    auto *addr = hugealloc.get();
+    buffers.push_back(std::move(hugealloc));
+
+    return MemoryRegion{.type = MemoryRegion::Type::DRAM,
+                        .addr = addr,
+                        .length = hugealloc.size()};
   }
 };

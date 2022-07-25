@@ -15,13 +15,10 @@ target_compile_definitions(scheduler_rdma_obj PUBLIC -DBACKEND_RDMA=1)
 #target_compile_definitions(scheduler_rdma_hash_obj PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_HASHTABLE=1)
 #
 add_library(scheduler_rdmacomp_obj OBJECT scheduler.cpp)
-#target_compile_options(scheduler_rdmacomp_obj PUBLIC "-fcoroutines")
-#target_compile_options(scheduler_rdmacomp_obj PUBLIC "-fno-exceptions")
-#target_compile_options(scheduler_rdmacomp_obj PUBLIC "-fno-rtti")
 target_compile_definitions(scheduler_rdmacomp_obj PUBLIC -DBACKEND_RDMA_COMP=1)
 
-#add_library(scheduler_dram_obj OBJECT scheduler.cpp)
-#target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
+add_library(scheduler_dram_obj OBJECT scheduler.cpp)
+target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
 
 #add_library(scheduler_dram_hash_obj OBJECT scheduler.cpp)
 #target_compile_definitions(scheduler_dram_hash_obj PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
@@ -81,15 +78,16 @@ add_executable(nicserver_rdmacomp nicserver.cpp
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_definitions(nicserver_rdmacomp PUBLIC -DBACKEND_RDMA_COMP=1)
 target_link_libraries(nicserver_rdmacomp mlx5 rdmacm ibverbs pthread)
-#
-#add_executable(nicserver_dram nicserver.cpp
-#    $<TARGET_OBJECTS:scheduler_dram_obj>
-#    $<TARGET_OBJECTS:onesidedclient_obj>
-#    $<TARGET_OBJECTS:rdmaclient_obj>
-#    $<TARGET_OBJECTS:rdmaserver_obj>
-#    $<TARGET_OBJECTS:rdmapeer_obj>)
-#target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
-#target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
+
+add_executable(nicserver_dram nicserver.cpp
+    $<TARGET_OBJECTS:rmcs_obj>
+    $<TARGET_OBJECTS:scheduler_dram_obj>
+    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:rdmaclient_obj>
+    $<TARGET_OBJECTS:rdmaserver_obj>
+    $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
+target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
 #
 #add_executable(nicserver_dram_hash nicserver.cpp
 #    $<TARGET_OBJECTS:scheduler_dram_hash_obj>
