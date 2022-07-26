@@ -142,8 +142,7 @@ inline void set_env_var(const char *name, const char *value) {
   printf("ENV %s = %s\n", name, value);
 }
 
-/* creates a randomized linked list over an already allocated *buffer
-    TODO: find a better place for this. */
+/* creates a randomized linked list over an already allocated *buffer */
 template <typename T>
 inline T *create_linkedlist(void *buffer, size_t bufsize) {
   size_t num_nodes = bufsize / sizeof(T);
@@ -152,7 +151,7 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
 
   for (auto i = 0u; i < num_nodes; ++i) indices[i] = &linkedlist[i];
 
-  printf("Shuffling %lu linked list nodes\n", num_nodes);
+  printf("Shuffling %lu linked list nodes at addr %p\n", num_nodes, buffer);
   auto rng = std::default_random_engine{RANDOM_SEED};
   std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
 

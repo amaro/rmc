@@ -20,6 +20,9 @@ target_compile_definitions(scheduler_rdmacomp_obj PUBLIC -DBACKEND_RDMA_COMP=1)
 add_library(scheduler_dram_obj OBJECT scheduler.cpp)
 target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
 
+add_library(scheduler_dramcomp_obj OBJECT scheduler.cpp)
+target_compile_definitions(scheduler_dramcomp_obj PUBLIC -DBACKEND_DRAM_COMP=1)
+
 #add_library(scheduler_dram_hash_obj OBJECT scheduler.cpp)
 #target_compile_definitions(scheduler_dram_hash_obj PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
 
@@ -88,6 +91,16 @@ add_executable(nicserver_dram nicserver.cpp
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_definitions(nicserver_dram PUBLIC -DBACKEND_DRAM=1)
 target_link_libraries(nicserver_dram mlx5 rdmacm ibverbs pthread)
+
+add_executable(nicserver_dramcomp nicserver.cpp
+    $<TARGET_OBJECTS:rmcs_obj>
+    $<TARGET_OBJECTS:scheduler_dramcomp_obj>
+    $<TARGET_OBJECTS:onesidedclient_obj>
+    $<TARGET_OBJECTS:rdmaclient_obj>
+    $<TARGET_OBJECTS:rdmaserver_obj>
+    $<TARGET_OBJECTS:rdmapeer_obj>)
+target_compile_definitions(nicserver_dramcomp PUBLIC -DBACKEND_DRAM_COMP=1)
+target_link_libraries(nicserver_dramcomp mlx5 rdmacm ibverbs pthread)
 #
 #add_executable(nicserver_dram_hash nicserver.cpp
 #    $<TARGET_OBJECTS:scheduler_dram_hash_obj>

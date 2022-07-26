@@ -245,14 +245,12 @@ class PrefetchDRAM : public BackendBase {
     _mrs = mrs;
   }
 
-  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
+  AwaitRead read(uintptr_t raddr, [[maybe_unused]] void *lbuf, uint32_t sz,
                  uint32_t rkey) const override {
-    auto laddr = reinterpret_cast<uintptr_t>(lbuf);
-    // interleaved
     for (auto cl = 0u; cl < sz; cl += 64)
-      __builtin_prefetch(reinterpret_cast<void *>(laddr + cl), 0, 0);
+      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 0, 0);
 
-    return AwaitRead{laddr, true};
+    return AwaitRead{raddr, true};
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
@@ -261,7 +259,35 @@ class PrefetchDRAM : public BackendBase {
 
     puts("not fully implemented");
     //__builtin_prefetch(addr, 1, 0);
-    memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
+    std::memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
+    return AwaitWrite{true};
+  }
+};
+
+class CompDRAM : public BackendBase {
+  DramMrAllocator *_dram_allocator;
+  std::vector<MemoryRegion> *_mrs;
+
+ public:
+  CompDRAM(OneSidedClient &c) : BackendBase(c) {
+    puts("Using run to completion DRAM Backend");
+  }
+
+  void init(DramMrAllocator *allocator, std::vector<MemoryRegion> *mrs) {
+    puts("init run to completion DRAM Backend");
+    _dram_allocator = allocator;
+    _mrs = mrs;
+  }
+
+  AwaitRead read(uintptr_t raddr, [[maybe_unused]] void *lbuf, uint32_t sz,
+                 uint32_t rkey) const override {
+    return AwaitRead{raddr, false};
+  }
+
+  AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
+                   uint32_t rkey) const override {
+    assert(sz <= 64);
+    std::memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
     return AwaitWrite{false};
   }
 };

@@ -33,6 +33,10 @@ class RMCScheduler {
   DramMrAllocator dram_allocator;
   std::vector<MemoryRegion> allocs;
   PrefetchDRAM backend;
+#elif defined(BACKEND_DRAM_COMP)
+  DramMrAllocator dram_allocator;
+  std::vector<MemoryRegion> allocs;
+  CompDRAM backend;
 #elif defined(BACKEND_RDMA_COMP)
   CompRDMA backend;
 #else
@@ -157,8 +161,12 @@ inline void RMCScheduler::req_init_rmc(const DataReq *req) {
 
   // TODO: for multiple registered RMCs, get per-RMC ibv_mr or similar here
   // based on initreq->id
+#if defined(BACKEND_DRAM) || defined(BACKEND_DRAM_COMP)
+  CoroRMC initrmc = rmcs_get_init(initreq->id, allocs[0]);
+#else
   CoroRMC initrmc =
       rmcs_get_init(initreq->id, ns.onesidedclient.get_server_mr());
+#endif
 
   runqueue.push_back(initrmc.get_handle());
 }

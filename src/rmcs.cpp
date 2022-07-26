@@ -43,9 +43,11 @@ class RMCTraverseLL : public RMCBase {
     LLNode node;
     int reply = 1;
 
+    // TODO: stop using return value of b->read()
     for (int i = 0; i < num_nodes; ++i) {
-      co_await b->read(addr, &node, sizeof(LLNode), rkey);
-      addr = reinterpret_cast<uintptr_t>(node.next);
+      LLNode *node1 = static_cast<LLNode *>(
+          co_await b->read(addr, &node, sizeof(LLNode), rkey));
+      addr = reinterpret_cast<uintptr_t>(node1->next);
     }
 
     co_return &reply;
@@ -66,7 +68,7 @@ class RMCTraverseLL : public RMCBase {
   }
 
   MemoryRegion server_init(MrAllocator &sa) final {
-    printf("RMCTraverseLL server_init()\n");
+    puts("RMCTraverseLL server_init()");
     MemoryRegion alloc = sa.request_memory(BUFSIZE);
     server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
     return alloc;

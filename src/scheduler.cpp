@@ -1,7 +1,7 @@
 #include "scheduler.h"
 
 void RMCScheduler::run() {
-#if defined(BACKEND_DRAM)
+#if defined(BACKEND_DRAM) || defined(BACKEND_DRAM_COMP)
   rmcs_server_init(dram_allocator, allocs);
   backend.init(&dram_allocator, &allocs);
 #else
@@ -13,7 +13,8 @@ void RMCScheduler::run() {
   while (ns.nsready) {
 #if defined(BACKEND_RDMA)
     schedule_interleaved(rclient);
-#elif defined(BACKEND_DRAM) || defined(BACKEND_RDMA_COMP)
+#elif defined(BACKEND_DRAM) || defined(BACKEND_DRAM_COMP) || \
+    defined(BACKEND_RDMA_COMP)
     schedule_completion(rclient);
 #endif
 
@@ -54,10 +55,12 @@ void RMCScheduler::schedule_completion(RDMAClient &rclient) {
 #endif
   thread_local RDMAContext &server_ctx = get_server_context();
 
-  // use exec_completion for run-to-completion
-  // exec_completion(server_ctx);
-  // use exec_interleaved_dram for interleaved
+#if defined(BACKEND_DRAM)
   exec_interleaved_dram(server_ctx);
+#elif defined(BACKEND_DRAM_COMP)
+  exec_completion(server_ctx);
+#endif
+
   send_poll_replies(server_ctx);
 #ifdef PERF_STATS
   /* we do it here because add_reply() above computes its own duration
