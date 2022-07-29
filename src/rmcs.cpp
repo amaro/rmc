@@ -4,22 +4,21 @@
 
 class RMCTraverseLL : public RMCBase {
   struct LLNode {
-    void *next;
+    LLNode *next;
     uint64_t data;
   };
 
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
   static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
 
-  bool runtime_inited = false;
-  uintptr_t rbaseaddr = 0;
+  RemoteAddr rbaseaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
 
   LLNode *server_linkdlst = nullptr;
   uint32_t start_node = 0;
 
-  uintptr_t get_next_node_addr(uint32_t num_skip) {
+  RemoteAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
     return rbaseaddr + next_node * sizeof(LLNode);
@@ -38,27 +37,22 @@ class RMCTraverseLL : public RMCBase {
 
   CoroRMC runtime_handler(const BackendBase *b) final {
     int num_nodes = co_await b->get_param();
-    uintptr_t addr = get_next_node_addr(num_nodes);
-
-    LLNode node;
+    RemoteAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
+    RemotePtr<LLNode> ptr(addr);
 
-    // TODO: stop using return value of b->read()
     for (int i = 0; i < num_nodes; ++i) {
-      LLNode *node1 = static_cast<LLNode *>(
-          co_await b->read(addr, &node, sizeof(LLNode), rkey));
-      addr = reinterpret_cast<uintptr_t>(node1->next);
+      co_await read(b, ptr, rkey);
+      LLNode &node = ptr.get();
+      ptr.setptr(node.next);
     }
 
     co_return &reply;
   }
 
   CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
-    assert(!runtime_inited);
-    runtime_inited = true;
-
     /* cache remote memory access information */
-    rbaseaddr = reinterpret_cast<uintptr_t>(rmc_mr.addr);
+    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
@@ -74,7 +68,7 @@ class RMCTraverseLL : public RMCBase {
     return alloc;
   }
 
-  static constexpr RMCType get_type() { return TRAVERSE_LL; }
+  static constexpr RMCType get_type() { return RMCType::TRAVERSE_LL; }
 };
 
 class RMCLockTraverseLL : public RMCBase {
@@ -139,242 +133,88 @@ class RMCLockTraverseLL : public RMCBase {
     return alloc;
   }
 
-  static constexpr RMCType get_type() { return LOCK_TRAVERSE_LL; }
+  static constexpr RMCType get_type() { return RMCType::LOCK_TRAVERSE_LL; }
 };
 
-class RMCRandomWrites : public RMCBase {
+class RMCUpdateLL : public RMCBase {
+  struct LLNode {
+    LLNode *next;
+    uint64_t data;
+  };
+
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
-  static constexpr uint64_t WRITE_VAL = 0xDEADBEEF;
-  bool inited = false;
-  uintptr_t random_addr = 0;
+  static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
+
+  RemoteAddr rbaseaddr = 0;
+  uint32_t length = 0;
+  uint32_t rkey = 0;
+
+  LLNode *server_linkdlst = nullptr;
+  uint32_t start_node = 0;
+
+  RemoteAddr get_next_node_addr(uint32_t num_skip) {
+    uint32_t next_node = start_node;
+    start_node += num_skip;
+    return rbaseaddr + next_node * sizeof(LLNode);
+  }
 
  public:
-  CoroRMC runtime_handler(const BackendBase *b) final {
-    rt_assert(inited, "write RMC not inited");  // TODO: remove
-    const uint32_t num_writes = co_await b->get_param();
-    int reply = 1;
+  RMCUpdateLL() = default;
 
-    for (auto i = 0u; i < num_writes; ++i) {
-      // TODO: rkey
-      co_await b->write(random_addr, &WRITE_VAL, sizeof(WRITE_VAL), 0);
-      random_addr += 248;
+  ~RMCUpdateLL() {
+    if (server_linkdlst) destroy_linkedlist(server_linkdlst);
+  }
+  RMCUpdateLL(const RMCUpdateLL &) = delete;
+  RMCUpdateLL(RMCUpdateLL &&) = delete;
+  RMCUpdateLL &operator=(const RMCUpdateLL &) = delete;
+  RMCUpdateLL &operator=(RMCUpdateLL &&) = delete;
+
+  CoroRMC runtime_handler(const BackendBase *b) final {
+    int num_nodes = co_await b->get_param();
+    // RemoteAddr addr = get_next_node_addr(num_nodes);
+    RemoteAddr addr = rbaseaddr;
+    int reply = 1;
+    RemotePtr<LLNode> ptr(addr);
+
+    for (int i = 0; i < num_nodes; ++i) {
+      co_await read(b, ptr, rkey);
+      LLNode &node = ptr.get();
+      node.data++;
+      co_await write(b, ptr, rkey);
+      ptr.setptr(node.next);
     }
 
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const MemoryRegion &mr) final {
-    int reply = 1;
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+    /* cache remote memory access information */
+    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    length = rmc_mr.length & 0xFFFFffff;
+    rkey = rmc_mr.rdma.rkey;
+
+    printf("RMCUpdateLL runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
+    InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
 
   MemoryRegion server_init(MrAllocator &sa) final {
-    return sa.request_memory(BUFSIZE);
+    puts("RMCUpdateLL server_init()");
+    MemoryRegion alloc = sa.request_memory(BUFSIZE);
+    server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
+    return alloc;
   }
 
-  static constexpr RMCType get_type() { return RANDOM_WRITES; }
+  static constexpr RMCType get_type() { return RMCType::UPDATE_LL; }
 };
-
-#ifdef WORKLOAD_HASHTABLE
-#include "lib/cuckoo_hash.h"
-
-inline static RMCLock rmclock;
-
-// in an actual implementation, keys come from requests
-inline const std::vector<int> KEYS{1, 2, 3, 4, 5, 6, 8, 9, 10};
-constexpr uint64_t KEY_LEN = sizeof(int);
-
-template <class T>
-inline CoroRMC lookup(Backend<T> &b, const struct cuckoo_hash *hash,
-                      const void *key, size_t key_len, uint32_t h1, uint32_t h2,
-                      struct cuckoo_hash_item **res) {
-  uint32_t mask = (1U << hash->power) - 1;
-
-  struct _cuckoo_hash_elem *elem, *end;
-
-  // orig code: elem = bin_at(hash, (h1 & mask));
-  // read the data from HM the while loop below will access
-  elem = static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
-      reinterpret_cast<uintptr_t>(bin_at(hash, (h1 & mask))),
-      sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
-  end = elem + hash->bin_size;
-  while (elem != end) {
-    if (elem->hash2 == h2 && elem->hash1 == h1 &&
-        elem->hash_item.key_len == key_len &&
-        memcmp(elem->hash_item.key, key, key_len) == 0) {
-      *res = &elem->hash_item;
-      co_return;
-    }
-
-    ++elem;
-  }
-
-  // orig code: elem = bin_at(hash, (h2 & mask));
-  // read the data from HM the while loop below will access
-  elem = static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
-      reinterpret_cast<uintptr_t>(bin_at(hash, (h2 & mask))),
-      sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
-  end = elem + hash->bin_size;
-  while (elem != end) {
-    if (elem->hash2 == h1 && elem->hash1 == h2 &&
-        elem->hash_item.key_len == key_len &&
-        memcmp(elem->hash_item.key, key, key_len) == 0) {
-      *res = &elem->hash_item;
-      co_return;
-    }
-
-    ++elem;
-  }
-
-  *res = nullptr;
-  co_return;
-}
-
-template <class T>
-inline CoroRMC insert(Backend<T> &b, struct cuckoo_hash *hash,
-                      struct _cuckoo_hash_elem *item, bool *success) {
-  size_t max_depth = (size_t)hash->power << 5;
-  if (max_depth > (size_t)hash->bin_size << hash->power)
-    max_depth = (size_t)hash->bin_size << hash->power;
-
-  uint32_t offset = 0;
-  int phase = 0;
-  while (phase < 2) {
-    uint32_t mask = (1U << hash->power) - 1;
-
-    for (size_t depth = 0; depth < max_depth; ++depth) {
-      uint32_t h1m = item->hash1 & mask;
-
-      // orig code: struct _cuckoo_hash_elem *beg = bin_at(hash, h1m);
-      // read from HM the data the for loop below will iterate over
-      struct _cuckoo_hash_elem *beg =
-          static_cast<_cuckoo_hash_elem *>(co_await b.read_laddr(
-              reinterpret_cast<uintptr_t>(bin_at(hash, h1m)),
-              sizeof(struct _cuckoo_hash_elem) * hash->bin_size));
-      struct _cuckoo_hash_elem *end = beg + hash->bin_size;
-
-      for (struct _cuckoo_hash_elem *elem = beg; elem != end; ++elem) {
-        if (elem->hash1 == elem->hash2 || (elem->hash1 & mask) != h1m) {
-          *elem = *item;
-          // write elem to HM
-          co_await b.write_laddr(reinterpret_cast<uintptr_t>(elem), elem,
-                                 sizeof(struct _cuckoo_hash_elem));
-          *success = true;
-          co_return;
-        }
-      }
-
-      struct _cuckoo_hash_elem victim = beg[offset];
-
-      beg[offset] = *item;
-      // write beg[offset] to HM
-      co_await b.write_laddr(reinterpret_cast<uintptr_t>(&beg[offset]),
-                             &beg[offset], sizeof(struct _cuckoo_hash_elem));
-
-      item->hash_item = victim.hash_item;
-      item->hash1 = victim.hash2;
-      item->hash2 = victim.hash1;
-
-      if (++offset == hash->bin_size) offset = 0;
-    }
-
-    ++phase;
-
-    if (phase == 1) {
-      if (grow_table(hash))
-        /* continue */;
-      else
-        break;
-    }
-  }
-
-  if (grow_bin_size(hash)) {
-    uint32_t mask = (1U << hash->power) - 1;
-    struct _cuckoo_hash_elem *last = bin_at(hash, (item->hash1 & mask) + 1) - 1;
-
-    *last = *item;
-    *success = true;
-  } else {
-    die("undo_insert here\n");
-    // return undo_insert(hash, item, max_depth, offset, phase);
-  }
-}
-
-template <class T>
-inline CoroRMC hash_insert(Backend<T> &b) {
-  thread_local uint8_t key_id = 0;
-  uint32_t h1, h2;
-  void *value = reinterpret_cast<void *>(0xDEADBEEF);
-  const void *key = &KEYS[key_id];
-
-  if (++key_id == KEYS.size()) key_id = 0;
-
-  compute_hash(key, KEY_LEN, &h1, &h2);
-
-  struct cuckoo_hash_item *item;
-  co_await rmclock.lock(b);
-  co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &item);
-
-  if (item) {
-    // replace old value
-    // item->value = value;
-    value = reinterpret_cast<void *>(0xCAFEFEED);
-    co_await b.write_laddr(reinterpret_cast<uintptr_t>(&item->value), &value,
-                           sizeof(item->value));
-    co_await rmclock.unlock(b);
-    co_yield 1;
-    co_return;
-  }
-
-  struct _cuckoo_hash_elem elem = {
-      .hash_item = {.key = key, .key_len = KEY_LEN, .value = value},
-      .hash1 = h1,
-      .hash2 = h2};
-
-  bool success;
-  co_await insert(b, &b.table, &elem, &success);
-  co_await rmclock.unlock(b);
-
-  if (success) {
-    b.table.count++;
-    co_yield 1;
-  } else {
-    co_yield 0;
-  }
-}
-
-template <class T>
-inline CoroRMC hash_lookup(Backend<T> &b) {
-  thread_local uint8_t key_id = 0;
-  uint32_t h1, h2;
-  const void *key = &KEYS[key_id];
-
-  if (++key_id == KEYS.size()) key_id = 0;
-
-  compute_hash(key, KEY_LEN, &h1, &h2);
-
-  struct cuckoo_hash_item *res;
-  co_await rmclock.lock(b);
-  co_await lookup(b, &b.table, key, KEY_LEN, h1, h2, &res);
-  co_await rmclock.unlock(b);
-
-  if (res) {
-    // std::cout << "value=" << std::hex << res->value << "\n";
-    co_yield 1;
-  } else {
-    co_yield 0;
-  }
-}
-
-#endif  // WORKLOAD_HASHTABLE
 
 static RMCTraverseLL traversell;
 static RMCLockTraverseLL locktraversell;
-static RMCRandomWrites randomwrites;
+static RMCUpdateLL updatell;
 
 /* data path */
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(RMCTraverseLL::get_type(), &traversell)}};
+    rmc_values{{std::make_pair(RMCUpdateLL::get_type(), &updatell)}};
 
 /* data path */
 static constexpr auto rmc_map =

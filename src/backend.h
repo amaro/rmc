@@ -279,8 +279,9 @@ class CompDRAM : public BackendBase {
     _mrs = mrs;
   }
 
-  AwaitRead read(uintptr_t raddr, [[maybe_unused]] void *lbuf, uint32_t sz,
+  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const override {
+    std::memcpy(lbuf, reinterpret_cast<void *>(raddr), sz);
     return AwaitRead{raddr, false};
   }
 

@@ -2,7 +2,7 @@
 
 #include "config.h"
 
-enum RMCType : int;
+enum class RMCType : int;
 typedef std::string RMC;  // TODO: needed?
 
 struct ExecReq {
@@ -73,6 +73,3 @@ struct CtrlReply {
     // no reply struct for RDMA_MR
   } data;
 };
-
-// static_assert(sizeof(CmdRequest) == 64);
-// static_assert(sizeof(CmdReply) == 32);

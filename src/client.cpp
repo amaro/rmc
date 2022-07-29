@@ -244,6 +244,7 @@ void HostClient::initialize_rmc(RMCType type) {
 
   DataReq *req = get_req(0);
   req->type = DataCmdType::INIT_RMC;
+  req->data.init.id = type;
 
   const DataReply *reply = get_reply(0);
 
@@ -419,9 +420,9 @@ int main(int argc, char *argv[]) {
     ("l,load", "send 1 new req every these many microseconds (for mode=load)",
       cxxopts::value<float>()->default_value("0.0"))
     ("t, threads", "number of threads", cxxopts::value<int>())
-    ("rmc", "rmc workload; choose: readll, readll_lock, writerandom, hash",
+    ("rmc", "rmc workload; choose: readll, readll_lock, updatell, hash",
       cxxopts::value<std::string>())
-    ("numaccess", "number of accesses per rmc request for readll, readll_lock, writerandom",
+    ("numaccess", "number of accesses per rmc request for readll, readll_lock, updatell",
       cxxopts::value<int>()->default_value("0"))
     ("h,help", "Print usage");
   // clang-format on
@@ -446,13 +447,10 @@ int main(int argc, char *argv[]) {
       die("%s\n", opts.help().c_str());
     } else if (mode == "load" && load <= 0) {
       die("mode=load requires load > 0\n");
-    } else if (rmc != "readll" && rmc != "readll_lock" &&
-               rmc != "writerandom" && rmc != "hash") {
-      die("rmc can only be: readll, readll_lock, writerandom, hash\n");
     } else if ((rmc == "readll" || rmc == "readll_locked" ||
-                rmc == "writerandom") &&
+                rmc == "updatell") &&
                numaccess < 0) {
-      die("for rmcs (readll, readll_locked, writerandom) numaccess must be > "
+      die("for rmcs (readll, readll_locked, updatell) numaccess must be > "
           "0\n");
     } else if (num_threads <= 0) {
       die("threads must be > 0\n");
@@ -479,13 +477,13 @@ int main(int argc, char *argv[]) {
 
   RMCType workload;
   if (rmc == "readll")
-    workload = TRAVERSE_LL;
+    workload = RMCType::TRAVERSE_LL;
   else if (rmc == "readll_lock")
-    workload = LOCK_TRAVERSE_LL;
-  else if (rmc == "writerandom")
-    workload = RANDOM_WRITES;
+    workload = RMCType::LOCK_TRAVERSE_LL;
+  else if (rmc == "updatell")
+    workload = RMCType::UPDATE_LL;
   else if (rmc == "hash")
-    workload = HASHTABLE;
+    workload = RMCType::HASHTABLE;
   else
     die("bad rmc\n");
   printf("workload set to=%s\n", rmc.c_str());
