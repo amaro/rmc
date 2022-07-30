@@ -11,9 +11,6 @@ add_library(rmcs_obj OBJECT rmcs.cpp)
 add_library(scheduler_rdma_obj OBJECT scheduler.cpp)
 target_compile_definitions(scheduler_rdma_obj PUBLIC -DBACKEND_RDMA=1)
 
-#add_library(scheduler_rdma_hash_obj OBJECT scheduler.cpp)
-#target_compile_definitions(scheduler_rdma_hash_obj PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_HASHTABLE=1)
-#
 add_library(scheduler_rdmacomp_obj OBJECT scheduler.cpp)
 target_compile_definitions(scheduler_rdmacomp_obj PUBLIC -DBACKEND_RDMA_COMP=1)
 
@@ -22,9 +19,6 @@ target_compile_definitions(scheduler_dram_obj PUBLIC -DBACKEND_DRAM=1)
 
 add_library(scheduler_dramcomp_obj OBJECT scheduler.cpp)
 target_compile_definitions(scheduler_dramcomp_obj PUBLIC -DBACKEND_DRAM_COMP=1)
-
-#add_library(scheduler_dram_hash_obj OBJECT scheduler.cpp)
-#target_compile_definitions(scheduler_dram_hash_obj PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
 
 #add_library(scheduler_rdma_client_obj OBJECT scheduler.cpp)
 #target_compile_definitions(scheduler_rdma_client_obj PUBLIC -DBACKEND_RDMA=1 -DLOCATION_CLIENT=1)

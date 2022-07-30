@@ -6,9 +6,6 @@
 #include "onesidedclient.h"
 #include "rdma/rdmapeer.h"
 #include "rmcs.h"
-#if defined(WORKLOAD_HASHTABLE)
-#include "lib/cuckoo_hash.h"
-#endif
 
 struct AwaitGetParam {
   CoroRMC::promise_type *promise;
@@ -21,16 +18,13 @@ struct AwaitGetParam {
   int await_resume() { return promise->param; }
 };
 
-// TODO: AwaitRead follows the reqs of RDMA backend as of now. Need to
-// specialize for other backends
 struct AwaitRead {
-  uintptr_t addr;
-  bool should_suspend;
+  bool should_suspend = false;
+  uintptr_t raddr = 0;
+  void *lbuf = nullptr;
   // to handle continuations (e.g., locks)
-  CoroRMC::promise_type *promise;
-
-  AwaitRead(uintptr_t addr, bool suspend)
-      : addr(addr), should_suspend(suspend) {}
+  CoroRMC::promise_type *promise = nullptr;
+  size_t memcpy_sz = 0;
 
   constexpr bool await_ready() { return false; }
 
@@ -45,19 +39,22 @@ struct AwaitRead {
     return should_suspend;  // true = suspend; false = don't
   }
 
-  void *await_resume() {
+  void await_resume() {
     promise->waiting_mem_access = false;
-    return reinterpret_cast<void *>(addr);
+    /* if true, we are using the PrefetchDRAM backend and we need to memcpy
+       before resuming */
+    if (memcpy_sz != 0)
+      std::memcpy(lbuf, reinterpret_cast<void *>(raddr), memcpy_sz);
   }
 };
 
-// TODO: AwaitWrite follows the reqs of RDMA backend as of now. Need to
-// specialize for other backends
 struct AwaitWrite {
-  bool should_suspend;
-  CoroRMC::promise_type *promise;
+  bool should_suspend = false;
+  uintptr_t raddr = 0;
+  const void *lbuf = nullptr;
+  CoroRMC::promise_type *promise = nullptr;
+  size_t memcpy_sz = 0;
 
-  AwaitWrite(bool suspend) : should_suspend(suspend) {}
   constexpr bool await_ready() { return false; }
   auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
     promise = &coro.promise();
@@ -69,7 +66,13 @@ struct AwaitWrite {
     promise->waiting_mem_access = true;
     return should_suspend;  // true = suspend; false = don't
   }
-  constexpr void await_resume() { promise->waiting_mem_access = false; }
+  constexpr void await_resume() {
+    promise->waiting_mem_access = false;
+    /* if true, we are using the PrefetchDRAM backend and we need to memcpy
+       before resuming */
+    if (memcpy_sz != 0)
+      std::memcpy(reinterpret_cast<void *>(raddr), lbuf, memcpy_sz);
+  }
 };
 
 class BackendBase {
@@ -102,10 +105,6 @@ class CoopRDMA : public BackendBase {
   uintptr_t rsvd_base_laddr = 0;
   uintptr_t rsvd_base_raddr = 0;
 
-#if defined(WORKLOAD_HASHTABLE)
-  struct cuckoo_hash table;
-#endif
-
   CoopRDMA(OneSidedClient &c) : BackendBase(c) {
     puts("Backend: Cooperative RDMA (default)");
   }
@@ -116,12 +115,6 @@ class CoopRDMA : public BackendBase {
     auto *buffer = get_frame_alloc().get_huge_buffer().get();
     rsvd_base_laddr = reinterpret_cast<uintptr_t>(buffer);
     rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
-
-#if defined(WORKLOAD_HASHTABLE)
-    // no need to destroy the table since we are giving it preallocated
-    memory cuckoo_hash_init(&table, 16,
-                            reinterpret_cast<void *>(apps_base_laddr));
-#endif
   }
 
   AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
@@ -136,7 +129,7 @@ class CoopRDMA : public BackendBase {
                                            .swp = 0,
                                            .optype = OneSidedOp::OpType::READ});
 
-    return AwaitRead{laddr, true};
+    return AwaitRead{.should_suspend = true};
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
@@ -151,7 +144,7 @@ class CoopRDMA : public BackendBase {
                    .cmp = 0,
                    .swp = 0,
                    .optype = OneSidedOp::OpType::WRITE});
-    return AwaitWrite{true};
+    return AwaitWrite{.should_suspend = true};
   }
 
   // NOTE: cmp_swp does not map 1:1 raddrs to laddrs
@@ -167,7 +160,7 @@ class CoopRDMA : public BackendBase {
                    .swp = swp,
                    .optype = OneSidedOp::OpType::CMP_SWP});
 
-    return AwaitRead{laddr, true};
+    return AwaitRead{.should_suspend = true};
   }
 };
 
@@ -205,7 +198,7 @@ class CompRDMA : public BackendBase {
     rclient.end_batched_ops();
 
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
-    return AwaitRead{laddr, false};
+    return AwaitRead{.should_suspend = false};
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
@@ -223,7 +216,7 @@ class CompRDMA : public BackendBase {
     rclient.end_batched_ops();
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
 
-    return AwaitWrite{false};
+    return AwaitWrite{.should_suspend = false};
   }
 };
 
@@ -245,22 +238,22 @@ class PrefetchDRAM : public BackendBase {
     _mrs = mrs;
   }
 
-  AwaitRead read(uintptr_t raddr, [[maybe_unused]] void *lbuf, uint32_t sz,
+  AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const override {
     for (auto cl = 0u; cl < sz; cl += 64)
       __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 0, 0);
 
-    return AwaitRead{raddr, true};
+    return AwaitRead{
+        .should_suspend = true, .raddr = raddr, .lbuf = lbuf, .memcpy_sz = sz};
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const override {
-    assert(sz <= 64);
+    for (auto cl = 0u; cl < sz; cl += 64)
+      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 1, 0);
 
-    puts("not fully implemented");
-    //__builtin_prefetch(addr, 1, 0);
-    std::memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
-    return AwaitWrite{true};
+    return AwaitWrite{
+        .should_suspend = true, .raddr = raddr, .lbuf = lbuf, .memcpy_sz = sz};
   }
 };
 
@@ -282,14 +275,13 @@ class CompDRAM : public BackendBase {
   AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const override {
     std::memcpy(lbuf, reinterpret_cast<void *>(raddr), sz);
-    return AwaitRead{raddr, false};
+    return AwaitRead{.should_suspend = false};
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const override {
-    assert(sz <= 64);
     std::memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
-    return AwaitWrite{false};
+    return AwaitWrite{.should_suspend = false};
   }
 };
 

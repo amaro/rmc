@@ -171,8 +171,7 @@ class RMCUpdateLL : public RMCBase {
 
   CoroRMC runtime_handler(const BackendBase *b) final {
     int num_nodes = co_await b->get_param();
-    // RemoteAddr addr = get_next_node_addr(num_nodes);
-    RemoteAddr addr = rbaseaddr;
+    RemoteAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
     RemotePtr<LLNode> ptr(addr);
 
