@@ -4,27 +4,31 @@
 #include "backend.h"
 #include "config.h"
 
-enum class RMCType : int {
-  TRAVERSE_LL,
-  LOCK_TRAVERSE_LL,
-  UPDATE_LL,
-  HASHTABLE
-};
+enum class RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, UPDATE_LL, KVSTORE };
 
 struct RMCBase;
 using RemoteAddr = uintptr_t;
 
 template <typename T>
 struct RemotePtr {
-  friend RMCBase;
-  T *rptr;
+  const BackendBase *b;
+  RemoteAddr raddr;
+  uint32_t rkey;
   T lbuf;
 
-  RemotePtr(RemoteAddr raddr) : rptr(reinterpret_cast<T *>(raddr)) {}
+  RemotePtr(const BackendBase *b, RemoteAddr raddr, uint32_t rkey)
+      : b(b), raddr(raddr), rkey(rkey) {}
 
-  [[nodiscard]] T &get() { return lbuf; }
+  [[nodiscard]] T &get_ref() { return lbuf; }
 
-  void setptr(T *ptr) { rptr = ptr; }
+  void set_raddr(RemoteAddr raddr) { this->raddr = raddr; }
+
+  AwaitRead read() { return b->read(raddr, &lbuf, sizeof(T), rkey); }
+
+  AwaitWrite write() const { return b->write(raddr, &lbuf, sizeof(T), rkey); }
+
+  /* assumes raddr points to T &array[0] */
+  RemoteAddr raddr_for_index(size_t index) { return raddr + index * sizeof(T); }
 };
 
 struct RMCBase {
@@ -44,19 +48,6 @@ struct RMCBase {
   RMCBase(RMCBase &&) = delete;                  // move constructor
   RMCBase &operator=(const RMCBase &) = delete;  // copy assignment operator
   RMCBase &operator=(RMCBase &&) = delete;       // move assignment operator
-
-  template <typename T>
-  AwaitRead read(const BackendBase *b, RemotePtr<T> &ptr, uint32_t rkey) const {
-    return b->read(reinterpret_cast<RemoteAddr>(ptr.rptr), &ptr.lbuf, sizeof(T),
-                   rkey);
-  }
-
-  template <typename T>
-  AwaitWrite write(const BackendBase *b, RemotePtr<T> &ptr,
-                   uint32_t rkey) const {
-    return b->write(reinterpret_cast<RemoteAddr>(ptr.rptr), &ptr.lbuf,
-                    sizeof(T), rkey);
-  }
 };
 
 CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr);

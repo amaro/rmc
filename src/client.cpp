@@ -420,7 +420,7 @@ int main(int argc, char *argv[]) {
     ("l,load", "send 1 new req every these many microseconds (for mode=load)",
       cxxopts::value<float>()->default_value("0.0"))
     ("t, threads", "number of threads", cxxopts::value<int>())
-    ("rmc", "rmc workload; choose: readll, readll_lock, updatell, hash",
+    ("rmc", "rmc workload; choose: readll, readll_lock, updatell, kvstore",
       cxxopts::value<std::string>())
     ("numaccess", "number of accesses per rmc request for readll, readll_lock, updatell",
       cxxopts::value<int>()->default_value("0"))
@@ -482,10 +482,10 @@ int main(int argc, char *argv[]) {
     workload = RMCType::LOCK_TRAVERSE_LL;
   else if (rmc == "updatell")
     workload = RMCType::UPDATE_LL;
-  else if (rmc == "hash")
-    workload = RMCType::HASHTABLE;
+  else if (rmc == "kvstore")
+    workload = RMCType::KVSTORE;
   else
-    die("bad rmc\n");
+    die("bad rmc=%d\n", static_cast<int>(workload));
   printf("workload set to=%s\n", rmc.c_str());
 
   if (mode == "load") {

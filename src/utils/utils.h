@@ -8,6 +8,8 @@
 #include <chrono>
 #include <cstring>
 #include <random>
+#include <cstring>
+#include <string_view>
 
 static constexpr int RANDOM_SEED = 123;
 
@@ -142,39 +144,6 @@ inline void set_env_var(const char *name, const char *value) {
   printf("ENV %s = %s\n", name, value);
 }
 
-/* creates a randomized linked list over an already allocated *buffer */
-template <typename T>
-inline T *create_linkedlist(void *buffer, size_t bufsize) {
-  size_t num_nodes = bufsize / sizeof(T);
-  std::vector<T *> indices(num_nodes);
-  T *linkedlist = new (buffer) T[num_nodes];
-
-  for (auto i = 0u; i < num_nodes; ++i) indices[i] = &linkedlist[i];
-
-  printf("Shuffling %lu linked list nodes at addr %p\n", num_nodes, buffer);
-  auto rng = std::default_random_engine{RANDOM_SEED};
-  std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
-
-  for (auto i = 0u; i < num_nodes; ++i) {
-    T *cur = indices[i];
-    if (i < num_nodes - 1)
-      cur->next = indices[i + 1];
-    else
-      cur->next = indices[0];
-
-    cur->data = 1;
-  }
-
-  return linkedlist;
-}
-
-/* stackoverflow.com/questions/8918791/how-to-properly-free-the-memory-allocated-by-placement-new
- */
-template <typename T>
-inline void destroy_linkedlist(T *linkedlist) {
-  linkedlist->~T();
-}
-
 /* https://quick-bench.com/q/BpmfGIfPh8vzrUYhSZJzzUabMTU */
 template <typename Key, typename Value, std::size_t Size>
 struct StaticMap {
@@ -190,3 +159,7 @@ struct StaticMap {
     }
   }
 };
+
+inline size_t hash_str(const char *s) {
+  return std::hash<std::string_view>()(std::string_view(s, std::strlen(s)));
+}
