@@ -10,8 +10,10 @@
 #include <random>
 #include <cstring>
 #include <string_view>
+#include <fstream>
+#include <iterator>
 
-static constexpr int RANDOM_SEED = 123;
+static constexpr long unsigned int RANDOM_SEED = 123;
 
 #define TEST_NZ(x)                                             \
   do {                                                         \
@@ -162,4 +164,24 @@ struct StaticMap {
 
 inline size_t hash_str(const char *s) {
   return std::hash<std::string_view>()(std::string_view(s, std::strlen(s)));
+}
+
+inline size_t hash_buff(const uint8_t *b) {
+  return hash_str(reinterpret_cast<const char *>(b));
+}
+
+template <typename T>
+inline void file_to_vec(std::vector<T> &out, const char *file) {
+  std::ifstream inputf(file);
+  rt_assert(inputf.is_open(), "could not open input file");
+
+  T value;
+  while (inputf >> value)
+    out.push_back(value);
+}
+
+template <typename T>
+inline void shuffle_vec(std::vector<T> &vec, long unsigned int seed) {
+  auto rng = std::default_random_engine{seed};
+  std::shuffle(std::begin(vec) + 1, std::end(vec), rng);
 }

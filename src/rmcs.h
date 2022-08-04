@@ -33,7 +33,7 @@ struct RemotePtr {
 
 struct RMCBase {
   /* Runs at the runtime location, main handler for this RMC */
-  virtual CoroRMC runtime_handler(const BackendBase *b) = 0;
+  virtual CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) = 0;
   /* Runs at the runtime location. Receives memory region information such that
      we can cache it at the class level, or return if appropriate. */
   virtual CoroRMC runtime_init(const MemoryRegion &mr) = 0;
@@ -51,5 +51,6 @@ struct RMCBase {
 };
 
 CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr);
-CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b);
+CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b,
+                         const ExecReq *req);
 void rmcs_server_init(MrAllocator &sa, std::vector<MemoryRegion> &allocs);

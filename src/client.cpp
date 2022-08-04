@@ -25,37 +25,16 @@ void HostClient::connect(const std::string &ip, const unsigned int &port) {
   rclient.connect_to_server(ip, port);
 
   req_buf_mr =
-      rclient.register_mr(&datareqs[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS, 0);
-  reply_buf_mr = rclient.register_mr(
-      &datareplies[0], sizeof(DataReply) * QP_MAX_2SIDED_WRS,
-      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
+      rclient.register_mr(&req_slot[0], sizeof(DataReq) * QP_MAX_2SIDED_WRS, 0);
+  reply_buf_mr =
+      rclient.register_mr(&reply_slot[0], sizeof(DataReply) * QP_MAX_2SIDED_WRS,
+                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_RELAXED_ORDERING);
   rmccready = true;
 }
 
-// kept here as example on how to issue one req at a time
-// RMCId HostClient::get_rmc_id(const RMC &rmc) {
-//  assert(rmccready);
-//
-//  CmdRequest *req = get_req(0);
-//  CmdReply *reply = get_reply(0);
-//
-//  post_recv_reply(reply);
-//
-//  /* get_id request */
-//  req->type = CmdType::GET_RMCID;
-//  rmc.copy(req->request.getid.rmc, sizeof(req->request.getid.rmc));
-//  post_send_req(req);
-//
-//  rclient.poll_exactly(1, rclient.get_send_cq(0));
-//  rclient.poll_exactly(1, rclient.get_recv_cq(0));
-//
-//  /* read CmdReply */
-//  assert(reply->type == CmdType::GET_RMCID);
-//  return reply->reply.getid.id;
-//}
-
 // tid here is only for debugging purposes
-long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
+long long HostClient::do_maxinflight(uint32_t num_reqs,
+                                     const std::vector<ExecReq> &args,
                                      pthread_barrier_t *barrier, uint16_t tid) {
   assert(rmccready);
 
@@ -66,16 +45,15 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
   long long duration = 0;
   static auto noop = [](size_t) constexpr->void{};
 
-  for (auto i = 0u; i < maxinflight; i++) arm_call_req(get_req(i), param);
-
   pthread_barrier_wait(barrier);
 
   time_point start = time_start();
   for (auto i = 0u; i < num_reqs; i++) {
     /* send as many requests as we have credits for */
     if (this->inflight < maxinflight) {
-      post_recv_reply(get_reply(this->req_idx));
-      post_send_req_unsig(get_req(this->req_idx));
+      post_recv_reply(&reply_slot[this->req_idx]);
+      arm_exec_req(&req_slot[req_idx], &args[i]);
+      post_send_req_unsig(&req_slot[this->req_idx]);
       this->inflight++;
       inc_with_wraparound(this->req_idx, maxinflight);
     }
@@ -98,7 +76,7 @@ long long HostClient::do_maxinflight(uint32_t num_reqs, uint32_t param,
 
   assert(this->inflight == 0);
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-    assert(*(reinterpret_cast<int *>(datareplies[i].data.exec.data)) == 1);
+    assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
 
   return duration;
 }
@@ -134,11 +112,13 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   long long ts_start_rtt = 0;
   ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
   ibv_cq_ex *send_cq = rclient.get_send_cq(0);
+  ExecReq execreq{.id = workload, .size = sizeof(uint32_t)};
+  std::memcpy(execreq.data, &numaccesses, sizeof(uint32_t));
 
   printf("will issue %u requests every %lu nanoseconds\n", num_reqs,
          wait_in_nsec);
 
-  for (auto i = 0u; i < maxinflight; i++) arm_call_req(get_req(i), numaccesses);
+  for (auto i = 0u; i < maxinflight; i++) arm_exec_req(&req_slot[i], &execreq);
 
   std::vector<long long> send_cycles;
   get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);
@@ -150,7 +130,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 
     /* must start the RTT here because it might get delayed if there's too many
      * reqs in flight */
-    post_recv_reply(get_reply(this->req_idx));
+    post_recv_reply(&reply_slot[this->req_idx]);
     ts_start_rtt = get_cycles();
     start_times.push(ts_start_rtt);
 
@@ -202,7 +182,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 }
 
 void HostClient::load_send_request() {
-  post_send_req_unsig(get_req(this->req_idx));
+  post_send_req_unsig(&req_slot[this->req_idx]);
   this->inflight++;
   inc_with_wraparound(this->req_idx, get_max_inflight());
 }
@@ -225,7 +205,7 @@ void HostClient::load_handle_reps(std::queue<long long> &start_times,
 void HostClient::last_cmd() {
   assert(rmccready);
 
-  DataReq *req = get_req(0);
+  DataReq *req = &req_slot[0];
   req->type = DataCmdType::LAST_CMD;
   post_send_req(req);
   rclient.poll_exactly(1, rclient.get_send_cq(0));
@@ -242,11 +222,11 @@ void HostClient::disconnect() {
 void HostClient::initialize_rmc(RMCType type) {
   assert(rmccready);
 
-  DataReq *req = get_req(0);
+  DataReq *req = &req_slot[0];
   req->type = DataCmdType::INIT_RMC;
   req->data.init.id = type;
 
-  const DataReply *reply = get_reply(0);
+  const DataReply *reply = &reply_slot[0];
 
   post_recv_reply(reply);
   post_send_req(req);
@@ -321,18 +301,21 @@ double benchmark_maxinflight(HostClient &client, uint32_t param,
                              uint32_t num_reqs) {
   const uint32_t max = client.get_max_inflight();
   double duration;
+  std::vector<ExecReq> args;
+  args.reserve(num_reqs);
+
+  client.get_req_args(num_reqs, args);
 
   printf("get_max_inflight()=%u\n", max);
   printf("maxinflight: warming up\n");
-  client.do_maxinflight(max * 10, param, barrier, tid);
+  client.do_maxinflight(max * 10, args, barrier, tid);
 
   printf("maxinflight: benchmark start\n");
-  duration = client.do_maxinflight(num_reqs, param, barrier, tid);
+  duration = client.do_maxinflight(num_reqs, args, barrier, tid);
   printf("maxinflight: benchmark end\n");
 
   client.last_cmd();
   return duration;
-  // print_stats_maxinflight(durations, maxinflight);
 }
 
 double benchmark_load(HostClient &client, uint32_t numaccesses, float load,
@@ -486,6 +469,7 @@ int main(int argc, char *argv[]) {
     workload = RMCType::KVSTORE;
   else
     die("bad rmc=%d\n", static_cast<int>(workload));
+
   printf("workload set to=%s\n", rmc.c_str());
 
   if (mode == "load") {

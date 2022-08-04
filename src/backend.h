@@ -7,17 +7,6 @@
 #include "rdma/rdmapeer.h"
 #include "rmcs.h"
 
-struct AwaitGetParam {
-  CoroRMC::promise_type *promise;
-
-  constexpr bool await_ready() { return false; }
-  auto await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
-    promise = &coro.promise();
-    return false;  // don't suspend
-  }
-  int await_resume() { return promise->param; }
-};
-
 struct AwaitRead {
   bool should_suspend = false;
   uintptr_t raddr = 0;
@@ -93,7 +82,7 @@ class BackendBase {
                          uint32_t rkey) const = 0;
   virtual AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
                            uint32_t rkey) const = 0;
-  auto get_param() const { return AwaitGetParam{}; }
+  // auto get_param() const { return AwaitGetParam{}; }
 };
 
 /* Cooperative multi tasking RDMA backend */

@@ -13,8 +13,9 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
   for (auto i = 0u; i < num_nodes; ++i) indices[i] = &linkedlist[i];
 
   printf("Shuffling %lu linked list nodes at addr %p\n", num_nodes, buffer);
-  auto rng = std::default_random_engine{RANDOM_SEED};
-  std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
+  shuffle_vec(indices, RANDOM_SEED);
+  // auto rng = std::default_random_engine{RANDOM_SEED};
+  // std::shuffle(std::begin(indices) + 1, std::end(indices), rng);
 
   for (auto i = 0u; i < num_nodes; ++i) {
     T *cur = indices[i];
@@ -54,14 +55,14 @@ class RMCTraverseLL : public RMCBase {
  public:
   RMCTraverseLL() = default;
 
-  CoroRMC runtime_handler(const BackendBase *b) final {
-    int num_nodes = co_await b->get_param();
+  CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    // int num_nodes = co_await b->get_param();
+    int num_nodes = 2;
     RemoteAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
     RemotePtr<LLNode> ptr(b, addr, rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
-      // co_await read(b, ptr, rkey);
       co_await ptr.read();
       LLNode &node = ptr.get_ref();
       ptr.set_raddr(node.next);
@@ -114,8 +115,9 @@ class RMCLockTraverseLL : public RMCBase {
  public:
   RMCLockTraverseLL() = default;
 
-  CoroRMC runtime_handler(const BackendBase *b) final {
-    int num_nodes = co_await b->get_param();
+  CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    // int num_nodes = co_await b->get_param();
+    int num_nodes = 2;
     uintptr_t addr = get_next_node_addr(num_nodes);
     LLNode node;
     int reply = 1;
@@ -174,8 +176,9 @@ class RMCUpdateLL : public RMCBase {
  public:
   RMCUpdateLL() = default;
 
-  CoroRMC runtime_handler(const BackendBase *b) final {
-    int num_nodes = co_await b->get_param();
+  CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    // int num_nodes = co_await b->get_param();
+    int num_nodes = 2;
     RemoteAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
     RemotePtr<LLNode> ptr(b, addr, rkey);
@@ -212,19 +215,9 @@ class RMCUpdateLL : public RMCBase {
   static constexpr RMCType get_type() { return RMCType::UPDATE_LL; }
 };
 
-class RMCKVStore : public RMCBase {
+namespace KVStore {
+class RMC : public RMCBase {
   static constexpr size_t BUFSIZE = 1 << 30;  // 1 GB
-  static constexpr size_t KEY_LEN = 30;
-  static constexpr size_t VALUE_LEN = 100;
-  static constexpr char DEFAULT_VAL[] =
-      "defaultvaldefaultvaldefaultvaldefaultvaldefaultvaldefaultvaldefaultvalde"
-      "faultvaldefaultvaldefaultval";
-
-  struct Record {
-    uint8_t key[KEY_LEN] = {};
-    uint8_t value[VALUE_LEN] = {};
-  };
-
   static constexpr size_t MAX_RECORDS = BUFSIZE / sizeof(Record);
 
   RemoteAddr tableaddr = 0;
@@ -234,25 +227,28 @@ class RMCKVStore : public RMCBase {
 
   Record *server_table = nullptr;
   uint32_t start_node = 0;
-  std::hash<int> hashf;
 
  public:
-  RMCKVStore() = default;
+  RMC() = default;
 
-  CoroRMC runtime_handler(const BackendBase *b) final {
-    /* for now, all requests put() */
+  CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    auto *kvreq = reinterpret_cast<const RpcReq *>(req->data);
+
     RemotePtr<Record> rowptr(b, tableaddr, rkey);
-    int key = current_key++;  // TODO: this should be sent in req
-    size_t index = hashf(key) % MAX_RECORDS;
+    size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
 
     rowptr.set_raddr(rowptr.raddr_for_index(index));
     co_await rowptr.read();
     Record &record = rowptr.get_ref();
 
-    std::memcpy(&record.key, &key, std::min(sizeof(key), KEY_LEN));
-    // TODO: value should come from req
-    std::memcpy(&record.value, &DEFAULT_VAL, VALUE_LEN);
-    co_await rowptr.write();
+    if (kvreq->reqtype == RpcReqType::GET) {
+      puts("received get");
+      // TODO: return value in reply
+    } else {
+      puts("received put");
+      std::memcpy(&record, &kvreq->record, sizeof(Record));
+      co_await rowptr.write();
+    }
 
     int reply = 1;
     co_return &reply;
@@ -282,15 +278,16 @@ class RMCKVStore : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::KVSTORE; }
 };
+}  // namespace KVStore
 
 static RMCTraverseLL traversell;
 static RMCLockTraverseLL locktraversell;
 static RMCUpdateLL updatell;
-static RMCKVStore kvstore;
+static KVStore::RMC kvstore;
 
 /* data path */
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(RMCKVStore::get_type(), &kvstore)}};
+    rmc_values{{std::make_pair(KVStore::RMC::get_type(), &kvstore)}};
 
 /* data path */
 static constexpr auto rmc_map =
@@ -302,8 +299,9 @@ CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr) {
 }
 
 /* data path */
-CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b) {
-  return rmc_map.at(type)->runtime_handler(b);
+CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b,
+                         const ExecReq *req) {
+  return rmc_map.at(type)->runtime_handler(b, req);
 }
 
 /* control path

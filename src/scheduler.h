@@ -141,12 +141,7 @@ inline void RMCScheduler::req_exec_rmc(const DataReq *req) {
 #endif
 
   const ExecReq *execreq = &req->data.exec;
-  CoroRMC rmc = rmcs_get_handler(execreq->id, &backend);
-
-  /* set rmc params */
-  rmc.get_handle().promise().param =
-      *(reinterpret_cast<const uint32_t *>(execreq->data));
-
+  CoroRMC rmc = rmcs_get_handler(execreq->id, &backend, execreq);
   runqueue.push_back(rmc.get_handle());
 
 #ifdef PERF_STATS
@@ -306,28 +301,8 @@ inline void RMCScheduler::copy_execreply(const CoroRMC::promise_type &promise,
   datareply.type = CALL_RMC;
   auto &execreply = datareply.data.exec;
 
-  if (promise.reply_sz > 0) {
-    switch (promise.reply_sz) {
-      case 4: {
-        int32_t *replydata = reinterpret_cast<int32_t *>(&execreply.data);
-        *replydata = *(reinterpret_cast<int32_t *>(promise.reply_ptr));
-        break;
-      }
-      case 8: {
-        int64_t *replydata = reinterpret_cast<int64_t *>(&execreply.data);
-        *replydata = *(reinterpret_cast<int64_t *>(promise.reply_ptr));
-        break;
-      }
-      case 16: {
-        int64_t *replydata = reinterpret_cast<int64_t *>(&execreply.data);
-        *replydata = *(reinterpret_cast<int64_t *>(promise.reply_ptr));
-        *(replydata + 8) =
-            *(reinterpret_cast<int64_t *>(promise.reply_ptr) + 8);
-      }
-      default:
-        die("unsupported execreply size: %d\n", promise.reply_sz);
-    }
-  }
+  if (promise.reply_sz > 0)
+    std::memcpy(execreply.data, promise.reply_ptr, promise.reply_sz);
 }
 
 inline void RMCScheduler::copy_initreply(const CoroRMC::promise_type &promise,

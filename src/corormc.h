@@ -24,7 +24,6 @@ class CoroRMC {
   struct promise_type {
     std::coroutine_handle<promise_type> continuation;
     void *reply_ptr = nullptr;
-    int param = 0;
     bool waiting_mem_access = false;
     bool init_reply = false;
     uint8_t reply_sz = 0;

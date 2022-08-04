@@ -7,10 +7,8 @@ static constexpr const uint64_t RMCK_TOTAL_BUFF_SZ = 1024 * MB;
 static constexpr const uint64_t RMCK_RESERVED_BUFF_SZ = 16 * MB;
 static constexpr const uint64_t RMCK_APPS_BUFF_SZ =
     RMCK_TOTAL_BUFF_SZ - RMCK_RESERVED_BUFF_SZ;
-/* to store the actual rmc being queried */
-static constexpr const unsigned MAX_RMC_PROG_LEN = 56;
 /* rmc arguments */
-static constexpr const unsigned MAX_RMC_ARG_LEN = 16;
+static constexpr const unsigned MAX_EXECREQ_DATA = 256;
 /* to store RMC reply results */
 static constexpr const size_t MAX_RMC_REPLY_LEN = 16;
 /* how many RMCs we are going to register */

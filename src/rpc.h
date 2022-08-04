@@ -3,15 +3,16 @@
 #include "config.h"
 
 enum class RMCType : int;
-typedef std::string RMC;  // TODO: needed?
 
 struct ExecReq {
   RMCType id;
-  char data[MAX_RMC_ARG_LEN + 1];
+  uint8_t size;
+  uint8_t data[MAX_EXECREQ_DATA];
 };
 
+// TODO: support size here too, and remove reply_sz from corormc
 struct ExecReply {
-  char data[MAX_RMC_REPLY_LEN];
+  uint8_t data[MAX_RMC_REPLY_LEN];
 };
 
 struct InitReq {
@@ -73,3 +74,20 @@ struct CtrlReply {
     // no reply struct for RDMA_MR
   } data;
 };
+
+namespace KVStore {
+static constexpr uint8_t KEY_LEN = 30;
+static constexpr uint8_t VAL_LEN = 100;
+
+struct Record {
+  uint8_t key[KEY_LEN];
+  uint8_t val[VAL_LEN];
+};
+
+enum class RpcReqType { GET, PUT };
+
+struct RpcReq {
+  RpcReqType reqtype;
+  Record record;
+};
+}  // namespace KVStore
