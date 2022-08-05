@@ -81,6 +81,7 @@ void thread_launch(OneSidedClient &osc, uint16_t thread_id,
   pthread_barrier_wait(barrier);
   nicserver.start(sched, clientport + thread_id, thread_id);
   printf("EXIT thread current_tid=%u\n", current_tid);
+  pthread_barrier_wait(barrier);
 }
 
 int main(int argc, char *argv[]) {

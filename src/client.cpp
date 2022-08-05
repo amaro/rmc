@@ -75,8 +75,8 @@ long long HostClient::do_maxinflight(uint32_t num_reqs,
   duration = time_end(start);
 
   assert(this->inflight == 0);
-  for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-    assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+  //for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
+  //  assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
 
   return duration;
 }
@@ -303,6 +303,8 @@ double benchmark_maxinflight(HostClient &client, uint32_t param,
   double duration;
   std::vector<ExecReq> args;
   args.reserve(num_reqs);
+
+  current_tid = tid;
 
   client.get_req_args(num_reqs, args);
 

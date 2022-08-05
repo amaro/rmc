@@ -60,9 +60,9 @@ class HostClient {
       else
         actions.push_back(KVStore::RpcReqType::GET);
     }
-    shuffle_vec(actions, RANDOM_SEED);
+    shuffle_vec(actions, current_tid);
 
-    rt_assert(keys.size() == numreqs, "keys != numreqs");
+    rt_assert(keys.size() >= numreqs, "keys < numreqs");
     rt_assert(actions.size() == numreqs, "actions != numreqs");
 
     for (auto req = 0u; req < numreqs; req++) {
