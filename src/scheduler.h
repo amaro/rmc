@@ -60,10 +60,6 @@ class RMCScheduler {
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
   void exec_interleaved_dram(RDMAContext &server_ctx);
   void exec_completion(RDMAContext &server_ctx);
-  void copy_execreply(const CoroRMC::promise_type &promise,
-                      DataReply &reply) const;
-  void copy_initreply(const CoroRMC::promise_type &promise,
-                      DataReply &reply) const;
   void add_reply(promise_handle &rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
@@ -291,38 +287,12 @@ inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
 #endif
 }
 
-/* copies a generic reply to a buffer that we can post to rdma
-   TODO: give RMCs a registered reply buffer directly */
-inline void RMCScheduler::copy_execreply(const CoroRMC::promise_type &promise,
-                                         DataReply &datareply) const {
-  static_assert(sizeof(int32_t) == 4);
-  static_assert(sizeof(int64_t) == 8);
-
-  datareply.type = CALL_RMC;
-  auto &execreply = datareply.data.exec;
-
-  if (promise.reply_sz > 0)
-    std::memcpy(execreply.data, promise.reply_ptr, promise.reply_sz);
-}
-
-inline void RMCScheduler::copy_initreply(const CoroRMC::promise_type &promise,
-                                         DataReply &datareply) const {
-  datareply.type = INIT_RMC;
-  auto &initreply = datareply.data.init;
-  InitReply *source = reinterpret_cast<InitReply *>(promise.reply_ptr);
-
-  initreply.rbaseaddr = source->rbaseaddr;
-  initreply.length = source->length;
-  initreply.rkey = source->rkey;
-  printf("reply.rbaseaddr=%ld\nlength=%u\nrkey=%u\n", initreply.rbaseaddr,
-         initreply.length, initreply.rkey);
-}
-
 inline void RMCScheduler::add_reply(promise_handle &rmc,
                                     RDMAContext &server_ctx) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif
+  CoroRMC::promise_type &promise = rmc.promise();
 
   if (!pending_replies) server_ctx.start_batch();
 
@@ -330,10 +300,12 @@ inline void RMCScheduler::add_reply(promise_handle &rmc,
   DataReply *reply = ns.get_reply(this->reply_idx);
   inc_with_wraparound(this->reply_idx, QP_MAX_2SIDED_WRS);
 
-  if (!rmc.promise().init_reply) [[likely]]
-    copy_execreply(rmc.promise(), *reply);
-  else
-    copy_initreply(rmc.promise(), *reply);
+  /* copies a generic reply to a buffer that we can post to rdma
+     TODO: give RMCs a registered reply buffer directly */
+  if (promise.reply_sz > 0) {
+    reply->size = promise.reply_sz;
+    std::memcpy(reply->data, promise.reply_ptr, promise.reply_sz);
+  }
 
   ns.post_batched_send_reply(server_ctx, reply);
   rmc.destroy();

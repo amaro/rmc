@@ -226,7 +226,6 @@ class RMC : public RMCBase {
   uint32_t current_key = 0;
 
   Record *server_table = nullptr;
-  uint32_t start_node = 0;
 
  public:
   RMC() = default;
@@ -235,21 +234,21 @@ class RMC : public RMCBase {
     auto *kvreq = reinterpret_cast<const RpcReq *>(req->data);
 
     RemotePtr<Record> rowptr(b, tableaddr, rkey);
-    size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
+    //size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
+    size_t index = *(reinterpret_cast<const uint32_t*>(kvreq->record.key)) % MAX_RECORDS;
 
     rowptr.set_raddr(rowptr.raddr_for_index(index));
     co_await rowptr.read();
     Record &record = rowptr.get_ref();
 
     if (kvreq->reqtype == RpcReqType::GET) {
-      puts("received get");
-      // TODO: return value in reply
-    } else {
-      puts("received put");
-      std::memcpy(&record, &kvreq->record, sizeof(Record));
-      co_await rowptr.write();
+      uint8_t reply_val[VAL_LEN];
+      std::memcpy(&reply_val, &record.val, VAL_LEN);
+      co_return &reply_val;
     }
 
+    std::memcpy(&record, &kvreq->record, sizeof(Record));
+    co_await rowptr.write();
     int reply = 1;
     co_return &reply;
   }
@@ -272,7 +271,10 @@ class RMC : public RMCBase {
     assert(reinterpret_cast<RemoteAddr>(alloc.addr) % 4096 == 0);
 
     server_table = new (alloc.addr) Record[MAX_RECORDS];
+    for (auto i = 0u; i < MAX_RECORDS; i++)
+      std::memset(&server_table[i].val, 1, VAL_LEN);
 
+    printf("server_tableaddr=%p\n", static_cast<void *>(server_table));
     return alloc;
   }
 

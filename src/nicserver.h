@@ -10,6 +10,9 @@
 #include "rdma/rdmaserver.h"
 #include "rpc.h"
 
+/* the size of DataReply without DataReply.data */
+static constexpr size_t DATAREPLY_NODATA_SZ =
+    sizeof(DataReply) - MAX_RMC_REPLY_LEN;
 class RMCScheduler;
 
 class NICServer {
@@ -61,7 +64,8 @@ inline void NICServer::post_send_reply(DataReply *reply) {
 inline void NICServer::post_batched_send_reply(RDMAContext &ctx,
                                                const DataReply *reply) {
   assert(nsready);
-  ctx.post_batched_send(reply, sizeof(DataReply), reply_buf_mr->lkey);
+  ctx.post_batched_send(reply, DATAREPLY_NODATA_SZ + reply->size,
+                        reply_buf_mr->lkey);
 }
 
 inline DataReq *NICServer::get_req(size_t req_idx) {

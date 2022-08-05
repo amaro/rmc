@@ -6,7 +6,6 @@
 #include "config.h"
 #include "utils/utils.h"
 
-struct InitReply;
 /* IgnoreReply is a hack, but no time to figure out how to do this better right
  * now */
 struct IgnoreReply {};
@@ -24,9 +23,8 @@ class CoroRMC {
   struct promise_type {
     std::coroutine_handle<promise_type> continuation;
     void *reply_ptr = nullptr;
-    bool waiting_mem_access = false;
-    bool init_reply = false;
     uint8_t reply_sz = 0;
+    bool waiting_mem_access = false;
 
     /* constructor */
     promise_type() noexcept {};
@@ -83,7 +81,6 @@ class CoroRMC {
       if (reply != nullptr) {
         reply_ptr = reply;
         reply_sz = sizeof(T);
-        if constexpr (std::is_same<T, InitReply>::value) init_reply = true;
       }
     }
   };

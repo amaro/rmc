@@ -10,11 +10,6 @@ struct ExecReq {
   uint8_t data[MAX_EXECREQ_DATA];
 };
 
-// TODO: support size here too, and remove reply_sz from corormc
-struct ExecReply {
-  uint8_t data[MAX_RMC_REPLY_LEN];
-};
-
 struct InitReq {
   RMCType id;
 };
@@ -46,13 +41,8 @@ struct DataReq {
 
 /* Datapath reply */
 struct DataReply {
-  DataCmdType type;
-
-  union {
-    InitReply init;
-    ExecReply exec;
-    // no reply struct for LAST_CMD
-  } data;
+  uint8_t size;
+  uint8_t data[MAX_RMC_REPLY_LEN];
 };
 
 enum CtrlCmdType { RDMA_MR = 1 };

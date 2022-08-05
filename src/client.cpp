@@ -235,9 +235,9 @@ void HostClient::initialize_rmc(RMCType type) {
   rclient.poll_exactly(1, rclient.get_recv_cq(0));
 
   /* read reply */
-  rt_assert(reply->type == DataCmdType::INIT_RMC,
-            "during rmc init, expected INIT_RMC reply");
-  const InitReply *initreply = &reply->data.init;
+  rt_assert(reply->size == sizeof(InitReply),
+            "reply size != sizeof(InitReply)");
+  auto *initreply = reinterpret_cast<const InitReply *>(reply->data);
   printf("rbaseaddr=%lu\nlength=%u\nrkey=%u\n", initreply->rbaseaddr,
          initreply->length, initreply->rkey);
 }

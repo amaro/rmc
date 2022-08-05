@@ -10,6 +10,6 @@ static constexpr const uint64_t RMCK_APPS_BUFF_SZ =
 /* rmc arguments */
 static constexpr const unsigned MAX_EXECREQ_DATA = 256;
 /* to store RMC reply results */
-static constexpr const size_t MAX_RMC_REPLY_LEN = 16;
+static constexpr const size_t MAX_RMC_REPLY_LEN = 256;
 /* how many RMCs we are going to register */
 static constexpr uint8_t NUM_REG_RMC = 1;
