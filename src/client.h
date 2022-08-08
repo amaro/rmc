@@ -30,10 +30,49 @@ class HostClient {
   ibv_mr *req_buf_mr;
   ibv_mr *reply_buf_mr;
 
-  void post_recv_reply(const DataReply *reply);
-  void post_send_req_unsig(const DataReq *req);
-  void maybe_poll_sends(ibv_cq_ex *send_cq);
-  void post_send_req(const DataReq *req);
+  void post_recv_reply(const DataReply *reply) {
+    assert(rmccready);
+
+    rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(DataReply),
+                      reply_buf_mr->lkey);
+  }
+
+  void post_send_req_unsig(const DataReq *req) {
+    assert(rmccready);
+
+    rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
+                               DATAREQ_NODATA_SZ + req->data.exec.size,
+                               req_buf_mr->lkey);
+    pending_unsig_sends += 1;
+  }
+
+  /*
+  if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
+      poll wait until we get 1 completion.
+  */
+  void maybe_poll_sends(ibv_cq_ex *send_cq) {
+    static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
+    thread_local struct ibv_wc wc;
+    int ne;
+
+    if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {
+      ne = ibv_poll_cq(ibv_cq_ex_to_cq(send_cq), 1, &wc);
+      TEST_NZ(ne < 0);
+
+      if (ne > 0) {
+        TEST_NZ(wc.status != IBV_WC_SUCCESS);
+        pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
+      }
+    }
+  }
+
+  void post_send_req(const DataReq *req) {
+    assert(rmccready);
+
+    rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
+                      req_buf_mr->lkey);
+  }
+
   void disconnect();
 
   void load_send_request();
@@ -91,7 +130,8 @@ class HostClient {
   long long do_maxinflight(uint32_t num_reqs, const std::vector<ExecReq> &args,
                            pthread_barrier_t *barrier, uint16_t tid);
   int do_load(float load, std::vector<uint32_t> &durations, uint32_t num_reqs,
-              long long freq, uint32_t param, pthread_barrier_t *barrier);
+              long long freq, const std::vector<ExecReq> &args,
+              pthread_barrier_t *barrier);
 
   /* cmd to initiate disconnect */
   void last_cmd();
@@ -109,49 +149,5 @@ class HostClient {
     }
   }
 };
-
-/* post a recv for DataReply */
-inline void HostClient::post_recv_reply(const DataReply *reply) {
-  assert(rmccready);
-
-  rclient.post_recv(rclient.get_ctrl_ctx(), reply, sizeof(DataReply),
-                    reply_buf_mr->lkey);
-}
-
-inline void HostClient::post_send_req(const DataReq *req) {
-  assert(rmccready);
-
-  rclient.post_send(rclient.get_ctrl_ctx(), req, sizeof(DataReq),
-                    req_buf_mr->lkey);
-}
-
-inline void HostClient::post_send_req_unsig(const DataReq *req) {
-  assert(rmccready);
-
-  rclient.post_2s_send_unsig(rclient.get_ctrl_ctx(), req,
-                             DATAREQ_NODATA_SZ + req->data.exec.size,
-                             req_buf_mr->lkey);
-  pending_unsig_sends += 1;
-}
-
-/*
-if pending_unsig_sends >= 3*MAX_UNSIGNALED_SENDS
-    poll wait until we get 1 completion.
-*/
-inline void HostClient::maybe_poll_sends(ibv_cq_ex *send_cq) {
-  static_assert(3 * RDMAPeer::MAX_UNSIGNALED_SENDS < QP_MAX_2SIDED_WRS);
-  thread_local struct ibv_wc wc;
-  int ne;
-
-  if (pending_unsig_sends >= 3 * RDMAPeer::MAX_UNSIGNALED_SENDS) {
-    ne = ibv_poll_cq(ibv_cq_ex_to_cq(send_cq), 1, &wc);
-    TEST_NZ(ne < 0);
-
-    if (ne > 0) {
-      TEST_NZ(wc.status != IBV_WC_SUCCESS);
-      pending_unsig_sends -= RDMAPeer::MAX_UNSIGNALED_SENDS;
-    }
-  }
-}
 
 #endif

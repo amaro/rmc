@@ -234,8 +234,9 @@ class RMC : public RMCBase {
     auto *kvreq = reinterpret_cast<const RpcReq *>(req->data);
 
     RemotePtr<Record> rowptr(b, tableaddr, rkey);
-    //size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
-    size_t index = *(reinterpret_cast<const uint32_t*>(kvreq->record.key)) % MAX_RECORDS;
+    // size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
+    size_t index =
+        *(reinterpret_cast<const uint32_t *>(kvreq->record.key)) % MAX_RECORDS;
 
     rowptr.set_raddr(rowptr.raddr_for_index(index));
     co_await rowptr.read();

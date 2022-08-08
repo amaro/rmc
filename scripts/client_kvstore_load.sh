@@ -12,7 +12,7 @@ workload=$4
 
 binary=./client
 
-if [[ ${workload} != "hash" ]]; then
+if [[ ${workload} != "kvstore" ]]; then
     echo "workload=${workload} not supported in this script"
     exit 2
 fi

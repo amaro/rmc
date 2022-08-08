@@ -16,6 +16,7 @@
 static constexpr int NUM_REPS = 1;
 static constexpr const uint32_t NUM_REQS = 100000;
 static std::string server, mode, rmc;
+/* for workloads that issue multiple accesses */
 static int numaccess;
 static unsigned int start_port;
 static float load = 0.0;
@@ -75,8 +76,8 @@ long long HostClient::do_maxinflight(uint32_t num_reqs,
   duration = time_end(start);
 
   assert(this->inflight == 0);
-  //for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-  //  assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+  // for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
+  //   assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
 
   return duration;
 }
@@ -97,7 +98,8 @@ static void get_send_times_exp(std::vector<long long> &send_cycles,
 }
 
 int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
-                        uint32_t num_reqs, long long freq, uint32_t numaccesses,
+                        uint32_t num_reqs, long long freq,
+                        const std::vector<ExecReq> &args,
                         pthread_barrier_t *barrier) {
   assert(rmccready);
 
@@ -112,13 +114,12 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   long long ts_start_rtt = 0;
   ibv_cq_ex *recv_cq = rclient.get_recv_cq(0);
   ibv_cq_ex *send_cq = rclient.get_send_cq(0);
-  ExecReq execreq{.id = workload, .size = sizeof(uint32_t)};
-  std::memcpy(execreq.data, &numaccesses, sizeof(uint32_t));
 
   printf("will issue %u requests every %lu nanoseconds\n", num_reqs,
          wait_in_nsec);
 
-  for (auto i = 0u; i < maxinflight; i++) arm_exec_req(&req_slot[i], &execreq);
+  // for (auto i = 0u; i < maxinflight; i++) arm_exec_req(&req_slot[i],
+  // &execreq);
 
   std::vector<long long> send_cycles;
   get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);
@@ -131,6 +132,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
     /* must start the RTT here because it might get delayed if there's too many
      * reqs in flight */
     post_recv_reply(&reply_slot[this->req_idx]);
+    arm_exec_req(&req_slot[this->req_idx], &args[i]);
     ts_start_rtt = get_cycles();
     start_times.push(ts_start_rtt);
 
@@ -296,9 +298,8 @@ double print_stats_load(std::vector<uint32_t> &durations, long long freq) {
 }
 
 /* keeps maxinflight active requests at all times */
-double benchmark_maxinflight(HostClient &client, uint32_t param,
-                             pthread_barrier_t *barrier, uint16_t tid,
-                             uint32_t num_reqs) {
+double benchmark_maxinflight(HostClient &client, pthread_barrier_t *barrier,
+                             uint16_t tid, uint32_t num_reqs) {
   const uint32_t max = client.get_max_inflight();
   double duration;
   std::vector<ExecReq> args;
@@ -320,20 +321,26 @@ double benchmark_maxinflight(HostClient &client, uint32_t param,
   return duration;
 }
 
-double benchmark_load(HostClient &client, uint32_t numaccesses, float load,
+double benchmark_load(HostClient &client, float load,
                       pthread_barrier_t *barrier, std::vector<uint32_t> &rtts,
-                      uint32_t num_reqs) {
+                      uint32_t num_reqs, uint16_t tid) {
   const uint32_t max = client.get_max_inflight();
   const long long freq = get_freq();
+  std::vector<ExecReq> args;
+  args.reserve(num_reqs);
+
+  current_tid = tid;
+
+  client.get_req_args(num_reqs, args);
 
   printf("get_max_inflight()=%d\n", max);
   printf("rdtsc freq=%lld\n", freq);
 
   printf("load: warming up\n");
-  client.do_load(load, rtts, max, freq, numaccesses, barrier);
+  client.do_load(load, rtts, max * 10, freq, args, barrier);
 
   printf("load: benchmark start\n");
-  client.do_load(load, rtts, num_reqs, freq, numaccesses, barrier);
+  client.do_load(load, rtts, num_reqs, freq, args, barrier);
   printf("load: benchmark end\n");
   client.last_cmd();
 
@@ -352,8 +359,8 @@ void thread_launch_maxinflight(uint16_t thread_id, pthread_barrier_t *barrier,
 
   if (thread_id == 0) client.initialize_rmc(workload);
 
-  durations[thread_id] = benchmark_maxinflight(
-      client, numaccess, barrier, thread_id, NUM_REQS / num_threads);
+  durations[thread_id] =
+      benchmark_maxinflight(client, barrier, thread_id, NUM_REQS / num_threads);
 
   pthread_barrier_wait(barrier);
   if (thread_id == 0) {
@@ -379,8 +386,7 @@ void thread_launch_load(uint16_t tid, pthread_barrier_t *barrier,
 
   if (tid == 0) client.initialize_rmc(workload);
 
-  benchmark_load(client, numaccess, load, barrier, rtts[tid],
-                 NUM_REQS / num_threads);
+  benchmark_load(client, load, barrier, rtts[tid], NUM_REQS / num_threads, tid);
 
   pthread_barrier_wait(barrier);
   if (tid == 0) {
@@ -434,7 +440,7 @@ int main(int argc, char *argv[]) {
       die("mode=load requires load > 0\n");
     } else if ((rmc == "readll" || rmc == "readll_locked" ||
                 rmc == "updatell") &&
-               numaccess < 0) {
+               numaccess <= 0) {
       die("for rmcs (readll, readll_locked, updatell) numaccess must be > "
           "0\n");
     } else if (num_threads <= 0) {
