@@ -26,9 +26,6 @@ target_compile_definitions(scheduler_dramcomp_obj PUBLIC -DBACKEND_DRAM_COMP=1)
 #add_library(scheduler_rdma_hash_client_obj OBJECT scheduler.cpp)
 #target_compile_definitions(scheduler_rdma_hash_client_obj PUBLIC -DBACKEND_RDMA=1 -DLOCATION_CLIENT=1 -DWORKLOAD_HASHTABLE=1)
 
-#add_library(cuckoo_hash_obj OBJECT lib/cuckoo_hash.cpp lib/lookup3.cpp)
-#target_compile_definitions(cuckoo_hash_obj PUBLIC)
-
 # rmc client
 add_executable(client client.cpp
     $<TARGET_OBJECTS:onesidedclient_obj>
@@ -56,16 +53,6 @@ add_executable(nicserver nicserver.cpp
 target_compile_definitions(nicserver PUBLIC -DBACKEND_RDMA=1)
 target_link_libraries(nicserver mlx5 rdmacm ibverbs pthread)
 
-#add_executable(nicserver_rdma_hash nicserver.cpp
-#    $<TARGET_OBJECTS:scheduler_rdma_hash_obj>
-#    $<TARGET_OBJECTS:onesidedclient_obj>
-#    $<TARGET_OBJECTS:rdmaclient_obj>
-#    $<TARGET_OBJECTS:rdmaserver_obj>
-#    $<TARGET_OBJECTS:rdmapeer_obj>
-#    $<TARGET_OBJECTS:cuckoo_hash_obj>)
-#target_compile_definitions(nicserver_rdma_hash PUBLIC -DBACKEND_RDMA=1 -DWORKLOAD_HASHTABLE=1)
-#target_link_libraries(nicserver_rdma_hash mlx5 rdmacm ibverbs pthread)
-#
 add_executable(nicserver_rdmacomp nicserver.cpp
     $<TARGET_OBJECTS:rmcs_obj>
     $<TARGET_OBJECTS:scheduler_rdmacomp_obj>
@@ -95,17 +82,7 @@ add_executable(nicserver_dramcomp nicserver.cpp
     $<TARGET_OBJECTS:rdmapeer_obj>)
 target_compile_definitions(nicserver_dramcomp PUBLIC -DBACKEND_DRAM_COMP=1)
 target_link_libraries(nicserver_dramcomp mlx5 rdmacm ibverbs pthread)
-#
-#add_executable(nicserver_dram_hash nicserver.cpp
-#    $<TARGET_OBJECTS:scheduler_dram_hash_obj>
-#    $<TARGET_OBJECTS:onesidedclient_obj>
-#    $<TARGET_OBJECTS:rdmaclient_obj>
-#    $<TARGET_OBJECTS:rdmaserver_obj>
-#    $<TARGET_OBJECTS:rdmapeer_obj>
-#    $<TARGET_OBJECTS:cuckoo_hash_obj>)
-#target_compile_definitions(nicserver_dram_hash PUBLIC -DBACKEND_DRAM=1 -DWORKLOAD_HASHTABLE=1)
-#target_link_libraries(nicserver_dram_hash mlx5 rdmacm ibverbs pthread)
-#
+
 #add_executable(nicserver_client nicserver.cpp
 #    $<TARGET_OBJECTS:scheduler_rdma_client_obj>
 #    $<TARGET_OBJECTS:onesidedclient_obj>
@@ -114,13 +91,3 @@ target_link_libraries(nicserver_dramcomp mlx5 rdmacm ibverbs pthread)
 #    $<TARGET_OBJECTS:rdmapeer_obj>)
 #target_compile_definitions(nicserver_client PUBLIC -DBACKEND_RDMA=1 -DLOCATION_CLIENT=1)
 #target_link_libraries(nicserver_client mlx5 rdmacm ibverbs pthread)
-#
-#add_executable(nicserver_client_hash nicserver.cpp
-#    $<TARGET_OBJECTS:scheduler_rdma_hash_client_obj>
-#    $<TARGET_OBJECTS:onesidedclient_obj>
-#    $<TARGET_OBJECTS:rdmaclient_obj>
-#    $<TARGET_OBJECTS:rdmaserver_obj>
-#    $<TARGET_OBJECTS:rdmapeer_obj>
-#    $<TARGET_OBJECTS:cuckoo_hash_obj>)
-#target_compile_definitions(nicserver_client_hash PUBLIC -DBACKEND_RDMA=1 -DLOCATION_CLIENT=1 -DWORKLOAD_HASHTABLE=1)
-#target_link_libraries(nicserver_client_hash mlx5 rdmacm ibverbs pthread)

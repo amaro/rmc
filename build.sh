@@ -12,7 +12,7 @@ build() {
 BUILD_DIR=$(realpath ./build_x86)
 CXX=g++-11
 CXXFLAGS="-march=native"
-EXECS="client hostserver nicserver_dram nicserver_dramcomp"
+EXECS="client hostserver nicserver nicserver_dram nicserver_dramcomp"
 build $1
 
 BUILD_DIR=$(realpath ./build_arm)
