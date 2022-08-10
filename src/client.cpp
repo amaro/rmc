@@ -105,7 +105,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 
   uint32_t rtt_idx = 0;
   uint32_t curr_max_inflight = 0;
-  uint32_t late = 0;
+  uint32_t num_late = 0;
   const uint64_t wait_in_nsec = load * 1000;
   const auto maxinflight = get_max_inflight();
   long long max_late_cycles = 0;
@@ -127,14 +127,16 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   pthread_barrier_wait(barrier);
   long long next_send = get_cycles();
   for (auto i = 0u; i < num_reqs; i++) {
+    bool late = false;
     next_send += send_cycles[i];
 
-    /* must start the RTT here because it might get delayed if there's too many
-     * reqs in flight */
-    post_recv_reply(&reply_slot[this->req_idx]);
-    arm_exec_req(&req_slot[this->req_idx], &args[i]);
+    /* must start the RTT early so we take into account all the overhead, and
+     * because it might get delayed if there's too many reqs in flight */
     ts_start_rtt = get_cycles();
     start_times.push(ts_start_rtt);
+
+    post_recv_reply(&reply_slot[this->req_idx]);
+    arm_exec_req(&req_slot[this->req_idx], &args[i]);
 
     /* if there are more inflight requests than the max, we can only poll here
        for a reply to arrive */
@@ -145,9 +147,10 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
     /* there's space to send new req, so send new one */
     load_send_request();
 
-    /* was the *client* late? */
+    /* are we late? */
     if (ts_start_rtt > next_send) {
-      late++;
+      late = true;
+      num_late++;
       max_late_cycles = std::max(ts_start_rtt - next_send, max_late_cycles);
     }
 
@@ -155,13 +158,15 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 
     /* regular poll for sends and replies */
     maybe_poll_sends(send_cq);
-    if (this->inflight > 0)
+
+    /* if we are late, then don't poll for replies as we need to catch up */
+    if (!late && this->inflight > 0)
       load_handle_reps(start_times, rtts,
                        rclient.poll_atmost(this->inflight, recv_cq, noop),
                        rtt_idx);
 
-    /* wait until next_send */
-    while (get_cycles() < next_send) {
+    /* if we are not late, wait until next_send */
+    while (!late && get_cycles() < next_send) {
       if (this->inflight > 0) {
         const uint32_t polled = rclient.poll_atmost(1, recv_cq, noop);
         load_handle_reps(start_times, rtts, polled, rtt_idx);
@@ -178,7 +183,7 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
   }
 
   printf("max concurrent=%u\n", curr_max_inflight);
-  printf("late=%u\n", late);
+  printf("num_late=%u\n", num_late);
   printf("max late ns=%lld\n", cycles_to_ns(max_late_cycles, freq));
   return 0;
 }
@@ -337,7 +342,7 @@ double benchmark_load(HostClient &client, float load,
   printf("rdtsc freq=%lld\n", freq);
 
   printf("load: warming up\n");
-  client.do_load(load, rtts, max * 10, freq, args, barrier);
+  client.do_load(load, rtts, max, freq, args, barrier);
 
   printf("load: benchmark start\n");
   client.do_load(load, rtts, num_reqs, freq, args, barrier);

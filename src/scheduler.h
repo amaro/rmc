@@ -91,10 +91,12 @@ class RMCScheduler {
 #endif
 
  public:
-  static constexpr int MAX_NEW_REQS_PER_ITER = 16;  // do not change this
+  /* changing the next variable significantly alters the dynamics of
+   * sends/replies; be careful. */
+  static constexpr int MAX_NEW_REQS_PER_ITER = 24;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
-  static constexpr uint16_t MAX_EXECS_COMPLETION = 8;
+  static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
   RMCScheduler(NICServer &nicserver, uint16_t num_qps)
@@ -230,7 +232,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 }
 
 inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
-  static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
+  // static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
 
   thread_local std::array<std::coroutine_handle<>, MAX_EXECS_COMPLETION>
       reordervec;
@@ -267,7 +269,7 @@ inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
 }
 
 inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
-  static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
+  // static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
 
   uint8_t execs = 0;
 

@@ -20,7 +20,7 @@ struct RDMAContext;
 
 static constexpr uint32_t QP_MAX_2SIDED_WRS = 512;
 static constexpr uint32_t QP_MAX_1SIDED_WRS = 16;
-static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
+static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 32;
 /* TODO: try larger values of batched recvs */
 static constexpr uint32_t MAX_BATCHED_RECVS = 16;
 /* TODO: find a better place for this */

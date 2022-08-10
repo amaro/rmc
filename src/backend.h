@@ -230,7 +230,7 @@ class PrefetchDRAM : public BackendBase {
   AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const override {
     for (auto cl = 0u; cl < sz; cl += 64)
-      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 0, 0);
+      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 0, 3);
 
     return AwaitRead{
         .should_suspend = true, .raddr = raddr, .lbuf = lbuf, .memcpy_sz = sz};
@@ -239,7 +239,7 @@ class PrefetchDRAM : public BackendBase {
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const override {
     for (auto cl = 0u; cl < sz; cl += 64)
-      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 1, 0);
+      __builtin_prefetch(reinterpret_cast<void *>(raddr + cl), 1, 3);
 
     return AwaitWrite{
         .should_suspend = true, .raddr = raddr, .lbuf = lbuf, .memcpy_sz = sz};
