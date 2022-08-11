@@ -76,8 +76,13 @@ long long HostClient::do_maxinflight(uint32_t num_reqs,
   duration = time_end(start);
 
   assert(this->inflight == 0);
-  // for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++)
-  //   assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+
+  for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++) {
+    //DataReply &reply = reply_slot[i];
+    //printf("size=%d val[0]=%hhu val[99]=%hhu val[100]=%hhu\n", reply.size, reply.data[0],
+    //                        reply.data[99], reply.data[100]);
+    //assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+  }
 
   return duration;
 }
@@ -117,9 +122,6 @@ int HostClient::do_load(float load, std::vector<uint32_t> &rtts,
 
   printf("will issue %u requests every %lu nanoseconds\n", num_reqs,
          wait_in_nsec);
-
-  // for (auto i = 0u; i < maxinflight; i++) arm_exec_req(&req_slot[i],
-  // &execreq);
 
   std::vector<long long> send_cycles;
   get_send_times_exp(send_cycles, num_reqs, wait_in_nsec, freq);

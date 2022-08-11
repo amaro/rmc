@@ -231,6 +231,8 @@ class RMC : public RMCBase {
   RMC() = default;
 
   CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    uint8_t get_reply[VAL_LEN];
+    int put_reply;
     auto *kvreq = reinterpret_cast<const RpcReq *>(req->data);
 
     RemotePtr<Record> rowptr(b, tableaddr, rkey);
@@ -239,19 +241,23 @@ class RMC : public RMCBase {
         *(reinterpret_cast<const uint32_t *>(kvreq->record.key)) % MAX_RECORDS;
 
     rowptr.set_raddr(rowptr.raddr_for_index(index));
-    co_await rowptr.read();
+    /* get a reference to this record (invalid at this point) */
     Record &record = rowptr.get_ref();
 
     if (kvreq->reqtype == RpcReqType::GET) {
-      uint8_t reply_val[VAL_LEN];
-      std::memcpy(&reply_val, &record.val, VAL_LEN);
-      co_return &reply_val;
+      /* read record from server memory; makes &record valid */
+      co_await rowptr.read();
+      /* copy read record into reply buffer */
+      std::memcpy(&get_reply, &record.val, VAL_LEN);
+      co_return &get_reply;
+    } else {
+      /* copy record from request arg to &record; makes &record valid */
+      std::memcpy(&record, &kvreq->record, sizeof(Record));
+      /* write &record to server memory */
+      co_await rowptr.write();
+      put_reply = 1;
+      co_return &put_reply;
     }
-
-    std::memcpy(&record, &kvreq->record, sizeof(Record));
-    co_await rowptr.write();
-    int reply = 1;
-    co_return &reply;
   }
 
   CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {

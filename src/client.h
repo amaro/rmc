@@ -112,6 +112,7 @@ class HostClient {
       KVStore::RpcReq kvreq = {};
       kvreq.reqtype = actions[req];
       *(reinterpret_cast<uint32_t *>(kvreq.record.key)) = keys[req];
+      std::memset(&kvreq.record.val, 2, KVStore::VAL_LEN);
 
       /* copy RpcReq to newreq.data */
       std::memcpy(newreq.data, &kvreq, sizeof(kvreq));
