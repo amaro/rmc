@@ -92,11 +92,12 @@ class RMCScheduler {
 
  public:
   /* changing the next variable significantly alters the dynamics of
-   * sends/replies; be careful. */
+   * admission in the scheduler; be careful */
   static constexpr int MAX_NEW_REQS_PER_ITER = 24;
   static constexpr int MAX_HOSTMEM_POLL = 4;
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
-  static constexpr uint16_t MAX_EXECS_COMPLETION = 32;
+  /* only affects DRAM backends  */
+  static constexpr uint16_t DRAM_MAX_EXECS_COMPLETION = 16;
   static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
 
   RMCScheduler(NICServer &nicserver, uint16_t num_qps)
@@ -232,19 +233,17 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 }
 
 inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
-  // static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
-
-  thread_local std::array<std::coroutine_handle<>, MAX_EXECS_COMPLETION>
+  thread_local std::array<std::coroutine_handle<>, DRAM_MAX_EXECS_COMPLETION>
       reordervec;
   uint8_t completions = 0;
 
-  while (!runqueue.empty() && completions < MAX_EXECS_COMPLETION) {
+  while (!runqueue.empty() && completions < DRAM_MAX_EXECS_COMPLETION) {
     bool prefetching = true;
 
   again:
     uint8_t resumes = 0;
 
-    while (!runqueue.empty() && resumes < MAX_EXECS_COMPLETION) {
+    while (!runqueue.empty() && resumes < DRAM_MAX_EXECS_COMPLETION) {
       promise_handle rmc =
           promise_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
@@ -269,11 +268,9 @@ inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
 }
 
 inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
-  // static_assert(MAX_EXECS_COMPLETION <= MAX_NEW_REQS_PER_ITER);
-
   uint8_t execs = 0;
 
-  while (!runqueue.empty() && execs < MAX_EXECS_COMPLETION) {
+  while (!runqueue.empty() && execs < DRAM_MAX_EXECS_COMPLETION) {
     promise_handle rmc =
         promise_handle::from_address(runqueue.front().address());
     runqueue.pop_front();
@@ -333,9 +330,12 @@ inline void RMCScheduler::send_poll_replies(RDMAContext &server_ctx) {
     pending_replies = false;
   }
 
-  /* poll */
-  ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(0),
-                                 update_out_sends);
+  do {
+    /* Poll. Ideally we should poll_atleast() if outstanding_sends ==
+     * QP_MAX_2SIDED_WRS, but batched polls don't support atleast yet. */
+    ns.rserver.poll_batched_atmost(1, ns.rserver.get_send_compqueue(0),
+                                   update_out_sends);
+  } while (server_ctx.outstanding_sends >= QP_MAX_2SIDED_WRS);
 
 #ifdef PERF_STATS
   debug_cycles_replies += get_cycles() - cycles;

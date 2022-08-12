@@ -20,7 +20,7 @@ struct RDMAContext;
 
 static constexpr uint32_t QP_MAX_2SIDED_WRS = 512;
 static constexpr uint32_t QP_MAX_1SIDED_WRS = 16;
-static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 32;
+static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
 /* TODO: try larger values of batched recvs */
 static constexpr uint32_t MAX_BATCHED_RECVS = 16;
 /* TODO: find a better place for this */
@@ -32,6 +32,9 @@ struct CompQueue {
   bool poll_started = false;
   unsigned int outstanding_cqes = 0;
 
+  /* returns either 0: which means we can read the comp, or ENOENT: which means
+   * there was no completion available. any other return code ends the program.
+   */
   int start_poll() {
     assert(!poll_started);
     struct ibv_poll_cq_attr cq_attr = {};
@@ -47,10 +50,12 @@ struct CompQueue {
     }
   }
 
-  void maybe_end_poll() {
+  void maybe_end_poll(unsigned int newpolls) {
     if (!poll_started) return;
 
-    if (outstanding_cqes > CQ_MAX_OUTSTANDING_CQES) {
+    outstanding_cqes += newpolls;
+
+    if (outstanding_cqes >= CQ_MAX_OUTSTANDING_CQES) {
       ibv_end_poll(cqx);
       outstanding_cqes = 0;
       poll_started = false;
@@ -598,8 +603,7 @@ inline unsigned int RDMAPeer::poll_batched_atmost(unsigned int max,
   } while (polled < max);
 
 end_poll:
-  comp_queue.outstanding_cqes += polled;
-  comp_queue.maybe_end_poll();
+  comp_queue.maybe_end_poll(polled);
   assert(polled <= max);
   return polled;
 }

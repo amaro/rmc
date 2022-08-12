@@ -78,10 +78,11 @@ long long HostClient::do_maxinflight(uint32_t num_reqs,
   assert(this->inflight == 0);
 
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++) {
-    //DataReply &reply = reply_slot[i];
-    //printf("size=%d val[0]=%hhu val[99]=%hhu val[100]=%hhu\n", reply.size, reply.data[0],
-    //                        reply.data[99], reply.data[100]);
-    //assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+    // DataReply &reply = reply_slot[i];
+    // printf("size=%d val[0]=%hhu val[99]=%hhu val[100]=%hhu\n", reply.size,
+    // reply.data[0],
+    //                         reply.data[99], reply.data[100]);
+    // assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
   }
 
   return duration;
