@@ -315,7 +315,7 @@ double benchmark_maxinflight(HostClient &client, pthread_barrier_t *barrier,
 
   current_tid = tid;
 
-  client.get_req_args(num_reqs, args);
+  client.get_req_args(num_reqs, args, numaccess);
 
   printf("get_max_inflight()=%u\n", max);
   printf("maxinflight: warming up\n");
@@ -339,7 +339,7 @@ double benchmark_load(HostClient &client, float load,
 
   current_tid = tid;
 
-  client.get_req_args(num_reqs, args);
+  client.get_req_args(num_reqs, args, numaccess);
 
   printf("get_max_inflight()=%d\n", max);
   printf("rdtsc freq=%lld\n", freq);
@@ -484,7 +484,7 @@ int main(int argc, char *argv[]) {
   else if (rmc == "kvstore")
     workload = RMCType::KVSTORE;
   else
-    die("bad rmc=%d\n", static_cast<int>(workload));
+    die("bad rmc=%s\n", rmc.c_str());
 
   printf("workload set to=%s\n", rmc.c_str());
 

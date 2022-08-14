@@ -92,7 +92,8 @@ class RMCTraverseLL : public RMCBase {
   static constexpr RMCType get_type() { return RMCType::TRAVERSE_LL; }
 };
 
-class RMCLockTraverseLL : public RMCBase {
+namespace TraverseLL {
+class Locked : public RMCBase {
   struct LLNode {
     RemoteAddr next;
     uint64_t data;
@@ -113,20 +114,20 @@ class RMCLockTraverseLL : public RMCBase {
   }
 
  public:
-  RMCLockTraverseLL() = default;
+  Locked() = default;
 
   CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
-    // int num_nodes = co_await b->get_param();
-    int num_nodes = 2;
-    uintptr_t addr = get_next_node_addr(num_nodes);
-    LLNode node;
+    auto *args = reinterpret_cast<const RpcReq *>(req->data);
+    int num_nodes = args->num_nodes;
     int reply = 1;
+    RemotePtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
-      co_await rmclock.lock(b);
-      co_await b->read(addr, &node, sizeof(LLNode), rkey);
-      addr = reinterpret_cast<uintptr_t>(node.next);
-      co_await rmclock.unlock(b);
+      // co_await rmclock.lock(b);
+      co_await ptr.read();
+      LLNode &node = ptr.get_ref();
+      // co_await rmclock.unlock(b);
+      ptr.set_raddr(node.next);
     }
 
     co_return &reply;
@@ -137,7 +138,7 @@ class RMCLockTraverseLL : public RMCBase {
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
-    printf("runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
+    printf("runtime_init() TraverseLL Locked rbaseaddr=0x%lx\n", rbaseaddr);
     InitReply reply{rbaseaddr, length, rkey};
     co_return &reply;
   }
@@ -150,8 +151,10 @@ class RMCLockTraverseLL : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::LOCK_TRAVERSE_LL; }
 };
+}  // namespace TraverseLL
 
-class RMCUpdateLL : public RMCBase {
+namespace TraverseLL {
+class Update : public RMCBase {
   struct LLNode {
     RemoteAddr next;
     uint64_t data;
@@ -174,11 +177,11 @@ class RMCUpdateLL : public RMCBase {
   }
 
  public:
-  RMCUpdateLL() = default;
+  Update() = default;
 
   CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
-    // int num_nodes = co_await b->get_param();
-    int num_nodes = 2;
+    auto *args = reinterpret_cast<const RpcReq *>(req->data);
+    int num_nodes = args->num_nodes;
     RemoteAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
     RemotePtr<LLNode> ptr(b, addr, rkey);
@@ -214,6 +217,7 @@ class RMCUpdateLL : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::UPDATE_LL; }
 };
+}  // namespace TraverseLL
 
 namespace KVStore {
 class RMC : public RMCBase {
@@ -290,13 +294,14 @@ class RMC : public RMCBase {
 }  // namespace KVStore
 
 static RMCTraverseLL traversell;
-static RMCLockTraverseLL locktraversell;
-static RMCUpdateLL updatell;
+static TraverseLL::Locked locktraversell;
+static TraverseLL::Update updatell;
 static KVStore::RMC kvstore;
 
 /* data path */
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(KVStore::RMC::get_type(), &kvstore)}};
+    rmc_values{
+        {std::make_pair(TraverseLL::Locked::get_type(), &locktraversell)}};
 
 /* data path */
 static constexpr auto rmc_map =

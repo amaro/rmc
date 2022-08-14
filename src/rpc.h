@@ -65,6 +65,12 @@ struct CtrlReply {
   } data;
 };
 
+namespace TraverseLL {
+struct RpcReq {
+  int num_nodes;
+};
+}  // namespace TraverseLL
+
 namespace KVStore {
 static constexpr uint8_t KEY_LEN = 30;
 static constexpr uint8_t VAL_LEN = 100;

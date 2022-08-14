@@ -85,6 +85,17 @@ class HostClient {
     std::memcpy(&dst->data.exec, src, EXECREQ_NODATA_SZ + src->size);
   }
 
+  void get_req_args_locktraverse(uint32_t numreqs, std::vector<ExecReq> &args,
+                                 int numaccess) const {
+    for (auto req = 0u; req < numreqs; req++) {
+      args.emplace_back(ExecReq{.id = RMCType::LOCK_TRAVERSE_LL,
+                                .size = sizeof(TraverseLL::RpcReq)});
+      ExecReq &newreq = args.back();
+      TraverseLL::RpcReq lockreq = {.num_nodes = numaccess};
+      std::memcpy(newreq.data, &lockreq, sizeof(lockreq));
+    }
+  }
+
   void get_req_args_kvstore(uint32_t numreqs,
                             std::vector<ExecReq> &args) const {
     std::vector<uint32_t> keys;
@@ -139,10 +150,12 @@ class HostClient {
   void initialize_rmc(RMCType type);
   constexpr uint32_t get_max_inflight() const { return QP_MAX_2SIDED_WRS - 1; }
 
-  void get_req_args(uint32_t numreqs, std::vector<ExecReq> &args) const {
+  void get_req_args(uint32_t numreqs, std::vector<ExecReq> &args,
+                    int numaccess) const {
     switch (workload) {
       case RMCType::TRAVERSE_LL:
       case RMCType::LOCK_TRAVERSE_LL:
+        return get_req_args_locktraverse(numreqs, args, numaccess);
       case RMCType::UPDATE_LL:
         die("unsupported\n");
       case RMCType::KVSTORE:
