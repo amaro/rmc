@@ -319,11 +319,11 @@ double benchmark_maxinflight(HostClient &client, pthread_barrier_t *barrier,
 
   printf("get_max_inflight()=%u\n", max);
   printf("maxinflight: warming up\n");
-  client.do_maxinflight(max * 10, args, barrier, tid);
+  duration = client.do_maxinflight(max * 10, args, barrier, tid);
 
-  printf("maxinflight: benchmark start\n");
-  duration = client.do_maxinflight(num_reqs, args, barrier, tid);
-  printf("maxinflight: benchmark end\n");
+  //printf("maxinflight: benchmark start\n");
+  //duration = client.do_maxinflight(num_reqs, args, barrier, tid);
+  //printf("maxinflight: benchmark end\n");
 
   client.last_cmd();
   return duration;

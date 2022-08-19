@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "allocator.h"
 #include "backend.h"
 #include "config.h"
@@ -29,6 +31,67 @@ struct RemotePtr {
 
   /* assumes raddr points to T &array[0] */
   RemoteAddr raddr_for_index(size_t index) { return raddr + index * sizeof(T); }
+};
+
+class RMCLock {
+  RemoteAddr raddr;
+  uint32_t rkey;
+  /* TODO: this should be made thread safe because RMCLock can be called from
+     multiple threads */
+  std::queue<std::coroutine_handle<CoroRMC::promise_type>> blockedq;
+
+ public:
+  void init(RemoteAddr raddr, uint32_t rkey) {
+    this->raddr = raddr;
+    this->rkey = rkey;
+  }
+
+  /* llock comes from a coro frame, so it is unique for every caller regardless
+   * of number of threads being used. */
+  CoroRMC lock(const BackendBase *b, uint64_t &llock) {
+    auto handle = co_await GetHandle{};
+
+    assert(handle.promise().blocked == false);
+    /* set the local lock to 1 */
+    llock = 1;
+    /* if *raddr is 0 then atomically set it to 1, also set *llock to the
+     * original value of *raddr */
+    co_await b->cmp_swp(raddr, llock, 0, 1, rkey);
+
+    /* if llock == 0 then we have acquired the lock */
+    while (llock != 0) {
+      if (!handle.promise().blocked) {
+        /* if a coro is blocked, it won't be scheduled back */
+        handle.promise().blocked = true;
+        /* add handle to blocked queue */
+        blockedq.push(handle);
+      }
+
+      /* suspend this coro until another coro unlock()s */
+      co_await std::suspend_always{};
+
+      /* suspended coros resume here; retry taking the lock */
+      co_await b->cmp_swp(raddr, llock, 0, 1, rkey);
+    }
+
+    assert(handle.promise().blocked == false);
+    /* lock has been taken, return to caller */
+  }
+
+  CoroRMC unlock(const BackendBase *b, uint64_t &llock) {
+    /* set local lock to 0 */
+    llock = 0;
+    /* write local lock value to raddr
+       TODO: I think this can be a write_nowait() */
+    co_await b->write(raddr, &llock, sizeof(llock), rkey);
+
+    if (!blockedq.empty()) {
+      std::coroutine_handle<CoroRMC::promise_type> rmc = blockedq.front();
+      blockedq.pop();
+      /* unblocked coros will be eventually resumed by scheduler */
+      rmc.promise().blocked = false;
+    }
+  }
 };
 
 struct RMCBase {

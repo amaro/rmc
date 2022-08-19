@@ -100,14 +100,14 @@ class Locked : public RMCBase {
   };
 
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
-  uintptr_t rbaseaddr = 0;
+  RemoteAddr rbaseaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
   LLNode *server_linkdlst = nullptr;
   uint32_t start_node = 0;
-  RMCLock rmclock;
+  RMCLock wiclock;
 
-  uintptr_t get_next_node_addr(uint32_t num_skip) {
+  RemoteAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
     return rbaseaddr + next_node * sizeof(LLNode);
@@ -120,13 +120,14 @@ class Locked : public RMCBase {
     auto *args = reinterpret_cast<const RpcReq *>(req->data);
     int num_nodes = args->num_nodes;
     int reply = 1;
+    uint64_t llock;
     RemotePtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
-      // co_await rmclock.lock(b);
+      co_await wiclock.lock(b, llock);
       co_await ptr.read();
       LLNode &node = ptr.get_ref();
-      // co_await rmclock.unlock(b);
+      co_await wiclock.unlock(b, llock);
       ptr.set_raddr(node.next);
     }
 
@@ -134,9 +135,13 @@ class Locked : public RMCBase {
   }
 
   CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
-    rbaseaddr = reinterpret_cast<uintptr_t>(rmc_mr.addr);
+    /* first 64 bytes of alloc.addr are reserved for RMCLock,
+       remaining bytes are used to store linked list */
+    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
+
+    wiclock.init(rbaseaddr, rkey);
 
     printf("runtime_init() TraverseLL Locked rbaseaddr=0x%lx\n", rbaseaddr);
     InitReply reply{rbaseaddr, length, rkey};
@@ -144,8 +149,11 @@ class Locked : public RMCBase {
   }
 
   MemoryRegion server_init(MrAllocator &sa) final {
+    /* first 64 bytes of alloc.addr are reserved for RMCLock,
+       remaining bytes are used to store linked list */
     MemoryRegion alloc = sa.request_memory(BUFSIZE);
-    server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
+    server_linkdlst = create_linkedlist<LLNode>(
+        reinterpret_cast<uint8_t *>(alloc.addr) + 64, BUFSIZE);
     return alloc;
   }
 

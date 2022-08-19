@@ -25,6 +25,7 @@ class CoroRMC {
     void *reply_ptr = nullptr;
     uint8_t reply_sz = 0;
     bool waiting_mem_access = false;
+    bool blocked = false;
 
     /* constructor */
     promise_type() noexcept {};
@@ -135,4 +136,15 @@ class CoroRMC {
  private:
   CoroRMC(promise_type &p) : _coroutine(coro_handle::from_promise(p)) {}
   coro_handle _coroutine;
+};
+
+struct GetHandle {
+  std::coroutine_handle<CoroRMC::promise_type> handle;
+
+  bool await_ready() { return false; }
+  bool await_suspend(std::coroutine_handle<CoroRMC::promise_type> coro) {
+    handle = coro;
+    return false;  // true = suspend; false = don't
+  }
+  std::coroutine_handle<CoroRMC::promise_type> await_resume() { return handle; }
 };

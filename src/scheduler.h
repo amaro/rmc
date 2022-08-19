@@ -201,10 +201,13 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
           promise_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
 
-      if (rmc.promise().continuation)
-        rmc.promise().continuation.resume();
-      else
+      if (rmc.promise().continuation) {
+        /* only continuations can be blocked, root rmcs can't */
+        if (!rmc.promise().continuation.promise().blocked)
+          rmc.promise().continuation.resume();
+      } else {
         rmc.resume();
+      }
 
       resumes_left--;
 
@@ -213,10 +216,6 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
       else if (rmc.done())
         add_reply(rmc, server_ctx);
       else
-        // TODO: We should not move the RMC all the way to the back, but
-        // instead keep them in a temporary vec, and push them back to the
-        // front of the runqueue after we break from the execution loop. This
-        // will help with latency incurred by locking.
         runqueue.push_back(rmc);
 
 #ifdef PERF_STATS
