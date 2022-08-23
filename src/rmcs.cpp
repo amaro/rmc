@@ -30,7 +30,8 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
   return linkedlist;
 }
 
-class RMCTraverseLL : public RMCBase {
+namespace TraverseLL {
+class Simple : public RMCBase {
   struct LLNode {
     RemoteAddr next;
     uint64_t data;
@@ -53,14 +54,13 @@ class RMCTraverseLL : public RMCBase {
   }
 
  public:
-  RMCTraverseLL() = default;
+  Simple() = default;
 
   CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
-    // int num_nodes = co_await b->get_param();
-    int num_nodes = 2;
-    RemoteAddr addr = get_next_node_addr(num_nodes);
+    auto *args = reinterpret_cast<const RpcReq *>(req->data);
+    int num_nodes = args->num_nodes;
     int reply = 1;
-    RemotePtr<LLNode> ptr(b, addr, rkey);
+    RemotePtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await ptr.read();
@@ -91,6 +91,7 @@ class RMCTraverseLL : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::TRAVERSE_LL; }
 };
+}  // namespace TraverseLL
 
 namespace TraverseLL {
 class Locked : public RMCBase {
@@ -301,15 +302,14 @@ class RMC : public RMCBase {
 };
 }  // namespace KVStore
 
-static RMCTraverseLL traversell;
+static TraverseLL::Simple traversell;
 static TraverseLL::Locked locktraversell;
 static TraverseLL::Update updatell;
 static KVStore::RMC kvstore;
 
 /* data path */
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{
-        {std::make_pair(TraverseLL::Locked::get_type(), &locktraversell)}};
+    rmc_values{{std::make_pair(TraverseLL::Simple::get_type(), &traversell)}};
 
 /* data path */
 static constexpr auto rmc_map =

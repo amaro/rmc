@@ -85,11 +85,11 @@ class HostClient {
     std::memcpy(&dst->data.exec, src, EXECREQ_NODATA_SZ + src->size);
   }
 
-  void get_req_args_locktraverse(uint32_t numreqs, std::vector<ExecReq> &args,
-                                 int numaccess) const {
+  void get_req_args_linkedlist(uint32_t numreqs, std::vector<ExecReq> &args,
+                               int numaccess, RMCType type) const {
     for (auto req = 0u; req < numreqs; req++) {
-      args.emplace_back(ExecReq{.id = RMCType::LOCK_TRAVERSE_LL,
-                                .size = sizeof(TraverseLL::RpcReq)});
+      args.emplace_back(
+          ExecReq{.id = type, .size = sizeof(TraverseLL::RpcReq)});
       ExecReq &newreq = args.back();
       TraverseLL::RpcReq lockreq = {.num_nodes = numaccess};
       std::memcpy(newreq.data, &lockreq, sizeof(lockreq));
@@ -154,10 +154,14 @@ class HostClient {
                     int numaccess) const {
     switch (workload) {
       case RMCType::TRAVERSE_LL:
+        return get_req_args_linkedlist(numreqs, args, numaccess,
+                                       RMCType::TRAVERSE_LL);
       case RMCType::LOCK_TRAVERSE_LL:
-        return get_req_args_locktraverse(numreqs, args, numaccess);
+        return get_req_args_linkedlist(numreqs, args, numaccess,
+                                       RMCType::LOCK_TRAVERSE_LL);
       case RMCType::UPDATE_LL:
-        die("unsupported\n");
+        return get_req_args_linkedlist(numreqs, args, numaccess,
+                                       RMCType::UPDATE_LL);
       case RMCType::KVSTORE:
         return get_req_args_kvstore(numreqs, args);
     }
