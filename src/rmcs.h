@@ -41,13 +41,17 @@ class RMCLock {
   std::queue<std::coroutine_handle<CoroRMC::promise_type>> blockedq;
 
  public:
-  void init(RemoteAddr raddr, uint32_t rkey) {
+  void init_runtime(RemoteAddr raddr, uint32_t rkey) {
     this->raddr = raddr;
     this->rkey = rkey;
   }
 
+  /* write a 0 to addr */
+  void init_server(void *addr) { *(static_cast<uint64_t *>(addr)) = 0; }
+
   /* llock comes from a coro frame, so it is unique for every caller regardless
-   * of number of threads being used. */
+   * of number of threads being used.
+     TODO: make this accept a RemotePtr<uint64_t>& */
   CoroRMC lock(const BackendBase *b, uint64_t &llock) {
     auto handle = co_await GetHandle{};
 

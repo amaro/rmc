@@ -215,8 +215,11 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
         clientctx.memqueue.push(rmc);
       else if (rmc.done())
         add_reply(rmc, server_ctx);
-      else
+      else {
+        assert(rmc.promise().continuation &&
+               rmc.promise().continuation.promise().blocked);
         runqueue.push_back(rmc);
+      }
 
 #ifdef PERF_STATS
       debug_rmcexecs++;

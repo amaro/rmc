@@ -99,18 +99,19 @@ class Locked : public RMCBase {
     uint64_t data;
   };
 
-  static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
-  RemoteAddr rbaseaddr = 0;
+  static constexpr size_t LOCKSZ = 64;
+  static constexpr size_t BUFSZ = (1 << 29) - LOCKSZ;  // 512 MB - 64
+  RemoteAddr rlock = 0;
+  RemoteAddr rlinkedlist = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
-  LLNode *server_linkdlst = nullptr;
   uint32_t start_node = 0;
   RMCLock wiclock;
 
   RemoteAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
-    return rbaseaddr + next_node * sizeof(LLNode);
+    return rlinkedlist + next_node * sizeof(LLNode);
   }
 
  public:
@@ -137,23 +138,26 @@ class Locked : public RMCBase {
   CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
     /* first 64 bytes of alloc.addr are reserved for RMCLock,
        remaining bytes are used to store linked list */
-    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    rlock = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    rlinkedlist = rlock + LOCKSZ;
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
-    wiclock.init(rbaseaddr, rkey);
+    wiclock.init_runtime(rlock, rkey);
 
-    printf("runtime_init() TraverseLL Locked rbaseaddr=0x%lx\n", rbaseaddr);
-    InitReply reply{rbaseaddr, length, rkey};
+    printf("runtime_init() TraverseLL Locked rlinkedlist=0x%lx\n", rlinkedlist);
+    InitReply reply{rlock, length, rkey};
     co_return &reply;
   }
 
   MemoryRegion server_init(MrAllocator &sa) final {
     /* first 64 bytes of alloc.addr are reserved for RMCLock,
        remaining bytes are used to store linked list */
-    MemoryRegion alloc = sa.request_memory(BUFSIZE);
-    server_linkdlst = create_linkedlist<LLNode>(
-        reinterpret_cast<uint8_t *>(alloc.addr) + 64, BUFSIZE);
+    MemoryRegion alloc = sa.request_memory(BUFSZ);
+
+    wiclock.init_server(alloc.addr);
+    create_linkedlist<LLNode>(static_cast<uint8_t *>(alloc.addr) + LOCKSZ,
+                              BUFSZ);
     return alloc;
   }
 
