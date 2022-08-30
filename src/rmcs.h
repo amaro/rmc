@@ -7,7 +7,6 @@
 #include "config.h"
 
 enum class RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, UPDATE_LL, KVSTORE };
-
 struct RMCBase;
 using RemoteAddr = uintptr_t;
 
@@ -39,11 +38,14 @@ class RMCLock {
   /* TODO: this should be made thread safe because RMCLock can be called from
      multiple threads */
   std::queue<std::coroutine_handle<CoroRMC::promise_type>> blockedq;
+  std::deque<std::coroutine_handle<>> *runqueue = nullptr;
 
  public:
-  void init_runtime(RemoteAddr raddr, uint32_t rkey) {
+  void init_runtime(RemoteAddr raddr, uint32_t rkey,
+                    std::deque<std::coroutine_handle<>> *runqueue) {
     this->raddr = raddr;
     this->rkey = rkey;
+    this->runqueue = runqueue;
   }
 
   /* write a 0 to addr */
@@ -58,6 +60,7 @@ class RMCLock {
     assert(handle.promise().blocked == false);
     /* set the local lock to 1 */
     llock = 1;
+
     /* if *raddr is 0 then atomically set it to 1, also set *llock to the
      * original value of *raddr */
     co_await b->cmp_swp(raddr, llock, 0, 1, rkey);
@@ -94,6 +97,8 @@ class RMCLock {
       blockedq.pop();
       /* unblocked coros will be eventually resumed by scheduler */
       rmc.promise().blocked = false;
+      /* the continuation is the root rmc, which is what we keep in runqueue */
+      runqueue->push_back(rmc.promise().continuation);
     }
   }
 };
@@ -103,7 +108,9 @@ struct RMCBase {
   virtual CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) = 0;
   /* Runs at the runtime location. Receives memory region information such that
      we can cache it at the class level, or return if appropriate. */
-  virtual CoroRMC runtime_init(const MemoryRegion &mr) = 0;
+  virtual CoroRMC runtime_init(
+      const MemoryRegion &mr,
+      std::deque<std::coroutine_handle<>> *runqueue) = 0;
   /* Runs at the server: requests memory, and gets access to it, so
      it can be initialized. */
   virtual MemoryRegion server_init(MrAllocator &sa) = 0;
@@ -117,7 +124,8 @@ struct RMCBase {
   RMCBase &operator=(RMCBase &&) = delete;       // move assignment operator
 };
 
-CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr);
+CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr,
+                      std::deque<std::coroutine_handle<>> *runqueue);
 CoroRMC rmcs_get_handler(const RMCType type, const BackendBase *b,
                          const ExecReq *req);
 void rmcs_server_init(MrAllocator &sa, std::vector<MemoryRegion> &allocs);

@@ -71,7 +71,8 @@ class RMCTraverseLL : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr,
+                       std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
     rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
@@ -135,7 +136,8 @@ class Locked : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr,
+                       std::deque<std::coroutine_handle<>> *runqueue) final {
     /* first 64 bytes of alloc.addr are reserved for RMCLock,
        remaining bytes are used to store linked list */
     rlock = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
@@ -143,9 +145,8 @@ class Locked : public RMCBase {
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
-    wiclock.init_runtime(rlock, rkey);
+    wiclock.init_runtime(rlock, rkey, runqueue);
 
-    printf("runtime_init() TraverseLL Locked rlinkedlist=0x%lx\n", rlinkedlist);
     InitReply reply{rlock, length, rkey};
     co_return &reply;
   }
@@ -209,7 +210,8 @@ class Update : public RMCBase {
     co_return &reply;
   }
 
-  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr,
+                       std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
     rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
@@ -276,7 +278,8 @@ class RMC : public RMCBase {
     }
   }
 
-  CoroRMC runtime_init(const MemoryRegion &rmc_mr) final {
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr,
+                       std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
     tableaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
@@ -320,8 +323,9 @@ static constexpr auto rmc_map =
     StaticMap<RMCType, RMCBase *, rmc_values.size()>{{rmc_values}};
 
 /* control path */
-CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr) {
-  return rmc_map.at(type)->runtime_init(mr);
+CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr,
+                      std::deque<std::coroutine_handle<>> *runqueue) {
+  return rmc_map.at(type)->runtime_init(mr, runqueue);
 }
 
 /* data path */

@@ -24,7 +24,7 @@ class NICServer;
 
 /* one RMCScheduler per NIC core */
 class RMCScheduler {
-  using promise_handle = std::coroutine_handle<CoroRMC::promise_type>;
+  using coro_handle = std::coroutine_handle<CoroRMC::promise_type>;
   NICServer &ns;
 
 #if defined(BACKEND_RDMA)
@@ -43,7 +43,7 @@ class RMCScheduler {
   static_assert(false, "Need to select a backend");
 #endif
 
-  /* RMCs ready to be run */
+  /* RMCs ready to be run. Accessed directly by RMCLock */
   std::deque<std::coroutine_handle<>> runqueue;
 
   // num_qps per thread
@@ -60,11 +60,28 @@ class RMCScheduler {
   void exec_interleaved(RDMAClient &rclient, RDMAContext &server_ctx);
   void exec_interleaved_dram(RDMAContext &server_ctx);
   void exec_completion(RDMAContext &server_ctx);
-  void add_reply(promise_handle &rmc, RDMAContext &server_ctx);
+  void add_reply(coro_handle &rmc, RDMAContext &server_ctx);
   void send_poll_replies(RDMAContext &server_ctx);
   void check_new_reqs_client(RDMAContext &server_ctx);
   void poll_comps_host(RDMAClient &rclient);
-  bool executing(RDMAClient &rclient);
+  bool executing(RDMAClient &rclient) {
+    if (!runqueue.empty()) return true;
+
+    if (!rclient.memqueues_empty()) return true;
+
+    return false;
+  }
+  /* Resumes an rmc's continuation if it is defined, otherwise resumes the
+   * passed rmc. */
+  void resume_coro(coro_handle &rmc) {
+    if (rmc.promise().continuation) {
+      /* a blocked continuation mustn't be in the runqueue */
+      assert(!rmc.promise().continuation.promise().blocked);
+      rmc.promise().continuation.resume();
+    } else {
+      rmc.resume();
+    }
+  }
 
 #ifdef PERF_STATS
   bool debug_start = false;
@@ -111,26 +128,14 @@ class RMCScheduler {
   void schedule_completion(RDMAClient &rclient);
   void dispatch_new_req(DataReq *req);
 
-  RDMAContext &get_server_context();
+  // used for communication to client, returns context[0] for all threads,
+  // but since we have per-thread rserver, this is safe.
+  RDMAContext &get_server_context() { return ns.rserver.get_ctrl_ctx(); }
 
   void debug_capture_stats();
   void debug_allocate();
   void debug_print_stats();
 };
-
-// used for communication to client, returns context[0] for all threads,
-// but since we have per-thread rserver, this is safe.
-inline RDMAContext &RMCScheduler::get_server_context() {
-  return ns.rserver.get_ctrl_ctx();
-}
-
-inline bool RMCScheduler::executing(RDMAClient &rclient) {
-  if (!runqueue.empty()) return true;
-
-  if (!rclient.memqueues_empty()) return true;
-
-  return false;
-}
 
 inline void RMCScheduler::req_exec_rmc(const DataReq *req) {
   assert(req->type == DataCmdType::CALL_RMC);
@@ -156,10 +161,10 @@ inline void RMCScheduler::req_init_rmc(const DataReq *req) {
   // TODO: for multiple registered RMCs, get per-RMC ibv_mr or similar here
   // based on initreq->id
 #if defined(BACKEND_DRAM) || defined(BACKEND_DRAM_COMP)
-  CoroRMC initrmc = rmcs_get_init(initreq->id, allocs[0]);
+  CoroRMC initrmc = rmcs_get_init(initreq->id, allocs[0], &runqueue);
 #else
   CoroRMC initrmc =
-      rmcs_get_init(initreq->id, ns.onesidedclient.get_server_mr());
+      rmcs_get_init(initreq->id, ns.onesidedclient.get_server_mr(), &runqueue);
 #endif
 
   runqueue.push_back(initrmc.get_handle());
@@ -197,18 +202,10 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
         batch_started = true;
       }
 
-      promise_handle rmc =
-          promise_handle::from_address(runqueue.front().address());
+      coro_handle rmc = coro_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
 
-      if (rmc.promise().continuation) {
-        /* only continuations can be blocked, root rmcs can't */
-        if (!rmc.promise().continuation.promise().blocked)
-          rmc.promise().continuation.resume();
-      } else {
-        rmc.resume();
-      }
-
+      resume_coro(rmc);
       resumes_left--;
 
       if (rmc.promise().waiting_mem_access)
@@ -216,9 +213,8 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
       else if (rmc.done())
         add_reply(rmc, server_ctx);
       else {
-        assert(rmc.promise().continuation &&
-               rmc.promise().continuation.promise().blocked);
-        runqueue.push_back(rmc);
+        assert(rmc.promise().is_blocked());
+        /* this is a blocked continuation, don't add it back to runqueue yet */
       }
 
 #ifdef PERF_STATS
@@ -241,18 +237,22 @@ inline void RMCScheduler::exec_interleaved_dram(RDMAContext &server_ctx) {
 
   while (!runqueue.empty() && completions < DRAM_MAX_EXECS_COMPLETION) {
     bool prefetching = true;
-
-  again:
     uint8_t resumes = 0;
 
+  again:
+    resumes = 0;
+
     while (!runqueue.empty() && resumes < DRAM_MAX_EXECS_COMPLETION) {
-      promise_handle rmc =
-          promise_handle::from_address(runqueue.front().address());
+      coro_handle rmc = coro_handle::from_address(runqueue.front().address());
       runqueue.pop_front();
 
-      rmc.resume();
+      resume_coro(rmc);
 
-      if (!rmc.done())
+      if (rmc.promise().is_blocked())
+        continue;
+      else if (!rmc.done())
+        /* TODO: not sure if resumes++ here is correct when the resumed rmc got
+         * blocked */
         reordervec[resumes++] = rmc;
       else {
         add_reply(rmc, server_ctx);
@@ -273,8 +273,7 @@ inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
   uint8_t execs = 0;
 
   while (!runqueue.empty() && execs < DRAM_MAX_EXECS_COMPLETION) {
-    promise_handle rmc =
-        promise_handle::from_address(runqueue.front().address());
+    coro_handle rmc = coro_handle::from_address(runqueue.front().address());
     runqueue.pop_front();
 
     rmc.resume();
@@ -288,8 +287,7 @@ inline void RMCScheduler::exec_completion(RDMAContext &server_ctx) {
 #endif
 }
 
-inline void RMCScheduler::add_reply(promise_handle &rmc,
-                                    RDMAContext &server_ctx) {
+inline void RMCScheduler::add_reply(coro_handle &rmc, RDMAContext &server_ctx) {
 #ifdef PERF_STATS
   long long cycles = get_cycles();
 #endif

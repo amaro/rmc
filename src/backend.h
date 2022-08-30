@@ -101,6 +101,7 @@ class CoopRDMA : public BackendBase {
   }
 
   void init() {
+    /* TODO: do we need this? */
     puts("Backend: Initializing");
 
     auto *buffer = get_frame_alloc().get_huge_buffer().get();
@@ -228,8 +229,8 @@ class CompRDMA : public BackendBase {
 
 inline AwaitRead dram_cmp_swp(uintptr_t raddr, uint64_t &llock, uint64_t cmp,
                               uint64_t swp, uint32_t rkey) {
-  uint64_t *ptr_raddr = reinterpret_cast<uint64_t *>(raddr);
-  std::atomic_ref<uint64_t> atomic_raddr{*ptr_raddr};
+  uint64_t &ref_raddr = *(reinterpret_cast<uint64_t *>(raddr));
+  std::atomic_ref<uint64_t> atomic_raddr{ref_raddr};
   /* (atomically)
      if *ptr_raddr == cmp:
        *ptr_raddr = swp
