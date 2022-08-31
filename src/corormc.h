@@ -84,6 +84,10 @@ class CoroRMC {
         reply_sz = sizeof(T);
       }
     }
+
+    bool is_blocked() {
+      return (continuation && continuation.promise().blocked) || blocked;
+    }
   };
 
   using coro_handle = std::coroutine_handle<promise_type>;
