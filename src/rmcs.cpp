@@ -20,9 +20,9 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
   for (auto i = 0u; i < num_nodes; ++i) {
     T *cur = indices[i];
     if (i < num_nodes - 1)
-      cur->next = reinterpret_cast<RemoteAddr>(indices[i + 1]);
+      cur->next = reinterpret_cast<AppAddr>(indices[i + 1]);
     else
-      cur->next = reinterpret_cast<RemoteAddr>(indices[0]);
+      cur->next = reinterpret_cast<AppAddr>(indices[0]);
 
     cur->data = 1;
   }
@@ -33,21 +33,21 @@ inline T *create_linkedlist(void *buffer, size_t bufsize) {
 namespace TraverseLL {
 class Simple : public RMCBase {
   struct LLNode {
-    RemoteAddr next;
+    AppAddr next;
     uint64_t data;
   };
 
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
   static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
 
-  RemoteAddr rbaseaddr = 0;
+  AppAddr rbaseaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
 
   LLNode *server_linkdlst = nullptr;
   uint32_t start_node = 0;
 
-  RemoteAddr get_next_node_addr(uint32_t num_skip) {
+  AppAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
     return rbaseaddr + next_node * sizeof(LLNode);
@@ -60,7 +60,7 @@ class Simple : public RMCBase {
     auto *args = reinterpret_cast<const RpcReq *>(req->data);
     int num_nodes = args->num_nodes;
     int reply = 1;
-    RemotePtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
+    AppPtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await ptr.read();
@@ -74,7 +74,7 @@ class Simple : public RMCBase {
   CoroRMC runtime_init(const MemoryRegion &rmc_mr,
                        std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
-    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    rbaseaddr = reinterpret_cast<AppAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
@@ -97,20 +97,20 @@ class Simple : public RMCBase {
 namespace TraverseLL {
 class Locked : public RMCBase {
   struct LLNode {
-    RemoteAddr next;
+    AppAddr next;
     uint64_t data;
   };
 
   static constexpr size_t LOCKSZ = 64;
   static constexpr size_t BUFSZ = (1 << 29) - LOCKSZ;  // 512 MB - 64
-  RemoteAddr rlock = 0;
-  RemoteAddr rlinkedlist = 0;
+  AppAddr rlock = 0;
+  AppAddr rlinkedlist = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
   uint32_t start_node = 0;
   RMCLock wiclock;
 
-  RemoteAddr get_next_node_addr(uint32_t num_skip) {
+  AppAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
     return rlinkedlist + next_node * sizeof(LLNode);
@@ -124,7 +124,7 @@ class Locked : public RMCBase {
     int num_nodes = args->num_nodes;
     int reply = 1;
     uint64_t llock;
-    RemotePtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
+    AppPtr<LLNode> ptr(b, get_next_node_addr(num_nodes), rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await wiclock.lock(b, llock);
@@ -141,7 +141,7 @@ class Locked : public RMCBase {
                        std::deque<std::coroutine_handle<>> *runqueue) final {
     /* first 64 bytes of alloc.addr are reserved for RMCLock,
        remaining bytes are used to store linked list */
-    rlock = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    rlock = reinterpret_cast<AppAddr>(rmc_mr.addr);
     rlinkedlist = rlock + LOCKSZ;
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
@@ -170,21 +170,21 @@ class Locked : public RMCBase {
 namespace TraverseLL {
 class Update : public RMCBase {
   struct LLNode {
-    RemoteAddr next;
+    AppAddr next;
     uint64_t data;
   };
 
   static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
   static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
 
-  RemoteAddr rbaseaddr = 0;
+  AppAddr rbaseaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
 
   LLNode *server_linkdlst = nullptr;
   uint32_t start_node = 0;
 
-  RemoteAddr get_next_node_addr(uint32_t num_skip) {
+  AppAddr get_next_node_addr(uint32_t num_skip) {
     uint32_t next_node = start_node;
     start_node += num_skip;
     return rbaseaddr + next_node * sizeof(LLNode);
@@ -196,9 +196,9 @@ class Update : public RMCBase {
   CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
     auto *args = reinterpret_cast<const RpcReq *>(req->data);
     int num_nodes = args->num_nodes;
-    RemoteAddr addr = get_next_node_addr(num_nodes);
+    AppAddr addr = get_next_node_addr(num_nodes);
     int reply = 1;
-    RemotePtr<LLNode> ptr(b, addr, rkey);
+    AppPtr<LLNode> ptr(b, addr, rkey);
 
     for (int i = 0; i < num_nodes; ++i) {
       co_await ptr.read();
@@ -214,7 +214,7 @@ class Update : public RMCBase {
   CoroRMC runtime_init(const MemoryRegion &rmc_mr,
                        std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
-    rbaseaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    rbaseaddr = reinterpret_cast<AppAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
@@ -239,7 +239,7 @@ class RMC : public RMCBase {
   static constexpr size_t BUFSIZE = 1 << 30;  // 1 GB
   static constexpr size_t MAX_RECORDS = BUFSIZE / sizeof(Record);
 
-  RemoteAddr tableaddr = 0;
+  AppAddr tableaddr = 0;
   uint32_t length = 0;
   uint32_t rkey = 0;
   uint32_t current_key = 0;
@@ -254,7 +254,7 @@ class RMC : public RMCBase {
     int put_reply;
     auto *kvreq = reinterpret_cast<const RpcReq *>(req->data);
 
-    RemotePtr<Record> rowptr(b, tableaddr, rkey);
+    AppPtr<Record> rowptr(b, tableaddr, rkey);
     // size_t index = hash_buff(kvreq->record.key) % MAX_RECORDS;
     size_t index =
         *(reinterpret_cast<const uint32_t *>(kvreq->record.key)) % MAX_RECORDS;
@@ -282,7 +282,7 @@ class RMC : public RMCBase {
   CoroRMC runtime_init(const MemoryRegion &rmc_mr,
                        std::deque<std::coroutine_handle<>> *runqueue) final {
     /* cache remote memory access information */
-    tableaddr = reinterpret_cast<RemoteAddr>(rmc_mr.addr);
+    tableaddr = reinterpret_cast<AppAddr>(rmc_mr.addr);
     length = rmc_mr.length & 0xFFFFffff;
     rkey = rmc_mr.rdma.rkey;
 
@@ -295,7 +295,7 @@ class RMC : public RMCBase {
     puts("RMC kvstore server_init()");
     MemoryRegion alloc = sa.request_memory(BUFSIZE);
     assert(alloc.length == BUFSIZE);
-    assert(reinterpret_cast<RemoteAddr>(alloc.addr) % 4096 == 0);
+    assert(reinterpret_cast<AppAddr>(alloc.addr) % 4096 == 0);
 
     server_table = new (alloc.addr) Record[MAX_RECORDS];
     for (auto i = 0u; i < MAX_RECORDS; i++)

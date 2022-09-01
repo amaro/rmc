@@ -8,32 +8,32 @@
 
 enum class RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, UPDATE_LL, KVSTORE };
 struct RMCBase;
-using RemoteAddr = uintptr_t;
+using AppAddr = uintptr_t;
 
 template <typename T>
-struct RemotePtr {
+struct AppPtr {
   const BackendBase *b;
-  RemoteAddr raddr;
+  AppAddr raddr;
   uint32_t rkey;
   T lbuf;
 
-  RemotePtr(const BackendBase *b, RemoteAddr raddr, uint32_t rkey)
+  AppPtr(const BackendBase *b, AppAddr raddr, uint32_t rkey)
       : b(b), raddr(raddr), rkey(rkey) {}
 
   [[nodiscard]] T &get_ref() { return lbuf; }
 
-  void set_raddr(RemoteAddr raddr) { this->raddr = raddr; }
+  void set_raddr(AppAddr raddr) { this->raddr = raddr; }
 
   AwaitRead read() { return b->read(raddr, &lbuf, sizeof(T), rkey); }
 
   AwaitWrite write() const { return b->write(raddr, &lbuf, sizeof(T), rkey); }
 
   /* assumes raddr points to T &array[0] */
-  RemoteAddr raddr_for_index(size_t index) { return raddr + index * sizeof(T); }
+  AppAddr raddr_for_index(size_t index) { return raddr + index * sizeof(T); }
 };
 
 class RMCLock {
-  RemoteAddr raddr;
+  AppAddr raddr;
   uint32_t rkey;
   /* TODO: this should be made thread safe because RMCLock can be called from
      multiple threads */
@@ -41,7 +41,7 @@ class RMCLock {
   std::deque<std::coroutine_handle<>> *runqueue = nullptr;
 
  public:
-  void init_runtime(RemoteAddr raddr, uint32_t rkey,
+  void init_runtime(AppAddr raddr, uint32_t rkey,
                     std::deque<std::coroutine_handle<>> *runqueue) {
     this->raddr = raddr;
     this->rkey = rkey;
@@ -53,7 +53,7 @@ class RMCLock {
 
   /* llock comes from a coro frame, so it is unique for every caller regardless
    * of number of threads being used.
-     TODO: make this accept a RemotePtr<uint64_t>& */
+     TODO: make this accept a AppPtr<uint64_t>& */
   CoroRMC lock(const BackendBase *b, uint64_t &llock) {
     auto handle = co_await GetHandle{};
 
