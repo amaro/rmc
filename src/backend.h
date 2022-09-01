@@ -92,22 +92,11 @@ class CoopRDMA : public BackendBase {
   using OneSidedOp = RDMAContext::OneSidedOp;
 
  public:
-  /* Need to re-work this for Locks */
-  uintptr_t rsvd_base_laddr = 0;
-  uintptr_t rsvd_base_raddr = 0;
-
   CoopRDMA(OneSidedClient &c) : BackendBase(c) {
-    puts("Backend: Cooperative RDMA (default)");
+    puts("BACKEND: Cooperative RDMA (default)");
   }
 
-  void init() {
-    /* TODO: do we need this? */
-    puts("Backend: Initializing");
-
-    auto *buffer = get_frame_alloc().get_huge_buffer().get();
-    rsvd_base_laddr = reinterpret_cast<uintptr_t>(buffer);
-    rsvd_base_raddr = OSClient.get_rsvd_base_raddr();
-  }
+  void init() {}
 
   AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const final {
@@ -164,12 +153,10 @@ class CompRDMA : public BackendBase {
  public:
   CompRDMA(OneSidedClient &c)
       : BackendBase(c), rclient(OSClient.get_rclient()) {
-    puts("Using run-to-completion RDMA Backend");
+    puts("BACKEND: run-to-completion RDMA");
   }
 
   void init() {
-    puts("Backend: Initializing");
-
     ctx = &rclient.get_context(0);
     send_cq = rclient.get_send_cq(0);
   }
@@ -258,7 +245,7 @@ class PrefetchDRAM : public BackendBase {
 
  public:
   PrefetchDRAM(OneSidedClient &c) : BackendBase(c) {
-    puts("Using prefetching DRAM Backend");
+    puts("BACKEND: prefetching DRAM");
   }
 
   void init(DramMrAllocator *allocator, std::vector<MemoryRegion> *mrs) {
@@ -298,11 +285,10 @@ class CompDRAM : public BackendBase {
 
  public:
   CompDRAM(OneSidedClient &c) : BackendBase(c) {
-    puts("Using run to completion DRAM Backend");
+    puts("BACKEND: run to completion DRAM");
   }
 
   void init(DramMrAllocator *allocator, std::vector<MemoryRegion> *mrs) {
-    puts("init run to completion DRAM Backend");
     _dram_allocator = allocator;
     _mrs = mrs;
   }
