@@ -13,6 +13,8 @@ if [[ ${backend} = "rdma" ]]; then
     binary=./nicserver
 elif [[ ${backend} = "dram" ]]; then
     binary=./nicserver_dram
+elif [[ ${backend} = "dramcomp" ]]; then
+    binary=./nicserver_dramcomp
 else
     echo "backend=${backend} not supported"
     exit 2
