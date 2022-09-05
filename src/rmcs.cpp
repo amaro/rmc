@@ -92,9 +92,80 @@ class Simple : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::TRAVERSE_LL; }
 };
-}  // namespace TraverseLL
 
-namespace TraverseLL {
+class Multi : public RMCBase {
+  struct LLNode {
+    AppAddr next;
+    uint64_t data;
+  };
+
+  static constexpr size_t BUFSIZE = 1 << 29;  // 512 MB
+  static constexpr uint32_t TOTAL_NODES = BUFSIZE / sizeof(LLNode);
+
+  AppAddr rbaseaddr = 0;
+  uint32_t length = 0;
+  uint32_t rkey = 0;
+
+  LLNode *server_linkdlst = nullptr;
+  uint32_t start_node = 0;
+
+  AppAddr get_next_node_addr(uint32_t num_skip) {
+    uint32_t next_node = start_node;
+    start_node += num_skip;
+    return rbaseaddr + next_node * sizeof(LLNode);
+  }
+
+ public:
+  Multi() = default;
+
+  CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) final {
+    auto *args = reinterpret_cast<const RpcReq *>(req->data);
+    int num_nodes = args->num_nodes;
+    int reply = 1;
+    AppAddr addr = get_next_node_addr(num_nodes);
+    std::array<AppPtr<LLNode>, 4> ptrs = {
+        AppPtr<LLNode>(b, addr, rkey),
+        AppPtr<LLNode>(b, addr + sizeof(LLNode), rkey),
+        AppPtr<LLNode>(b, addr + sizeof(LLNode) * 2, rkey),
+        AppPtr<LLNode>(b, addr + sizeof(LLNode) * 3, rkey)};
+
+    for (int i = 0; i < num_nodes; ++i) {
+      co_await multiread<4>(b, ptrs);
+      LLNode &node1 = ptrs[0].get_ref();
+      LLNode &node2 = ptrs[1].get_ref();
+      LLNode &node3 = ptrs[2].get_ref();
+      LLNode &node4 = ptrs[3].get_ref();
+      ptrs[0].set_raddr(node1.next);
+      ptrs[1].set_raddr(node2.next);
+      ptrs[2].set_raddr(node3.next);
+      ptrs[3].set_raddr(node4.next);
+    }
+
+    co_return &reply;
+  }
+
+  CoroRMC runtime_init(const MemoryRegion &rmc_mr,
+                       std::deque<std::coroutine_handle<>> *runqueue) final {
+    /* cache remote memory access information */
+    rbaseaddr = reinterpret_cast<AppAddr>(rmc_mr.addr);
+    length = rmc_mr.length & 0xFFFFffff;
+    rkey = rmc_mr.rdma.rkey;
+
+    printf("RMCTraverseLL runtime_init() rbaseaddr=0x%lx\n", rbaseaddr);
+    InitReply reply{rbaseaddr, length, rkey};
+    co_return &reply;
+  }
+
+  MemoryRegion server_init(MrAllocator &sa) final {
+    puts("RMCTraverseLL server_init()");
+    MemoryRegion alloc = sa.request_memory(BUFSIZE);
+    server_linkdlst = create_linkedlist<LLNode>(alloc.addr, BUFSIZE);
+    return alloc;
+  }
+
+  static constexpr RMCType get_type() { return RMCType::MULTI_TRAVERSE_LL; }
+};
+
 class Locked : public RMCBase {
   struct LLNode {
     AppAddr next;
@@ -165,9 +236,7 @@ class Locked : public RMCBase {
 
   static constexpr RMCType get_type() { return RMCType::LOCK_TRAVERSE_LL; }
 };
-}  // namespace TraverseLL
 
-namespace TraverseLL {
 class Update : public RMCBase {
   struct LLNode {
     AppAddr next;
@@ -310,13 +379,14 @@ class RMC : public RMCBase {
 }  // namespace KVStore
 
 static TraverseLL::Simple traversell;
+static TraverseLL::Multi multitraversell;
 static TraverseLL::Locked locktraversell;
 static TraverseLL::Update updatell;
 static KVStore::RMC kvstore;
 
 /* data path */
 static constexpr std::array<std::pair<RMCType, RMCBase *>, NUM_REG_RMC>
-    rmc_values{{std::make_pair(TraverseLL::Simple::get_type(), &traversell)}};
+    rmc_values{{std::make_pair(TraverseLL::Multi::get_type(), &multitraversell)}};
 
 /* data path */
 static constexpr auto rmc_map =

@@ -26,6 +26,7 @@ class CoroRMC {
     uint8_t reply_sz = 0;
     bool waiting_mem_access = false;
     bool blocked = false;
+    uint8_t multi_ops = 0;
 
     /* constructor */
     promise_type() noexcept {};

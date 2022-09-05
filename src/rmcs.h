@@ -1,12 +1,19 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 
 #include "allocator.h"
 #include "backend.h"
 #include "config.h"
 
-enum class RMCType : int { TRAVERSE_LL, LOCK_TRAVERSE_LL, UPDATE_LL, KVSTORE };
+enum class RMCType : int {
+  TRAVERSE_LL,
+  MULTI_TRAVERSE_LL,
+  LOCK_TRAVERSE_LL,
+  UPDATE_LL,
+  KVSTORE
+};
 struct RMCBase;
 using AppAddr = uintptr_t;
 
@@ -30,6 +37,8 @@ struct AppPtr {
 
   /* assumes raddr points to T &array[0] */
   AppAddr raddr_for_index(size_t index) { return raddr + index * sizeof(T); }
+
+  void read_nosuspend() { b->read_nosuspend(raddr, &lbuf, sizeof(T), rkey); }
 };
 
 class RMCLock {
@@ -103,7 +112,8 @@ class RMCLock {
   }
 };
 
-struct RMCBase {
+class RMCBase {
+ public:
   /* Runs at the runtime location, main handler for this RMC */
   virtual CoroRMC runtime_handler(const BackendBase *b, const ExecReq *req) = 0;
   /* Runs at the runtime location. Receives memory region information such that
@@ -122,6 +132,28 @@ struct RMCBase {
   RMCBase(RMCBase &&) = delete;                  // move constructor
   RMCBase &operator=(const RMCBase &) = delete;  // copy assignment operator
   RMCBase &operator=(RMCBase &&) = delete;       // move assignment operator
+
+ protected:
+  template <uint16_t N, typename T>
+  CoroRMC multiread(const BackendBase *b, std::array<AppPtr<T>, N> &ptrs) {
+    int issued = 0;
+    auto handle = co_await GetHandle{};
+    /* if we haven't submitted N reads, try again */
+    while (issued < N) {
+      auto free_slots = b->free_slots();
+      /* how many reads can we issue at this time */
+      int issue_slots = std::min(free_slots, N);
+      int i = 0;
+
+      for (; i < issue_slots - 1; i++) ptrs[issued + i].read_nosuspend();
+
+      handle.promise().multi_ops += issue_slots;
+      /* the last read we issue from a multiop must suspend */
+      co_await ptrs[issued + i].read();
+      issued += issue_slots;
+    }
+    assert(handle.promise().multi_ops == 0);
+  }
 };
 
 CoroRMC rmcs_get_init(RMCType type, const MemoryRegion &mr,

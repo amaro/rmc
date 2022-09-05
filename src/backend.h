@@ -7,6 +7,8 @@
 #include "rdma/rdmapeer.h"
 #include "rmcs.h"
 
+constexpr uint16_t DRAM_MAX_SIZE_MULTIOP = 8;
+
 struct AwaitRead {
   bool should_suspend = false;
   uintptr_t raddr = 0;
@@ -80,11 +82,13 @@ class BackendBase {
  public:
   virtual AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                          uint32_t rkey) const = 0;
+  virtual void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
+                              uint32_t rkey) const = 0;
   virtual AwaitWrite write(uintptr_t raddr, const void *data, uint32_t sz,
                            uint32_t rkey) const = 0;
   virtual AwaitRead cmp_swp(uintptr_t raddr, uint64_t &llock, uint64_t cmp,
                             uint64_t swp, uint32_t rkey) const = 0;
-  // auto get_param() const { return AwaitGetParam{}; }
+  virtual uint16_t free_slots() const = 0;
 };
 
 /* Cooperative multi tasking RDMA backend */
@@ -111,6 +115,19 @@ class CoopRDMA : public BackendBase {
                                            .optype = OneSidedOp::OpType::READ});
 
     return AwaitRead{.should_suspend = true};
+  }
+
+  void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
+                      uint32_t rkey) const final {
+    const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
+
+    OSClient.post_op_from_frame(OneSidedOp{.raddr = raddr,
+                                           .laddr = laddr,
+                                           .len = sz,
+                                           .rkey = rkey,
+                                           .cmp = 0,
+                                           .swp = 0,
+                                           .optype = OneSidedOp::OpType::READ});
   }
 
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
@@ -141,6 +158,8 @@ class CoopRDMA : public BackendBase {
 
     return AwaitRead{.should_suspend = true};
   }
+
+  virtual uint16_t free_slots() const final { return OSClient.free_slots(); }
 };
 
 /* Run to completion RDMA backend */
@@ -178,6 +197,11 @@ class CompRDMA : public BackendBase {
     return AwaitRead{.should_suspend = false};
   }
 
+  void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
+                      uint32_t rkey) const final {
+    die("not supported yet");
+  }
+
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const final {
     const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
@@ -211,6 +235,11 @@ class CompRDMA : public BackendBase {
     rclient.poll_atleast(1, send_cq, [](size_t) constexpr->void{});
 
     return AwaitRead{.should_suspend = false};
+  }
+
+  virtual uint16_t free_slots() const final {
+    /* since there can't be anything else in the pipe */
+    return QP_MAX_1SIDED_WRS;
   }
 };
 
@@ -262,6 +291,11 @@ class PrefetchDRAM : public BackendBase {
         .should_suspend = true, .raddr = raddr, .lbuf = lbuf, .memcpy_sz = sz};
   }
 
+  void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
+                      uint32_t rkey) const final {
+    die("not supported yet");
+  }
+
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const final {
     for (auto cl = 0u; cl < sz; cl += 64)
@@ -277,6 +311,9 @@ class PrefetchDRAM : public BackendBase {
                     uint64_t swp, uint32_t rkey) const final {
     return dram_cmp_swp(raddr, llock, cmp, swp, rkey);
   }
+
+  /* TODO: figure out what to use here */
+  virtual uint16_t free_slots() const final { return DRAM_MAX_SIZE_MULTIOP; }
 };
 
 class CompDRAM : public BackendBase {
@@ -299,6 +336,11 @@ class CompDRAM : public BackendBase {
     return AwaitRead{.should_suspend = false};
   }
 
+  void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
+                      uint32_t rkey) const final {
+    die("not supported yet");
+  }
+
   AwaitWrite write(uintptr_t raddr, const void *lbuf, uint32_t sz,
                    uint32_t rkey) const final {
     std::memcpy(reinterpret_cast<void *>(raddr), lbuf, sz);
@@ -309,6 +351,9 @@ class CompDRAM : public BackendBase {
                     uint64_t swp, uint32_t rkey) const final {
     return dram_cmp_swp(raddr, llock, cmp, swp, rkey);
   }
+
+  /* TODO: figure out what to use here */
+  virtual uint16_t free_slots() const final { return DRAM_MAX_SIZE_MULTIOP; }
 };
 
 /* Backend<Threading> defines a backend that simulates context switching

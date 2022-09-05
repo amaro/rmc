@@ -34,11 +34,22 @@ class OneSidedClient {
   }
 
   void connect(const std::string &ip, const unsigned int &port);
-  void post_op_from_frame(RDMAContext::OneSidedOp op);
-  void write_async(uint64_t raddr, uintptr_t laddr, uint32_t sz, uint32_t lkey,
-                   uint32_t rkey);
-  void cmp_swp_async(uintptr_t raddr, uintptr_t laddr, uint64_t cmp,
-                     uint64_t swp, uint32_t lkey, uint32_t rkey);
+
+  void post_op_from_frame(RDMAContext::OneSidedOp op) {
+    assert(onesready);
+    RDMAContext *ctx = rclient.get_batch_ctx();
+    assert(ctx != nullptr);
+
+    op.lkey = frames_mr->lkey;
+    ctx->post_batched_onesided(op);
+  }
+
+  uint16_t free_slots() {
+    RDMAContext *ctx = rclient.get_batch_ctx();
+    assert(ctx != nullptr);
+    return ctx->free_onesided_slots();
+  }
+
   template <typename T>
   int poll_reads_atmost(int max, T &&comp_func);
   uintptr_t get_rsvd_base_raddr();
@@ -80,15 +91,6 @@ inline void OneSidedClient::recv_ctrl_reqs() {
 
   printf("OneSidedClient: frames addr=%p length=%ld\n", frames_mr->addr,
          frames_mr->length);
-}
-
-inline void OneSidedClient::post_op_from_frame(RDMAContext::OneSidedOp op) {
-  assert(onesready);
-  RDMAContext *ctx = rclient.get_batch_ctx();
-  assert(ctx != nullptr);
-
-  op.lkey = frames_mr->lkey;
-  ctx->post_batched_onesided(op);
 }
 
 template <typename T>

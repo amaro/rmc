@@ -477,6 +477,8 @@ int main(int argc, char *argv[]) {
   RMCType workload;
   if (rmc == "readll")
     workload = RMCType::TRAVERSE_LL;
+  else if (rmc == "multi_readll")
+    workload = RMCType::MULTI_TRAVERSE_LL;
   else if (rmc == "readll_lock")
     workload = RMCType::LOCK_TRAVERSE_LL;
   else if (rmc == "updatell")

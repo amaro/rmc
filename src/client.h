@@ -154,14 +154,10 @@ class HostClient {
                     int numaccess) const {
     switch (workload) {
       case RMCType::TRAVERSE_LL:
-        return get_req_args_linkedlist(numreqs, args, numaccess,
-                                       RMCType::TRAVERSE_LL);
+      case RMCType::MULTI_TRAVERSE_LL:
       case RMCType::LOCK_TRAVERSE_LL:
-        return get_req_args_linkedlist(numreqs, args, numaccess,
-                                       RMCType::LOCK_TRAVERSE_LL);
       case RMCType::UPDATE_LL:
-        return get_req_args_linkedlist(numreqs, args, numaccess,
-                                       RMCType::UPDATE_LL);
+        return get_req_args_linkedlist(numreqs, args, numaccess, workload);
       case RMCType::KVSTORE:
         return get_req_args_kvstore(numreqs, args);
     }

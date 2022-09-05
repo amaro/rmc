@@ -19,6 +19,7 @@ class CoroRMC;
 struct RDMAContext;
 
 static constexpr uint32_t QP_MAX_2SIDED_WRS = 512;
+/* reads are limited to 16 by hw */
 static constexpr uint32_t QP_MAX_1SIDED_WRS = 16;
 static constexpr uint32_t CQ_MAX_OUTSTANDING_CQES = 16;
 /* TODO: try larger values of batched recvs */
@@ -97,7 +98,7 @@ class RDMAPeer {
   static constexpr int QP_ATTRS_MAX_SGE_ELEMS = 1;
   static constexpr int QP_ATTRS_MAX_INLINE_DATA = 256;
   static constexpr uint32_t MAX_UNSIGNALED_SENDS = 128;
-  static constexpr int MAX_QP_INFLIGHT_READS = 16;  // hw limited
+  // static constexpr int MAX_QP_INFLIGHT_READS = 16;  // hw limited
 
   RDMAPeer(uint16_t num_qps, uint16_t num_cqs)
       : send_cqs(std::unique_ptr<CompQueue[]>(new CompQueue[num_cqs])),
@@ -218,7 +219,7 @@ struct RDMAContext {
   enum BatchType { SEND, ONESIDED };
 
   /* TODO: move this inside SendOp */
-  void post_send(SendOp &sendop) {
+  void _post_send(SendOp &sendop) {
     if (sendop.signaled)
       qpx->wr_flags = IBV_SEND_SIGNALED;
     else
@@ -234,7 +235,13 @@ struct RDMAContext {
   uint32_t ctx_id; /* TODO: rename to id */
   bool connected = false;
   uint32_t outstanding_sends = 0;
-  uint32_t curr_batch_size = 0;
+  /* Number of sends or onesided ops posted that have not been completed.
+   * TODO: Accessed directly from scheduler.
+   * Need to be careful not to double count, so an op must only be counted once
+   * in newbatch_ops or oustanding_ops*/
+  uint32_t outstanding_onesided = 0;
+  /* Number of ops in currently new batch */
+  uint32_t newbatch_ops = 0;
 
   rdma_cm_id *cm_id = nullptr;
   ibv_qp *qp = nullptr;
@@ -246,6 +253,7 @@ struct RDMAContext {
   BatchType curr_batch_type;
 
   std::queue<coro_handle> memqueue;
+  /* TODO: std::array<RecvOp> */
   std::vector<RecvOp> recv_batch;
 
   RDMAContext(unsigned int ctx_id)
@@ -272,8 +280,8 @@ struct RDMAContext {
 
     /* if this is not the first WR within the batch, post the previously
      * buffered send */
-    if (curr_batch_size > 0)
-      post_send(buffered_send);
+    if (newbatch_ops > 0)
+      _post_send(buffered_send);
     else
       curr_batch_type = BatchType::SEND;
 
@@ -283,56 +291,46 @@ struct RDMAContext {
     buffered_send.lkey = lkey;
     buffered_send.signaled = false;
 
-    curr_batch_size++;
+    newbatch_ops++;
   }
 
   /* post the last send of a batch */
   void end_batched_sends() {
     buffered_send.signaled = true;
-    buffered_send.wr_id = curr_batch_size;
-    post_send(buffered_send);
+    buffered_send.wr_id = newbatch_ops;
+    _post_send(buffered_send);
   }
 
-  void post_batched_onesided(uintptr_t raddr, uintptr_t laddr, uint32_t size,
-                             uint32_t rkey, uint32_t lkey,
-                             OneSidedOp::OpType optype, uint64_t cmp,
-                             uint64_t swp) {
-    if (curr_batch_size > 0)
-      buffered_onesided.post(qpx, 0, 0);
-    else
-      curr_batch_type = BatchType::ONESIDED;
-
-    buffered_onesided.raddr = raddr;
-    buffered_onesided.laddr = laddr;
-    buffered_onesided.len = size;
-    buffered_onesided.rkey = rkey;
-    buffered_onesided.lkey = lkey;
-    buffered_onesided.optype = optype;
-
-    if (optype == OneSidedOp::OpType::CMP_SWP) {
-      buffered_onesided.cmp = cmp;
-      buffered_onesided.swp = swp;
-    }
-
-    curr_batch_size++;
-  }
-
+  /* Posts a onesided op. */
   void post_batched_onesided(OneSidedOp op) {
-    if (curr_batch_size > 0)
+    if (newbatch_ops > 0)
       buffered_onesided.post(qpx, 0, 0);
     else
       curr_batch_type = BatchType::ONESIDED;
 
+    newbatch_ops++;
     buffered_onesided = op;
-    curr_batch_size++;
+    assert(newbatch_ops + outstanding_onesided <= QP_MAX_1SIDED_WRS);
   }
 
   void end_batched_onesided() {
     uint64_t wr_id = ctx_id;
-    /* left 32 bits used for ctx_id, right 32 bits batch size */
+    /* left 32 bits used for ctx_id, right 32 bits for the number of rmcs to
+     * awake when onesided batch completes */
     wr_id <<= 32;
-    wr_id |= curr_batch_size;
+    wr_id |= newbatch_ops;
     buffered_onesided.post(qpx, IBV_SEND_SIGNALED, wr_id);
+    outstanding_onesided += newbatch_ops;
+  }
+
+  uint16_t free_onesided_slots() const {
+    assert(outstanding_onesided + newbatch_ops <= QP_MAX_1SIDED_WRS);
+    return QP_MAX_1SIDED_WRS - newbatch_ops - outstanding_onesided;
+  }
+
+  void complete_onesided(uint16_t comp) {
+    assert(outstanding_onesided >= comp);
+    outstanding_onesided -= comp;
   }
 
   /* arguments:
@@ -367,14 +365,14 @@ struct RDMAContext {
   }
 
   void start_batch() {
-    assert(curr_batch_size == 0);
+    assert(newbatch_ops == 0);
 
     ibv_wr_start(qpx);
   }
 
   void end_batch() {
     /* if we are in the middle of a batched op, end it */
-    if (curr_batch_size > 0) {
+    if (newbatch_ops > 0) {
       switch (curr_batch_type) {
         case BatchType::SEND:
           end_batched_sends();
@@ -388,7 +386,7 @@ struct RDMAContext {
     }
 
     TEST_NZ(ibv_wr_complete(qpx));
-    curr_batch_size = 0;
+    newbatch_ops = 0;
   }
 };
 

@@ -115,7 +115,8 @@ class RMCScheduler {
   static constexpr int DEBUG_VEC_RESERVE = 1000000;
   /* only affects DRAM backends  */
   static constexpr uint16_t DRAM_MAX_EXECS_COMPLETION = 16;
-  static constexpr uint16_t MAX_HOSTMEM_BSIZE = 16;
+  /* a smaller amount will cut the batch short (e.g., for exps) */
+  static constexpr uint16_t MAX_HOSTMEM_BSIZE = QP_MAX_1SIDED_WRS;
 
   RMCScheduler(NICServer &nicserver, uint16_t num_qps)
       : ns(nicserver), backend(ns.onesidedclient), num_qps(num_qps) {
@@ -195,8 +196,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
     RDMAContext &clientctx = rclient.get_next_context();
     bool batch_started = false;
 
-    while (resumes_left > 0 &&
-           clientctx.memqueue.size() < RDMAPeer::MAX_QP_INFLIGHT_READS) {
+    while (resumes_left > 0 && clientctx.free_onesided_slots() > 0) {
       if (!batch_started) {
         rclient.start_batched_ops(&clientctx);
         batch_started = true;
@@ -220,7 +220,7 @@ inline void RMCScheduler::exec_interleaved(RDMAClient &rclient,
 #ifdef PERF_STATS
       debug_rmcexecs++;
 #endif
-      if (clientctx.curr_batch_size >= MAX_HOSTMEM_BSIZE) {
+      if (clientctx.newbatch_ops >= MAX_HOSTMEM_BSIZE) {
         rclient.end_batched_ops();
         batch_started = false;
       }
@@ -393,15 +393,33 @@ inline void RMCScheduler::poll_comps_host(RDMAClient &rclient) {
   thread_local std::array<std::coroutine_handle<>,
                           MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL>
       reordervec;
-  thread_local auto add_to_reordervec = [&rclient, &rmc_comps](size_t val) {
+
+  auto add_to_reordervec = [&rclient, &rmc_comps](size_t val) {
     const uint32_t ctx_id = val >> 32;
     const uint32_t batch_size = val & 0xFFFFFFFF;
     RDMAContext &ctx = rclient.get_context(ctx_id);
     // reorder completions
     for (auto i = 0u; i < batch_size; ++i) {
-      reordervec[rmc_comps++] = ctx.memqueue.front();
-      ctx.memqueue.pop();
+      coro_handle rmc =
+          coro_handle::from_address(ctx.memqueue.front().address());
+
+      /* multi ops can only come from a continuation (not from the root rmc). */
+      if (rmc.promise().continuation &&
+          rmc.promise().continuation.promise().multi_ops > 0) {
+        /* we only pop an rmc from the memqueue if its multi_op counter is 0
+         * (otherwise, we would resume it before all its accesses have
+         * completed). */
+        if (--rmc.promise().continuation.promise().multi_ops == 0) {
+          reordervec[rmc_comps++] = rmc;
+          ctx.memqueue.pop();
+        }
+      } else {
+        reordervec[rmc_comps++] = rmc;
+        ctx.memqueue.pop();
+      }
     }
+
+    ctx.complete_onesided(batch_size);
   };
 
   // poll up to MAX_HOSTMEM_BSIZE * MAX_HOSTMEM_POLL cqes
