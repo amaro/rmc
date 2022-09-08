@@ -1,17 +1,15 @@
 #pragma once
 
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <algorithm>
 #include <chrono>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <random>
-#include <cstring>
-#include <string_view>
 #include <fstream>
 #include <iterator>
+#include <random>
+#include <string_view>
 
 static constexpr long unsigned int RANDOM_SEED = 123;
 
@@ -162,12 +160,12 @@ struct StaticMap {
   }
 };
 
-inline size_t hash_str(const char *s) {
-  return std::hash<std::string_view>()(std::string_view(s, std::strlen(s)));
+inline size_t hash_str(const char *s, size_t sz) {
+  return std::hash<std::string_view>()(std::string_view(s, sz));
 }
 
-inline size_t hash_buff(const uint8_t *b) {
-  return hash_str(reinterpret_cast<const char *>(b));
+inline size_t hash_buff(const uint8_t *b, size_t sz) {
+  return hash_str(reinterpret_cast<const char *>(b), sz);
 }
 
 template <typename T>
@@ -176,12 +174,18 @@ inline void file_to_vec(std::vector<T> &out, const char *file) {
   rt_assert(inputf.is_open(), "could not open input file");
 
   T value;
-  while (inputf >> value)
-    out.push_back(value);
+  while (inputf >> value) out.push_back(value);
 }
 
 template <typename T>
 inline void shuffle_vec(std::vector<T> &vec, long unsigned int seed) {
   auto rng = std::default_random_engine{seed};
   std::shuffle(std::begin(vec) + 1, std::end(vec), rng);
+}
+
+inline void print_buffer(uint8_t *buf, size_t sz) {
+  for (auto i = 0u; i < sz; i++) {
+    printf("%02hhX ", buf[i]);
+  }
+  printf("\n");
 }

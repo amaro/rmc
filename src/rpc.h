@@ -87,3 +87,25 @@ struct RpcReq {
   Record record;
 };
 }  // namespace KVStore
+
+namespace TAO {
+static constexpr uint8_t OBJ_KEY_LEN = 8;
+static constexpr uint8_t ASSOC_TYPE_LEN = 2;
+/* 4 byte otype, 8 byte version, 4 byte update time, 16 byte payload, all 0 */
+static constexpr uint8_t OBJ_VAL_LEN = 32;
+/* 8 byte objid 1, 2 byte association type (all 0), 8 byte objid 2 = 18 */
+static constexpr uint8_t ASSOC_KEY_LEN = OBJ_KEY_LEN * 2 + ASSOC_TYPE_LEN;
+/* 22 byte value, all 0 */
+static constexpr uint8_t ASSOC_VAL_LEN = 22;
+
+enum class RpcReqType { GET, GET_ASSOC };
+
+struct RpcReq {
+  RpcReqType reqtype;
+
+  union {
+    uint8_t get_key[OBJ_KEY_LEN];
+    uint8_t get_assoc_key[ASSOC_KEY_LEN];
+  } params;
+};
+}  // namespace TAO

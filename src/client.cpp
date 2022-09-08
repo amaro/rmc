@@ -79,10 +79,8 @@ long long HostClient::do_maxinflight(uint32_t num_reqs,
 
   for (auto i = 0u; i < std::min(maxinflight, num_reqs); i++) {
     // DataReply &reply = reply_slot[i];
-    // printf("size=%d val[0]=%hhu val[99]=%hhu val[100]=%hhu\n", reply.size,
-    // reply.data[0],
-    //                         reply.data[99], reply.data[100]);
-    // assert(*(reinterpret_cast<int *>(&reply_slot[i].data.exec.data)) == 1);
+    // printf("size=%d\n", reply.size);
+    // print_buffer(reply.data, reply.size);
   }
 
   return duration;
@@ -485,6 +483,8 @@ int main(int argc, char *argv[]) {
     workload = RMCType::UPDATE_LL;
   else if (rmc == "kvstore")
     workload = RMCType::KVSTORE;
+  else if (rmc == "tao")
+    workload = RMCType::TAO;
   else
     die("bad rmc=%s\n", rmc.c_str());
 

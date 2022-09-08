@@ -13,7 +13,7 @@
 static constexpr size_t DATAREQ_NODATA_SZ = sizeof(DataReq) - MAX_EXECREQ_DATA;
 static constexpr size_t EXECREQ_NODATA_SZ = sizeof(ExecReq) - MAX_EXECREQ_DATA;
 /* key distribution file for kvstore workload */
-static constexpr char KVSTORE_DISTFILE[] = "zipf_distrib";
+static constexpr char ZIPF_FILE[] = "zipf_distrib";
 
 class HostClient {
   bool rmccready = false;
@@ -99,7 +99,7 @@ class HostClient {
   void get_req_args_kvstore(uint32_t numreqs,
                             std::vector<ExecReq> &args) const {
     std::vector<uint32_t> keys;
-    file_to_vec(keys, KVSTORE_DISTFILE);
+    file_to_vec(keys, ZIPF_FILE);
 
     /* YCSB-B 95% gets 5% puts */
     std::vector<KVStore::RpcReqType> actions;
@@ -127,6 +127,44 @@ class HostClient {
 
       /* copy RpcReq to newreq.data */
       std::memcpy(newreq.data, &kvreq, sizeof(kvreq));
+    }
+  }
+
+  void get_req_args_tao(uint32_t numreqs, std::vector<ExecReq> &args) const {
+    std::vector<uint32_t> keys;
+    file_to_vec(keys, ZIPF_FILE);
+
+    /* TAO 60% gets 40% association_get */
+    std::vector<TAO::RpcReqType> actions;
+    uint32_t num_assocgets = numreqs * 0.4;
+    for (auto req = 0u; req < numreqs; req++) {
+      if (req <= num_assocgets)
+        actions.push_back(TAO::RpcReqType::GET_ASSOC);
+      else
+        actions.push_back(TAO::RpcReqType::GET);
+    }
+    shuffle_vec(actions, current_tid);
+
+    rt_assert(keys.size() >= numreqs, "keys < numreqs");
+    rt_assert(actions.size() == numreqs, "actions != numreqs");
+
+    for (auto req = 0u; req < numreqs; req++) {
+      args.emplace_back(
+          ExecReq{.id = RMCType::TAO, .size = sizeof(TAO::RpcReq)});
+      ExecReq &newreq = args.back();
+
+      TAO::RpcReq taoreq = {};
+      taoreq.reqtype = actions[req];
+      if (taoreq.reqtype == TAO::RpcReqType::GET) {
+        *(reinterpret_cast<uint32_t *>(taoreq.params.get_key)) = keys[req];
+      } else {
+        assert(taoreq.reqtype == TAO::RpcReqType::GET_ASSOC);
+        *(reinterpret_cast<uint32_t *>(taoreq.params.get_assoc_key)) =
+            keys[req];
+      }
+
+      /* copy RpcReq to newreq.data */
+      std::memcpy(newreq.data, &taoreq, sizeof(taoreq));
     }
   }
 
@@ -160,6 +198,8 @@ class HostClient {
         return get_req_args_linkedlist(numreqs, args, numaccess, workload);
       case RMCType::KVSTORE:
         return get_req_args_kvstore(numreqs, args);
+      case RMCType::TAO:
+        return get_req_args_tao(numreqs, args);
     }
   }
 };

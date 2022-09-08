@@ -12,7 +12,8 @@ enum class RMCType : int {
   MULTI_TRAVERSE_LL,
   LOCK_TRAVERSE_LL,
   UPDATE_LL,
-  KVSTORE
+  KVSTORE,
+  TAO
 };
 struct RMCBase;
 using AppAddr = uintptr_t;
@@ -134,15 +135,16 @@ class RMCBase {
   RMCBase &operator=(RMCBase &&) = delete;       // move assignment operator
 
  protected:
-  template <uint16_t N, typename T>
+  template <int N, typename T>
   CoroRMC multiread(const BackendBase *b, std::array<AppPtr<T>, N> &ptrs) {
     int issued = 0;
     auto handle = co_await GetHandle{};
     /* if we haven't submitted N reads, try again */
     while (issued < N) {
-      auto free_slots = b->free_slots();
-      /* how many reads can we issue at this time */
-      int issue_slots = std::min(free_slots, N);
+      int free_slots = b->free_slots();
+      /* How many reads can we issue at this time. We still need to issue N -
+       * issued */
+      int issue_slots = std::min(free_slots, N - issued);
       int i = 0;
 
       for (; i < issue_slots - 1; i++) ptrs[issued + i].read_nosuspend();

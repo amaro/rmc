@@ -104,6 +104,7 @@ class CoopRDMA : public BackendBase {
 
   AwaitRead read(uintptr_t raddr, void *lbuf, uint32_t sz,
                  uint32_t rkey) const final {
+    assert(raddr != 0);
     const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
 
     OSClient.post_op_from_frame(OneSidedOp{.raddr = raddr,
@@ -119,6 +120,7 @@ class CoopRDMA : public BackendBase {
 
   void read_nosuspend(uintptr_t raddr, void *lbuf, uint32_t sz,
                       uint32_t rkey) const final {
+    assert(raddr != 0);
     const uintptr_t laddr = reinterpret_cast<uintptr_t>(lbuf);
 
     OSClient.post_op_from_frame(OneSidedOp{.raddr = raddr,
